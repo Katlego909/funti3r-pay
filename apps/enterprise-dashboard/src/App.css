@@ -7,12 +7,32 @@
   box-sizing: border-box;
 }
 
+:root {
+  --primary: #3b82f6;
+  --primary-dark: #1e40af;
+  --primary-light: #eff6ff;
+  --secondary: #0f766e;
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-900: #111827;
+  --bg: #ffffff;
+  --surface: #f9fafb;
+}
+
 body {
-  font-family: 'Urbanist', 'Roboto', sans-serif;
+  font-family: 'Roboto', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f5f7fa;
-  color: #1a202c;
+  background: linear-gradient(135deg, var(--surface) 0%, #f0f9ff 100%);
+  color: var(--gray-900);
+  min-height: 100vh;
 }
 
 .app {
@@ -22,9 +42,12 @@ body {
 }
 
 .header {
-  background-color: #ffffff;
-  border-bottom: 1px solid #e2e8f0;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  background: var(--bg);
+  border-bottom: 1px solid var(--gray-200);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .header-container {
@@ -39,44 +62,47 @@ body {
 
 .logo h1 {
   font-size: 24px;
-  font-weight: 700;
-  color: #1a202c;
-  letter-spacing: -0.5px;
+  font-weight: 800;
+  color: var(--primary-dark);
+  letter-spacing: -0.8px;
+  font-family: 'Urbanist', sans-serif;
 }
 
 .tagline {
-  font-size: 12px;
-  color: #718096;
-  margin-top: 2px;
-  letter-spacing: 0.5px;
+  font-size: 11px;
+  color: var(--gray-600);
+  margin-top: 4px;
+  letter-spacing: 1px;
   text-transform: uppercase;
+  font-weight: 600;
 }
 
 .nav {
   display: flex;
-  gap: 32px;
+  gap: 8px;
 }
 
 .nav-link {
   font-size: 14px;
   font-weight: 500;
-  color: #4a5568;
+  color: var(--gray-600);
   text-decoration: none;
-  transition: all 0.2s;
-  padding: 4px 0;
-  border-bottom: 2px solid transparent;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 8px 16px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   gap: 8px;
+  position: relative;
 }
 
 .nav-link:hover {
-  color: #1a202c;
-  border-bottom-color: #3182ce;
+  color: var(--primary);
+  background-color: var(--primary-light);
 }
 
 .nav-link svg {
-  transition: transform 0.2s;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .nav-link:hover svg {
@@ -88,13 +114,15 @@ body {
   background: none;
   border: none;
   cursor: pointer;
-  color: #4a5568;
+  color: var(--gray-600);
   padding: 8px;
-  transition: color 0.2s;
+  transition: all 0.2s;
+  border-radius: 6px;
 }
 
 .menu-toggle:hover {
-  color: #1a202c;
+  color: var(--primary);
+  background-color: var(--primary-light);
 }
 
 .main {
@@ -124,7 +152,7 @@ body {
   }
 
   .tagline {
-    font-size: 11px;
+    font-size: 10px;
   }
 
   .menu-toggle {
@@ -138,8 +166,8 @@ body {
     top: 70px;
     left: 0;
     right: 0;
-    background-color: #ffffff;
-    border-bottom: 1px solid #e2e8f0;
+    background-color: var(--bg);
+    border-bottom: 1px solid var(--gray-200);
     flex-direction: column;
     gap: 0;
     padding: 16px 24px;
@@ -164,7 +192,7 @@ body {
 
   .nav-link {
     padding: 12px 0;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--gray-100);
   }
 
   .nav-link:last-child {
