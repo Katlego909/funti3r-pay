@@ -1,5 +1,11 @@
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
-import { HiOutlineChartBar, HiOutlineArrowPathRoundedSquare, HiOutlineUsers, HiOutlineCog6Tooth, HiOutlineBars3 } from 'react-icons/hi2';
+import {
+  HiOutlineChartBar,
+  HiOutlineArrowPathRoundedSquare,
+  HiOutlineUsers,
+  HiOutlineCog6Tooth,
+  HiOutlineBars3,
+} from 'react-icons/hi2';
 import { useState } from 'react';
 import Dashboard from './pages/Dashboard';
 import './App.css';
@@ -13,7 +19,7 @@ export default function App() {
         <header className="header">
           <div className="header-container">
             <div className="logo">
-              <h1>Funti3r-pay</h1>
+              <h1>Funti3rPay</h1>
               <p className="tagline">Cross-Border Workforce Payments</p>
             </div>
             <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>
