@@ -107,11 +107,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 ## Technology Stack
 
 - **Runtime**: Node.js 18+ with TypeScript
-- **Backend**: Express.js
-- **Frontend**: React 18, React Native 0.73
+- **Backend**: Node.js + TypeScript + Express
+- **Frontend**: React + TypeScript (Enterprise Dashboard)
+- **Mobile**: React Native + TypeScript (Worker App)
 - **Databases**: PostgreSQL 16, Redis 7, MongoDB 7
-- **Blockchain**: Stellar SDK, Soroban (Rust)
-- **DevOps**: Docker, Terraform, GitHub Actions
+- **Blockchain**: Rust + Soroban (Smart Contracts)
+- **Infrastructure**: AWS + Docker + Kubernetes
+- **CI/CD**: GitHub Actions
 - **Package Manager**: pnpm with Turborepo
 
 ## Current Phase
