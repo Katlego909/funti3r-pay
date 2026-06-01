@@ -2,71 +2,146 @@
 
 **Blockchain-powered cross-border workforce payments with instant settlement and compliance-by-design**
 
-Funti3r-pay enables enterprises to pay global teams quickly, compliantly, and cost-effectively using Stellar blockchain technology. The platform delivers 30%+ cost reduction and ≤5 minute settlement times for cross-border workforce payments, with built-in KYC/AML compliance and seamless integration with local payment methods.
+Funti3r-pay enables enterprises to pay global teams quickly, compliantly, and cost-effectively using Stellar blockchain technology.
+
+## Quick Start
+
+### Prerequisites
+- Node.js 18+
+- pnpm 9+
+- Docker Desktop
+
+### Setup (5 minutes)
+
+```bash
+git clone https://github.com/Katlego909/funti3r-pay.git
+cd funti3r-pay
+cp .env.example .env.local
+pnpm install
+docker-compose up -d
+```
+
+### Run Services
+
+```bash
+pnpm --filter @funti3r/api-gateway dev
+```
+
+Other services available:
+- `@funti3r/user-service` (port 3001)
+- `@funti3r/payment-service` (port 3002)
+- `@funti3r/compliance-service` (port 3003)
+- `@funti3r/analytics-service` (port 3004)
+- `@funti3r/enterprise-dashboard` (port 3100)
+
+Verify: `curl http://localhost:3000/status`
+
+## Project Structure
+
+```
+services/          - 5 microservices
+apps/             - Enterprise dashboard (React) + Worker app (React Native)
+packages/         - Shared types, utilities, database clients
+contracts/        - Soroban smart contracts (Rust)
+infrastructure/   - Docker, Terraform configurations
+docs/             - Product requirements and briefs
+```
 
 ## Key Features
 
-- **Instant Settlement**: ≤5 minute average settlement time using Stellar blockchain
-- **Cost Reduction**: 30%+ savings compared to traditional cross-border payments
-- **Compliance-by-Design**: Automated KYC/AML verification and regulatory reporting
-- **Multi-Currency Support**: Major African currencies and USD through Stellar anchors
-- **Enterprise Integration**: RESTful APIs for BPOs and marketplace integration
-- **Real-Time Tracking**: Complete payment visibility for all stakeholders
-- **Backup Routing**: Automated failover to alternative payment methods
+- ⚡ **≤5 minute settlement** via Stellar blockchain
+- 💰 **30%+ cost reduction** vs traditional payments
+- ✅ **Compliance-by-design** with automated KYC/AML
+- 🌍 **Multi-currency support** for African markets
+- 📱 **Worker mobile app** for payment tracking
+- 📊 **Enterprise dashboard** for payment management
 
 ## Architecture
 
-- **Microservices Architecture**: Independent services for payments, compliance, analytics, and user management
-- **Blockchain Integration**: Soroban smart contracts on Stellar network for escrow and settlement
-- **Multi-Anchor Support**: Integration with MoneyGram, Airtm, and Puntored for local currency conversion
-- **Event-Driven Design**: Real-time updates and system resilience through message queues
+**Microservices:**
+- **API Gateway** - Request routing & authentication
+- **User Service** - User management & authentication
+- **Payment Service** - Stellar blockchain integration
+- **Compliance Service** - KYC/AML & audit trails
+- **Analytics Service** - Metrics & reporting
 
-## Project Status
+**Frontend:**
+- **Enterprise Dashboard** (React + Vite)
+- **Worker Mobile App** (React Native)
 
-**Current Phase**: Architecture & Planning
-- Product Requirements Document (PRD) completed
-- High-level architecture design in progress
-- Backend architecture documentation
-- Frontend architecture planning
-- Development implementation
+**Data:**
+- PostgreSQL - Transactional data
+- Redis - Caching & sessions
+- MongoDB - Analytics
 
-## Target Metrics
+**Blockchain:**
+- Stellar Network (testnet & mainnet)
+- Soroban Smart Contracts
 
-- **Scale**: 2,000+ monthly active workers within 12 months
-- **Volume**: $1.5-$3.0M gross payout volume
-- **Performance**: 99%+ payment success rate, 99.9% uptime
-- **Compliance**: 100% regulatory compliance across target markets
+## Development
+
+### Code Standards
+- TypeScript strict mode
+- ESLint for linting
+- Prettier for formatting
+- Jest/Vitest for testing
+
+### Before Committing
+```bash
+pnpm type-check    # Check types
+pnpm lint          # Lint code
+pnpm format        # Auto-format
+pnpm test          # Run tests
+```
+
+### Contributing
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## Documentation
 
-- [Product Requirements Document](docs/prd.md) - Comprehensive project specifications
-- [Project Brief](docs/brief.md) - Initial project overview and requirements
+- [Product Requirements](docs/prd.md) - Full specifications
+- [Project Brief](docs/brief.md) - Overview and context
+- [Contributing Guide](CONTRIBUTING.md) - How to contribute
+- [.env.example](.env.example) - Environment variables
 
 ## Technology Stack
 
-*Technology stack will be finalized in the architecture document*
+- **Runtime**: Node.js 18+ with TypeScript
+- **Backend**: Express.js
+- **Frontend**: React 18, React Native 0.73
+- **Databases**: PostgreSQL 16, Redis 7, MongoDB 7
+- **Blockchain**: Stellar SDK, Soroban (Rust)
+- **DevOps**: Docker, Terraform, GitHub Actions
+- **Package Manager**: pnpm with Turborepo
 
-**Planned Stack:**
-- **Backend**: Node.js + TypeScript + NestJS
-- **Frontend**: React + TypeScript (Enterprise Dashboard)
-- **Mobile**: React Native + TypeScript (Worker App)
-- **Blockchain**: Rust + Soroban (Smart Contracts)
-- **Database**: PostgreSQL + Redis + MongoDB
-- **Infrastructure**: AWS + Docker + Kubernetes
-- **CI/CD**: GitHub Actions
+## Current Phase
 
-## Getting Started
+**Phase 1**: Core Infrastructure & Authentication
+- Microservices scaffold ✅
+- Shared libraries ✅
+- Database setup ✅
+- Git configuration ✅
+- CI/CD pipeline ✅
 
-*Development setup instructions will be added once architecture is finalized*
+Next: User authentication, payment processing foundation
+
+## Project Goals
+
+- **Scale**: 2,000+ monthly active workers (12 months)
+- **Volume**: $1.5-$3.0M payout volume
+- **Performance**: 99%+ payment success, 99.9% uptime
+- **Compliance**: 100% regulatory compliance
 
 ## License
 
-*License information to be added*
+[To be determined]
 
-## Contributing
+## Contact
 
-*Contribution guidelines to be added*
+See [CONTRIBUTING.md](CONTRIBUTING.md) for team guidelines.
 
 ---
 
-**Status**: In Development | **Version**: 0.1.0 | **Last Updated**: October 2025
+**Status**: Phase 1 - Development  
+**Version**: 0.1.0  
+**Last Updated**: June 2025
