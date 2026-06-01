@@ -79,14 +79,12 @@
 }
 
 .metric-icon {
-  width: 44px;
-  height: 44px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--primary-light), #dbeafe);
-  border-radius: 10px;
-  color: var(--primary-dark);
+  color: var(--primary);
   flex-shrink: 0;
 }
 
