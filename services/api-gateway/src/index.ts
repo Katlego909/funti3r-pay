@@ -7,7 +7,7 @@ import { initPostgres, initRedis, initMongoDB } from '@funti3r/database';
 const logger = createLogger('APIGateway');
 
 const app = express();
-const PORT = process.env.API_PORT || 3000;
+const PORT = parseInt(process.env.API_PORT || '3000', 10);
 
 // Middleware
 app.use(helmet());
@@ -56,10 +56,27 @@ app.get('/status', async (req, res) => {
 // Initialize and start server
 async function start() {
   try {
-    // Initialize database connections
-    await initPostgres();
-    await initRedis();
-    await initMongoDB();
+    // Try to initialize database connections, but don't fail if they're unavailable
+    try {
+      await initPostgres();
+      logger.info('PostgreSQL connected');
+    } catch (error) {
+      logger.warn('PostgreSQL unavailable', { error: String(error) });
+    }
+
+    try {
+      await initRedis();
+      logger.info('Redis connected');
+    } catch (error) {
+      logger.warn('Redis unavailable', { error: String(error) });
+    }
+
+    try {
+      await initMongoDB();
+      logger.info('MongoDB connected');
+    } catch (error) {
+      logger.warn('MongoDB unavailable', { error: String(error) });
+    }
 
     app.listen(PORT, '0.0.0.0', () => {
       logger.info(`API Gateway started on port ${PORT}`);

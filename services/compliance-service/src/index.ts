@@ -16,7 +16,7 @@ async function start() {
   try {
     await initPostgres();
 
-    const PORT = process.env.COMPLIANCE_SERVICE_PORT || 3003;
+    const PORT = parseInt(process.env.COMPLIANCE_SERVICE_PORT || '3003', 10);
     app.listen(PORT, '0.0.0.0', () => {
       logger.info(`Compliance Service started on port ${PORT}`);
     });

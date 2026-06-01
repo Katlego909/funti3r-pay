@@ -9,13 +9,13 @@ export async function initPostgres(): Promise<Pool> {
   if (pool) return pool;
 
   pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://funti3r_dev:dev_password@localhost:5432/funti3r_dev',
+    connectionString: process.env.DATABASE_URL || 'postgresql://funti3r_dev:dev_password@127.0.0.1:5432/funti3r_dev',
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 2000,
   });
 
-  pool.on('error', (err) => {
+  pool.on('error', (err: Error) => {
     logger.error('Unexpected error on idle client', { error: err.message });
   });
 
