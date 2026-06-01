@@ -29,8 +29,18 @@ async function start() {
     }
 
     const PORT = parseInt(process.env.PAYMENT_SERVICE_PORT || '3002', 10);
-    app.listen(PORT, '0.0.0.0', () => {
+    const server = app.listen(PORT, '0.0.0.0', () => {
       logger.info(`Payment Service started on port ${PORT}`);
+    });
+
+    server.on('error', (error: any) => {
+      if (error.code === 'EADDRINUSE') {
+        logger.error(`Port ${PORT} already in use`);
+        process.exit(1);
+      } else {
+        logger.error('Server error', { error: String(error) });
+        process.exit(1);
+      }
     });
   } catch (error) {
     logger.error('Failed to start Payment Service', { error: String(error) });
