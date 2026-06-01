@@ -48,18 +48,18 @@ body {
   position: sticky;
   top: 0;
   z-index: 100;
-  width: 100%;
 }
 
 .header-container {
-  max-width: 1400px;
+  width: 100%;
+  max-width: calc(1400px + 48px);
   margin: 0 auto;
   padding: 0 24px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   height: 80px;
-  width: 100%;
+  box-sizing: border-box;
 }
 
 .logo {
@@ -139,10 +139,11 @@ body {
 
 .main {
   flex: 1;
-  max-width: 1400px;
+  width: 100%;
+  max-width: calc(1400px + 48px);
   margin: 0 auto;
   padding: 40px 24px;
-  width: 100%;
+  box-sizing: border-box;
 }
 
 @media (max-width: 768px) {
