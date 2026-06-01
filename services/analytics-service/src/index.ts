@@ -14,7 +14,12 @@ app.get('/health', (req, res) => {
 
 async function start() {
   try {
-    await initMongoDB();
+    try {
+      await initMongoDB();
+      logger.info('MongoDB connected');
+    } catch (error) {
+      logger.warn('MongoDB unavailable', { error: String(error) });
+    }
 
     const PORT = parseInt(process.env.ANALYTICS_SERVICE_PORT || '3004', 10);
     app.listen(PORT, '0.0.0.0', () => {
