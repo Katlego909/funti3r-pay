@@ -17,7 +17,7 @@ async function start() {
     await initPostgres();
     await initRedis();
 
-    const PORT = process.env.PAYMENT_SERVICE_PORT || 3002;
+    const PORT = parseInt(process.env.PAYMENT_SERVICE_PORT || '3002', 10);
     app.listen(PORT, '0.0.0.0', () => {
       logger.info(`Payment Service started on port ${PORT}`);
     });

@@ -1,4 +1,4 @@
-import { MongoClient, Db } from 'mongodb';
+import { MongoClient, Db, Document } from 'mongodb';
 import { createLogger } from '@funti3r/shared-utils';
 
 const logger = createLogger('Database:MongoDB');
@@ -42,7 +42,7 @@ export async function closeMongoDB(): Promise<void> {
   }
 }
 
-export async function getCollection<T = unknown>(collectionName: string) {
+export async function getCollection<T extends Document = Document>(collectionName: string) {
   const database = await getMongoDB();
   return database.collection<T>(collectionName);
 }

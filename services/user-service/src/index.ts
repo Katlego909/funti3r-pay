@@ -16,7 +16,7 @@ async function start() {
   try {
     await initPostgres();
 
-    const PORT = process.env.USER_SERVICE_PORT || 3001;
+    const PORT = parseInt(process.env.USER_SERVICE_PORT || '3001', 10);
     app.listen(PORT, '0.0.0.0', () => {
       logger.info(`User Service started on port ${PORT}`);
     });

@@ -1,8 +1,8 @@
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import { JwtPayload, UserRole } from '@funti3r/shared-types';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
-const JWT_EXPIRATION = process.env.JWT_EXPIRATION || '24h';
+const JWT_SECRET: string = process.env.JWT_SECRET || 'dev-secret-change-in-production';
+const JWT_EXPIRATION: string = process.env.JWT_EXPIRATION || '24h';
 
 export function generateToken(
   userId: string,
@@ -12,13 +12,13 @@ export function generateToken(
   return jwt.sign(
     { userId, email, role },
     JWT_SECRET,
-    { expiresIn: JWT_EXPIRATION }
+    { expiresIn: JWT_EXPIRATION } as SignOptions
   );
 }
 
 export function verifyToken(token: string): JwtPayload {
   try {
-    return jwt.verify(token, JWT_SECRET) as JwtPayload;
+    return jwt.verify(token, JWT_SECRET, {}) as JwtPayload;
   } catch (error) {
     throw new Error('Invalid or expired token');
   }
