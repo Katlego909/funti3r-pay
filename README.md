@@ -49,12 +49,12 @@ docs/             - Product requirements and briefs
 
 ## Key Features
 
-- ⚡ **≤5 minute settlement** via Stellar blockchain
-- 💰 **30%+ cost reduction** vs traditional payments
-- ✅ **Compliance-by-design** with automated KYC/AML
-- 🌍 **Multi-currency support** for African markets
-- 📱 **Worker mobile app** for payment tracking
-- 📊 **Enterprise dashboard** for payment management
+- **Instant Settlement** - ≤5 minute settlement via Stellar blockchain
+- **Cost Reduction** - 30%+ cost reduction vs traditional payments
+- **Compliance-by-Design** - Automated KYC/AML verification
+- **Multi-Currency Support** - African currencies and USD
+- **Worker Mobile App** - Payment tracking and method selection
+- **Enterprise Dashboard** - Payment management and analytics
 
 ## Architecture
 
