@@ -1,0 +1,32 @@
+{
+  "$schema": "https://turbo.build/json-schema.json",
+  "extends": ["//"],
+  "globalDependencies": [
+    "**/.env",
+    "**/.env.local"
+  ],
+  "pipeline": {
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "build": {
+      "outputs": ["dist/**"],
+      "cache": true,
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "cache": true,
+      "outputs": ["coverage/**"]
+    },
+    "lint": {
+      "cache": true
+    },
+    "type-check": {
+      "cache": true
+    },
+    "db:migrate": {
+      "cache": false
+    }
+  }
+}

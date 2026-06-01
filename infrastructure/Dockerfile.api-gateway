@@ -1,0 +1,26 @@
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+COPY pnpm-lock.yaml package.json pnpm-workspace.yaml ./
+COPY packages ./packages
+COPY services/api-gateway ./services/api-gateway
+
+RUN npm install -g pnpm && pnpm install --frozen-lockfile
+
+WORKDIR /app/services/api-gateway
+RUN pnpm build
+
+FROM node:18-alpine
+
+WORKDIR /app
+
+COPY --from=builder /app/services/api-gateway/dist ./dist
+COPY --from=builder /app/services/api-gateway/package.json ./
+
+RUN npm install -g pnpm && pnpm install --prod --frozen-lockfile
+
+ENV NODE_ENV=production
+EXPOSE 3000
+
+CMD ["node", "dist/index.js"]

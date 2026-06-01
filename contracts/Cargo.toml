@@ -1,0 +1,14 @@
+[package]
+name = "funti3r-soroban"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+soroban-sdk = "20.0"
+soroban-macros = "20.0"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
