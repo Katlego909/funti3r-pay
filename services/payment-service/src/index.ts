@@ -14,8 +14,19 @@ app.get('/health', (req, res) => {
 
 async function start() {
   try {
-    await initPostgres();
-    await initRedis();
+    try {
+      await initPostgres();
+      logger.info('PostgreSQL connected');
+    } catch (error) {
+      logger.warn('PostgreSQL unavailable', { error: String(error) });
+    }
+
+    try {
+      await initRedis();
+      logger.info('Redis connected');
+    } catch (error) {
+      logger.warn('Redis unavailable', { error: String(error) });
+    }
 
     const PORT = parseInt(process.env.PAYMENT_SERVICE_PORT || '3002', 10);
     app.listen(PORT, '0.0.0.0', () => {

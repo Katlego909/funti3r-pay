@@ -14,7 +14,12 @@ app.get('/health', (req, res) => {
 
 async function start() {
   try {
-    await initPostgres();
+    try {
+      await initPostgres();
+      logger.info('PostgreSQL connected');
+    } catch (error) {
+      logger.warn('PostgreSQL unavailable', { error: String(error) });
+    }
 
     const PORT = parseInt(process.env.COMPLIANCE_SERVICE_PORT || '3003', 10);
     app.listen(PORT, '0.0.0.0', () => {
