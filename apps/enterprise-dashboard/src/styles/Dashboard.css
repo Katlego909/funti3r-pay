@@ -22,6 +22,8 @@
   font-weight: 700;
   color: #1a202c;
   margin-bottom: 8px;
+  font-family: 'Urbanist', sans-serif;
+  letter-spacing: -0.5px;
 }
 
 .subtitle {
@@ -76,6 +78,7 @@
   font-weight: 700;
   color: #1a202c;
   margin-bottom: 8px;
+  font-family: 'Urbanist', sans-serif;
 }
 
 .metric-change {
@@ -110,11 +113,12 @@
 
 .section h3 {
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
   color: #1a202c;
   margin-bottom: 20px;
   padding-bottom: 16px;
   border-bottom: 1px solid #e2e8f0;
+  font-family: 'Urbanist', sans-serif;
 }
 
 .data-table {
