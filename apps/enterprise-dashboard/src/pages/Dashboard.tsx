@@ -1,3 +1,4 @@
+import { HiOutlineUsers, HiOutlineBanknotes, HiOutlineClock, HiOutlineCheckCircle } from 'react-icons/hi2';
 import '../styles/Dashboard.css';
 
 export default function Dashboard() {
@@ -11,6 +12,7 @@ export default function Dashboard() {
       <div className="metrics-grid">
         <div className="metric-card">
           <div className="metric-header">
+            <HiOutlineUsers size={20} className="metric-icon" />
             <h3>Active Users</h3>
           </div>
           <div className="metric-value">2,847</div>
@@ -19,6 +21,7 @@ export default function Dashboard() {
 
         <div className="metric-card">
           <div className="metric-header">
+            <HiOutlineBanknotes size={20} className="metric-icon" />
             <h3>Total Payments</h3>
           </div>
           <div className="metric-value">$1.2M</div>
@@ -27,6 +30,7 @@ export default function Dashboard() {
 
         <div className="metric-card">
           <div className="metric-header">
+            <HiOutlineClock size={20} className="metric-icon" />
             <h3>Pending Transactions</h3>
           </div>
           <div className="metric-value">142</div>
@@ -35,6 +39,7 @@ export default function Dashboard() {
 
         <div className="metric-card">
           <div className="metric-header">
+            <HiOutlineCheckCircle size={20} className="metric-icon" />
             <h3>Success Rate</h3>
           </div>
           <div className="metric-value">99.2%</div>
@@ -97,6 +102,7 @@ export default function Dashboard() {
                 <div className="status-name">API Gateway</div>
                 <div className="status-detail">All systems operational</div>
               </div>
+              <div className="status-badge">3000</div>
             </div>
             <div className="status-item">
               <div className="status-dot online"></div>
@@ -104,6 +110,7 @@ export default function Dashboard() {
                 <div className="status-name">Payment Service</div>
                 <div className="status-detail">Processing transactions</div>
               </div>
+              <div className="status-badge">3002</div>
             </div>
             <div className="status-item">
               <div className="status-dot online"></div>
@@ -111,6 +118,7 @@ export default function Dashboard() {
                 <div className="status-name">User Service</div>
                 <div className="status-detail">All services running</div>
               </div>
+              <div className="status-badge">3001</div>
             </div>
             <div className="status-item">
               <div className="status-dot online"></div>
@@ -118,6 +126,7 @@ export default function Dashboard() {
                 <div className="status-name">Compliance Engine</div>
                 <div className="status-detail">Active monitoring</div>
               </div>
+              <div className="status-badge">3003</div>
             </div>
           </div>
         </section>
