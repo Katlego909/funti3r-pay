@@ -50,13 +50,25 @@
   border-color: #cbd5e0;
 }
 
+.metric-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.metric-icon {
+  color: #3182ce;
+  flex-shrink: 0;
+}
+
 .metric-header h3 {
   font-size: 13px;
   font-weight: 600;
   color: #718096;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 16px;
+  margin: 0;
 }
 
 .metric-value {
@@ -173,11 +185,12 @@
 
 .status-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
   padding: 12px;
   border-radius: 6px;
   background-color: #f7fafc;
+  justify-content: space-between;
 }
 
 .status-dot {
@@ -213,6 +226,17 @@
   color: #718096;
 }
 
+.status-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #3182ce;
+  background-color: #bee3f8;
+  padding: 4px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
 @media (max-width: 1024px) {
   .content-grid {
     grid-template-columns: 1fr;
@@ -221,15 +245,28 @@
   .metrics-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .dashboard-header h2 {
+    font-size: 28px;
+  }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .metrics-grid {
     grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .metric-card {
+    padding: 20px;
   }
 
   .metric-value {
     font-size: 28px;
+  }
+
+  .section {
+    padding: 20px;
   }
 
   .data-table {
@@ -238,6 +275,55 @@
 
   .data-table th,
   .data-table td {
-    padding: 8px;
+    padding: 10px;
+  }
+
+  .status-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .status-badge {
+    margin-left: 0;
+  }
+
+  .dashboard-header h2 {
+    font-size: 24px;
+  }
+}
+
+@media (max-width: 480px) {
+  .metric-card {
+    padding: 16px;
+  }
+
+  .metric-value {
+    font-size: 24px;
+  }
+
+  .section {
+    padding: 16px;
+  }
+
+  .section h3 {
+    font-size: 16px;
+  }
+
+  .data-table {
+    font-size: 11px;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 6px;
+  }
+
+  .dashboard-header h2 {
+    font-size: 20px;
+  }
+
+  .subtitle {
+    font-size: 13px;
   }
 }
