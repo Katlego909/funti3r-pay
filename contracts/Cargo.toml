@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 soroban-sdk = "20.0"
 soroban-macros = "20.0"
+p256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
 
 [profile.release]
 opt-level = "z"
