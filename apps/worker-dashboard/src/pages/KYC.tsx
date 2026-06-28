@@ -152,20 +152,18 @@ export default function KYC() {
         </div>
       )}
 
-      {(!kycData || kycData?.status === 'rejected') && (
+      {!kycData && (
         <>
-          {!kycData && (
-            <div style={{
-              padding: '16px',
-              backgroundColor: '#f3f4f6',
-              borderRadius: '8px',
-              border: '1px solid #e5e7eb',
-              marginBottom: '20px'
-            }}>
-              <p style={{ fontWeight: 600, margin: 0 }}>Not Yet Verified</p>
-              <p style={{ fontSize: '12px', color: '#6b7280', margin: '4px 0 0 0' }}>You need to complete KYC to receive payments</p>
-            </div>
-          )}
+          <div style={{
+            padding: '16px',
+            backgroundColor: '#f3f4f6',
+            borderRadius: '8px',
+            border: '1px solid #e5e7eb',
+            marginBottom: '20px'
+          }}>
+            <p style={{ fontWeight: 600, margin: 0 }}>Not Yet Verified</p>
+            <p style={{ fontSize: '12px', color: '#6b7280', margin: '4px 0 0 0' }}>You need to complete KYC to receive payments</p>
+          </div>
 
           {!formOpen && (
             <button
@@ -181,7 +179,29 @@ export default function KYC() {
                 fontWeight: 600
               }}
             >
-              {kycData?.status === 'rejected' ? 'Resubmit' : 'Start Verification'}
+              Start Verification
+            </button>
+          )}
+        </>
+      )}
+
+      {kycData?.status === 'rejected' && (
+        <>
+          {!formOpen && (
+            <button
+              onClick={() => setFormOpen(true)}
+              style={{
+                padding: '10px 16px',
+                backgroundColor: '#3b82f6',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 600
+              }}
+            >
+              Resubmit
             </button>
           )}
         </>
