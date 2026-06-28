@@ -129,6 +129,17 @@ app.get('/wallets/:userId', async (req, res) => {
       return res.json({ userId: req.params.userId, walletType: wallet.wallet_type, status: 'deploying' });
     }
 
+    // Smart contracts don't have balances like regular accounts
+    if (wallet.wallet_type === 'worker') {
+      return res.json({
+        userId: req.params.userId,
+        walletType: wallet.wallet_type,
+        contract_address: address,
+        contractAddress: address,
+        status: 'active'
+      });
+    }
+
     const balances = await stellar.getAccountBalance(address);
     res.json({ userId: req.params.userId, walletType: wallet.wallet_type, address, balances });
   } catch (err) {
