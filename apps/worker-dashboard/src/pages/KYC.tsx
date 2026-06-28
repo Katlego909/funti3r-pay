@@ -58,7 +58,13 @@ export default function KYC() {
     if (!user?.userId) return;
     api.get<KYCDetail>(`/compliance/${user.userId}`)
       .then((res) => setKycData(res.data))
-      .catch(() => setKycData(null))
+      .catch((err) => {
+        if (err.response?.status === 404) {
+          setKycData(null);
+        } else {
+          setError(err.message);
+        }
+      })
       .finally(() => setLoading(false));
   }, [user?.userId]);
 
