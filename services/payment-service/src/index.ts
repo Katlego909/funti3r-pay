@@ -59,10 +59,20 @@ app.post('/wallets/worker', async (req, res) => {
     const contractAddress = await stellar.deploySmartWallet(passkeyPkHex, credentialIdHex);
 
     await query(
-      `INSERT INTO wallets (user_id, wallet_type, contract_address)
-       VALUES ($1, 'worker', $2)
-       ON CONFLICT (user_id) DO UPDATE SET contract_address = EXCLUDED.contract_address`,
+      `INSERT INTO wallets (user_id, wallet_type, contract_address, status, deployed_at, updated_at)
+       VALUES ($1, 'worker', $2, 'active', NOW(), NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         contract_address = EXCLUDED.contract_address,
+         status = 'active',
+         deployed_at = NOW(),
+         updated_at = NOW()`,
       [userId, contractAddress],
+    );
+
+    // Update user's wallet_deployed_at timestamp
+    await query(
+      `UPDATE users SET wallet_deployed_at = NOW() WHERE id = $1`,
+      [userId]
     );
 
     logger.info('Worker SmartWallet created', { userId, contractAddress });
