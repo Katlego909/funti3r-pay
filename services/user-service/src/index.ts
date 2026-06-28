@@ -121,11 +121,13 @@ const registerStartHandler = async (req: express.Request, res: express.Response)
       userDisplayName: email.split('@')[0] || 'User',
       attestationType: 'none',
       authenticatorSelection: {
+        // Allow both platform (Windows Hello, Touch ID) and cross-platform (security keys)
+        // undefined = user chooses
         authenticatorAttachment: undefined,
         residentKey: 'preferred',
         userVerification: 'preferred',
       },
-      supportedAlgorithmIDs: [-8, -7, -257], // EdDSA, ES256, RS256
+      supportedAlgorithmIDs: [-7, -257], // ES256, RS256 (ES256 is best for platform authenticators)
     });
 
     // Store the challenge for verification during register/finish
