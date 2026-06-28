@@ -64,44 +64,15 @@ body {
 
 .logo {
   display: flex;
-  flex-direction: row;
   align-items: center;
-  gap: 16px;
   margin: 0;
   padding: 0;
 }
 
 .logo-image {
-  height: 60px;
+  height: 40px;
   width: auto;
   object-fit: contain;
-}
-
-.logo-text {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-}
-
-.logo h1 {
-  font-size: 28px;
-  font-weight: 900;
-  color: var(--primary-dark);
-  letter-spacing: -1.2px;
-  font-family: 'Archivo Black', sans-serif;
-  margin: 0;
-  padding: 0;
-}
-
-.tagline {
-  font-size: 11px;
-  color: var(--gray-600);
-  margin: 4px 0 0 0;
-  padding: 0;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  font-weight: 600;
 }
 
 .nav {
