@@ -131,13 +131,13 @@ app.use((req, res, next) => {
 });
 
 // Auth & Users → user-service
-app.use('/auth',  proxy(USER_SERVICE));
+app.use('/auth',  proxy(USER_SERVICE, { '^': '/auth' }));
 app.use('/api/auth', proxy(USER_SERVICE, { '^/api/auth': '/auth' }));
-app.use('/users', proxy(USER_SERVICE));
+app.use('/users', proxy(USER_SERVICE, { '^': '/users' }));
 
 // Wallets & Payouts → payment-service
-app.use('/wallets', proxy(PAYMENT_SERVICE));
-app.use('/payouts',  proxy(PAYMENT_SERVICE));
+app.use('/wallets', proxy(PAYMENT_SERVICE, { '^': '/wallets' }));
+app.use('/payouts',  proxy(PAYMENT_SERVICE, { '^': '/payouts' }));
 
 // Compliance → compliance-service
 app.use('/compliance', proxy(COMPLIANCE_URL));
