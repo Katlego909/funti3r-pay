@@ -107,6 +107,7 @@ app.post('/auth/register/test', (req, res) => {
 const registerStartHandler = async (req: express.Request, res: express.Response) => {
   try {
     const { email, role = 'worker' } = req.body;
+    const clientOrigin = req.headers.origin || RP_ORIGIN;
 
     if (!email) {
       return res.status(400).json({ error: 'Email is required' });
@@ -115,7 +116,7 @@ const registerStartHandler = async (req: express.Request, res: express.Response)
     const options = await generateRegistrationOptions({
       rpName: RP_NAME,
       rpID: RP_ID,
-      rpOrigin: RP_ORIGIN,
+      rpOrigin: clientOrigin,
       userName: email,
       userID: new Uint8Array(Buffer.from(email.split('@')[0])), // Unique user ID based on email prefix
       userDisplayName: email.split('@')[0] || 'User',
