@@ -20,7 +20,7 @@ export default function Register() {
 
     try {
       console.log('[Register] Starting passkey registration for:', email);
-      const session = await registerPasskey(email, 'enterprise');
+      const session = await registerPasskey(email, 'worker');
       console.log('[Register] Passkey registration succeeded:', session.userId);
       setSession({ userId: session.userId, email: session.email, role: session.role }, session.accessToken);
 
