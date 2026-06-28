@@ -116,7 +116,7 @@ export default function KYC() {
         </div>
       )}
 
-      {!kycData || kycData.status === 'rejected' && (
+      {(!kycData || kycData?.status === 'rejected') && (
         <>
           {!kycData && (
             <div style={{
