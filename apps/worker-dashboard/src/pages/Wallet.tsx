@@ -149,50 +149,6 @@ export default function Wallet() {
       )}
 
       <div style={{ display: 'grid', gap: '20px', marginTop: '20px' }}>
-        {/* Wallet Info Section */}
-        {contractAddress && (
-          <div style={{
-            padding: '20px',
-            backgroundColor: '#f9fafb',
-            borderRadius: '8px',
-            border: '1px solid #e5e7eb'
-          }}>
-            <h3 style={{ marginTop: 0 }}>Wallet Address</h3>
-            <div style={{
-              display: 'flex',
-              gap: '12px',
-              alignItems: 'center',
-              padding: '12px',
-              backgroundColor: 'white',
-              borderRadius: '6px',
-              border: '1px solid #d1d5db',
-              fontFamily: 'monospace',
-              fontSize: '12px',
-              wordBreak: 'break-all'
-            }}>
-              <code style={{ flex: 1 }}>{contractAddress}</code>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(contractAddress);
-                  alert('Wallet address copied!');
-                }}
-                style={{
-                  padding: '6px 12px',
-                  backgroundColor: '#3b82f6',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  flexShrink: 0
-                }}
-              >
-                Copy
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Balances Section */}
         <div>
           <h3>Balances</h3>
