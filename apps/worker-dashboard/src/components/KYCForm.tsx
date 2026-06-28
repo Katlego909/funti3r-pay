@@ -2,137 +2,33 @@ import { useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { KYCTier } from '@funti3r/shared-types';
 
-const COUNTRIES: { code: string; name: string }[] = [
-  { code: 'US', name: 'United States' },
-  { code: 'GB', name: 'United Kingdom' },
-  { code: 'CA', name: 'Canada' },
-  { code: 'AU', name: 'Australia' },
-  { code: 'NZ', name: 'New Zealand' },
-  { code: 'IE', name: 'Ireland' },
-  { code: 'DE', name: 'Germany' },
-  { code: 'FR', name: 'France' },
-  { code: 'IT', name: 'Italy' },
-  { code: 'ES', name: 'Spain' },
-  { code: 'NL', name: 'Netherlands' },
-  { code: 'BE', name: 'Belgium' },
-  { code: 'CH', name: 'Switzerland' },
-  { code: 'AT', name: 'Austria' },
-  { code: 'SE', name: 'Sweden' },
-  { code: 'NO', name: 'Norway' },
-  { code: 'DK', name: 'Denmark' },
-  { code: 'FI', name: 'Finland' },
-  { code: 'PL', name: 'Poland' },
-  { code: 'CZ', name: 'Czech Republic' },
-  { code: 'HU', name: 'Hungary' },
-  { code: 'RO', name: 'Romania' },
-  { code: 'GR', name: 'Greece' },
-  { code: 'PT', name: 'Portugal' },
-  { code: 'SK', name: 'Slovakia' },
-  { code: 'SI', name: 'Slovenia' },
-  { code: 'HR', name: 'Croatia' },
-  { code: 'BG', name: 'Bulgaria' },
-  { code: 'LT', name: 'Lithuania' },
-  { code: 'LV', name: 'Latvia' },
-  { code: 'EE', name: 'Estonia' },
-  { code: 'MT', name: 'Malta' },
-  { code: 'CY', name: 'Cyprus' },
-  { code: 'LU', name: 'Luxembourg' },
-  { code: 'JP', name: 'Japan' },
-  { code: 'CN', name: 'China' },
-  { code: 'IN', name: 'India' },
-  { code: 'BR', name: 'Brazil' },
-  { code: 'MX', name: 'Mexico' },
-  { code: 'ZA', name: 'South Africa' },
-  { code: 'NG', name: 'Nigeria' },
-  { code: 'KE', name: 'Kenya' },
-  { code: 'UG', name: 'Uganda' },
-  { code: 'EG', name: 'Egypt' },
-  { code: 'GH', name: 'Ghana' },
-  { code: 'SG', name: 'Singapore' },
-  { code: 'MY', name: 'Malaysia' },
-  { code: 'TH', name: 'Thailand' },
-  { code: 'VN', name: 'Vietnam' },
-  { code: 'PH', name: 'Philippines' },
-  { code: 'ID', name: 'Indonesia' },
-  { code: 'KR', name: 'South Korea' },
-  { code: 'HK', name: 'Hong Kong' },
-  { code: 'TW', name: 'Taiwan' },
-  { code: 'AR', name: 'Argentina' },
-  { code: 'CL', name: 'Chile' },
-  { code: 'CO', name: 'Colombia' },
-  { code: 'PE', name: 'Peru' },
-  { code: 'RU', name: 'Russia' },
-  { code: 'AE', name: 'United Arab Emirates' },
-  { code: 'SA', name: 'Saudi Arabia' },
-  { code: 'IL', name: 'Israel' },
-  { code: 'TR', name: 'Turkey' },
-  { code: 'PK', name: 'Pakistan' },
-  { code: 'BD', name: 'Bangladesh' },
-  { code: 'LK', name: 'Sri Lanka' },
-  { code: 'TZ', name: 'Tanzania' },
-  { code: 'UZ', name: 'Uzbekistan' },
-  { code: 'AZ', name: 'Azerbaijan' },
-  { code: 'UA', name: 'Ukraine' },
-  { code: 'BY', name: 'Belarus' },
-  { code: 'KZ', name: 'Kazakhstan' },
-  { code: 'GE', name: 'Georgia' },
-  { code: 'AM', name: 'Armenia' },
-  { code: 'CU', name: 'Cuba' },
-  { code: 'DZ', name: 'Algeria' },
-  { code: 'MA', name: 'Morocco' },
-  { code: 'TN', name: 'Tunisia' },
-  { code: 'MW', name: 'Malawi' },
-  { code: 'ZM', name: 'Zambia' },
-  { code: 'ZW', name: 'Zimbabwe' },
-  { code: 'BW', name: 'Botswana' },
-  { code: 'NA', name: 'Namibia' },
-  { code: 'LS', name: 'Lesotho' },
-  { code: 'SZ', name: 'Eswatini' },
-  { code: 'MZ', name: 'Mozambique' },
-  { code: 'CD', name: 'Democratic Republic of Congo' },
-  { code: 'AO', name: 'Angola' },
-  { code: 'CM', name: 'Cameroon' },
-  { code: 'CI', name: 'Côte d\'Ivoire' },
-  { code: 'SN', name: 'Senegal' },
-  { code: 'BJ', name: 'Benin' },
-  { code: 'TG', name: 'Togo' },
-  { code: 'BF', name: 'Burkina Faso' },
-  { code: 'ML', name: 'Mali' },
-  { code: 'NE', name: 'Niger' },
-  { code: 'TD', name: 'Chad' },
-  { code: 'GA', name: 'Gabon' },
-  { code: 'CG', name: 'Republic of Congo' },
-  { code: 'ST', name: 'São Tomé and Príncipe' },
-  { code: 'SC', name: 'Seychelles' },
-  { code: 'MU', name: 'Mauritius' },
-  { code: 'TT', name: 'Trinidad and Tobago' },
-  { code: 'JM', name: 'Jamaica' },
-  { code: 'BS', name: 'Bahamas' },
-  { code: 'BZ', name: 'Belize' },
-  { code: 'AG', name: 'Antigua and Barbuda' },
-  { code: 'LC', name: 'Saint Lucia' },
-  { code: 'VC', name: 'Saint Vincent and the Grenadines' },
-  { code: 'DM', name: 'Dominica' },
-  { code: 'BB', name: 'Barbados' },
-  { code: 'GD', name: 'Grenada' },
-  { code: 'BN', name: 'Brunei' },
-  { code: 'MM', name: 'Myanmar' },
-  { code: 'KH', name: 'Cambodia' },
-  { code: 'LA', name: 'Laos' },
-  { code: 'PS', name: 'Palestine' },
-  { code: 'JO', name: 'Jordan' },
-  { code: 'LB', name: 'Lebanon' },
-  { code: 'SY', name: 'Syria' },
-  { code: 'IQ', name: 'Iraq' },
-  { code: 'IR', name: 'Iran' },
-  { code: 'AF', name: 'Afghanistan' },
-  { code: 'NP', name: 'Nepal' },
-  { code: 'BT', name: 'Bhutan' },
-  { code: 'MN', name: 'Mongolia' },
-  { code: 'PR', name: 'Puerto Rico' },
-  { code: 'VI', name: 'US Virgin Islands' },
-  { code: 'GU', name: 'Guam' },
-].sort((a, b) => a.name.localeCompare(b.name));
+const COUNTRY_MAP: Record<string, string> = {
+  'US': 'United States', 'GB': 'United Kingdom', 'CA': 'Canada', 'AU': 'Australia', 'NZ': 'New Zealand',
+  'IE': 'Ireland', 'DE': 'Germany', 'FR': 'France', 'IT': 'Italy', 'ES': 'Spain', 'NL': 'Netherlands',
+  'BE': 'Belgium', 'CH': 'Switzerland', 'AT': 'Austria', 'SE': 'Sweden', 'NO': 'Norway', 'DK': 'Denmark',
+  'FI': 'Finland', 'PL': 'Poland', 'CZ': 'Czech Republic', 'HU': 'Hungary', 'RO': 'Romania', 'GR': 'Greece',
+  'PT': 'Portugal', 'SK': 'Slovakia', 'SI': 'Slovenia', 'HR': 'Croatia', 'BG': 'Bulgaria', 'LT': 'Lithuania',
+  'LV': 'Latvia', 'EE': 'Estonia', 'MT': 'Malta', 'CY': 'Cyprus', 'LU': 'Luxembourg', 'JP': 'Japan',
+  'CN': 'China', 'IN': 'India', 'BR': 'Brazil', 'MX': 'Mexico', 'ZA': 'South Africa', 'NG': 'Nigeria',
+  'KE': 'Kenya', 'UG': 'Uganda', 'EG': 'Egypt', 'GH': 'Ghana', 'SG': 'Singapore', 'MY': 'Malaysia',
+  'TH': 'Thailand', 'VN': 'Vietnam', 'PH': 'Philippines', 'ID': 'Indonesia', 'KR': 'South Korea',
+  'HK': 'Hong Kong', 'TW': 'Taiwan', 'AR': 'Argentina', 'CL': 'Chile', 'CO': 'Colombia', 'PE': 'Peru',
+  'RU': 'Russia', 'AE': 'United Arab Emirates', 'SA': 'Saudi Arabia', 'IL': 'Israel', 'TR': 'Turkey',
+  'PK': 'Pakistan', 'BD': 'Bangladesh', 'LK': 'Sri Lanka', 'TZ': 'Tanzania', 'UZ': 'Uzbekistan',
+  'AZ': 'Azerbaijan', 'UA': 'Ukraine', 'BY': 'Belarus', 'KZ': 'Kazakhstan', 'GE': 'Georgia', 'AM': 'Armenia',
+  'CU': 'Cuba', 'DZ': 'Algeria', 'MA': 'Morocco', 'TN': 'Tunisia', 'MW': 'Malawi', 'ZM': 'Zambia',
+  'ZW': 'Zimbabwe', 'BW': 'Botswana', 'NA': 'Namibia', 'LS': 'Lesotho', 'SZ': 'Eswatini', 'MZ': 'Mozambique',
+  'CD': 'Democratic Republic of Congo', 'AO': 'Angola', 'CM': 'Cameroon', 'CI': 'Côte d\'Ivoire', 'SN': 'Senegal',
+  'BJ': 'Benin', 'TG': 'Togo', 'BF': 'Burkina Faso', 'ML': 'Mali', 'NE': 'Niger', 'TD': 'Chad', 'GA': 'Gabon',
+  'CG': 'Republic of Congo', 'ST': 'São Tomé and Príncipe', 'SC': 'Seychelles', 'MU': 'Mauritius',
+  'TT': 'Trinidad and Tobago', 'JM': 'Jamaica', 'BS': 'Bahamas', 'BZ': 'Belize', 'AG': 'Antigua and Barbuda',
+  'LC': 'Saint Lucia', 'VC': 'Saint Vincent and the Grenadines', 'DM': 'Dominica', 'BB': 'Barbados', 'GD': 'Grenada',
+  'BN': 'Brunei', 'MM': 'Myanmar', 'KH': 'Cambodia', 'LA': 'Laos', 'PS': 'Palestine', 'JO': 'Jordan', 'LB': 'Lebanon',
+  'SY': 'Syria', 'IQ': 'Iraq', 'IR': 'Iran', 'AF': 'Afghanistan', 'NP': 'Nepal', 'BT': 'Bhutan', 'MN': 'Mongolia',
+  'PR': 'Puerto Rico', 'VI': 'US Virgin Islands', 'GU': 'Guam',
+};
+
+const COUNTRIES = Object.keys(COUNTRY_MAP).sort();
 
 interface KYCFormData {
   identity: {
@@ -443,9 +339,9 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
                 }}
               >
                 <option value="">Select Nationality</option>
-                {COUNTRIES.map((country) => (
-                  <option key={country.code} value={country.code}>
-                    {country.name}
+                {COUNTRIES.map((code) => (
+                  <option key={code} value={code}>
+                    {COUNTRY_MAP[code]}
                   </option>
                 ))}
               </select>
@@ -468,9 +364,9 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
                 }}
               >
                 <option value="">Select Country</option>
-                {COUNTRIES.map((country) => (
-                  <option key={country.code} value={country.code}>
-                    {country.name}
+                {COUNTRIES.map((code) => (
+                  <option key={code} value={code}>
+                    {COUNTRY_MAP[code]}
                   </option>
                 ))}
               </select>
@@ -704,9 +600,9 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
                 }}
               >
                 <option value="">Select Country</option>
-                {COUNTRIES.map((country) => (
-                  <option key={country.code} value={country.code}>
-                    {country.name}
+                {COUNTRIES.map((code) => (
+                  <option key={code} value={code}>
+                    {COUNTRY_MAP[code]}
                   </option>
                 ))}
               </select>
