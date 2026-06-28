@@ -1,390 +1,181 @@
-import { useState, useEffect } from 'react';
-import { HiOutlineCheckCircle } from 'react-icons/hi2';
-import { useAuthStore } from '../store/authStore.js';
-import { api } from '../api/client.js';
+import { useState } from 'react';
+import { HiOutlineShieldCheck } from 'react-icons/hi2';
+import { KYCForm } from '../components/KYCForm';
+import { KYCStatus } from '../components/KYCStatus';
+import { FAQAccordion } from '../components/FAQAccordion';
 
-const COUNTRIES = [
-  { code: 'ZA', name: 'South Africa' },
-  { code: 'NG', name: 'Nigeria' },
-  { code: 'KE', name: 'Kenya' },
-  { code: 'GH', name: 'Ghana' },
-  { code: 'UG', name: 'Uganda' },
-  { code: 'TZ', name: 'Tanzania' },
-  { code: 'EG', name: 'Egypt' },
-  { code: 'MA', name: 'Morocco' },
-  { code: 'SN', name: 'Senegal' },
-  { code: 'RW', name: 'Rwanda' },
-  { code: 'CM', name: 'Cameroon' },
-  { code: 'CI', name: 'Ivory Coast' },
-  { code: 'ET', name: 'Ethiopia' },
-  { code: 'PK', name: 'Pakistan' },
-  { code: 'IN', name: 'India' },
-  { code: 'PH', name: 'Philippines' },
-  { code: 'ID', name: 'Indonesia' },
-  { code: 'TH', name: 'Thailand' },
-  { code: 'VN', name: 'Vietnam' },
-  { code: 'BR', name: 'Brazil' },
-  { code: 'MX', name: 'Mexico' },
-  { code: 'CO', name: 'Colombia' },
-  { code: 'AR', name: 'Argentina' },
-  { code: 'US', name: 'United States' },
-  { code: 'GB', name: 'United Kingdom' },
-  { code: 'DE', name: 'Germany' },
-  { code: 'FR', name: 'France' },
-  { code: 'CA', name: 'Canada' },
-];
-
-interface KYCDetail {
-  status: string;
-  created_at: string;
-  verified_at: string | null;
-}
-
-export default function KYC() {
-  const user = useAuthStore((s) => s.user);
-  const [kycData, setKycData] = useState<KYCDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [formOpen, setFormOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [successModal, setSuccessModal] = useState(false);
-  const [formData, setFormData] = useState({
-    idType: 'passport',
-    idNumber: '',
-    dob: '',
-    country: ''
-  });
-
-  useEffect(() => {
-    if (!user?.userId) return;
-    api.get<KYCDetail>(`/compliance/${user.userId}`)
-      .then((res) => setKycData(res.data))
-      .catch((err) => {
-        if (err.response?.status === 404) {
-          setKycData(null);
-        } else {
-          setError(err.message);
-        }
-      })
-      .finally(() => setLoading(false));
-  }, [user?.userId]);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!user?.userId) return;
-    setError('');
-    setSubmitting(true);
-    try {
-      await api.post('/compliance/verify', {
-        userId: user.userId,
-        idType: formData.idType,
-        idNumber: formData.idNumber,
-        dateOfBirth: formData.dob || undefined,
-        country: formData.country,
-      });
-
-      const res = await api.get<KYCDetail>(`/compliance/${user.userId}`);
-      setKycData(res.data);
-      setFormOpen(false);
-      setSuccessModal(true);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Submission failed');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  if (loading) return <div style={{ padding: '20px', textAlign: 'center' }}>Loading KYC status…</div>;
+export default function KYCPage() {
+  const [showForm, setShowForm] = useState(false);
 
   return (
-    <div style={{ padding: '20px', maxWidth: '600px', margin: '0 auto' }}>
-      <h2>Know Your Customer (KYC)</h2>
-      <p style={{ color: '#666', marginBottom: '20px' }}>Complete verification to receive payments</p>
+    <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+        <HiOutlineShieldCheck size={32} style={{ color: '#3b82f6' }} />
+        <h2 style={{ margin: 0, fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>Know Your Customer (KYC)</h2>
+      </div>
+      <p style={{ color: '#666', marginBottom: '32px' }}>
+        Complete your KYC verification to unlock payments and compliance features.
+      </p>
 
-      {kycData?.status === 'verified' && (
+      {/* KYC Status */}
+      <div style={{ marginBottom: '32px' }}>
+        <h3 style={{ marginTop: 0, marginBottom: '20px', fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>Verification Status</h3>
+        <KYCStatus />
+      </div>
+
+      {/* KYC Form */}
+      <div>
         <div style={{
-          padding: '16px',
-          backgroundColor: '#d1fae5',
-          borderRadius: '8px',
-          border: '1px solid #6ee7b7',
-          marginBottom: '20px',
           display: 'flex',
-          gap: '12px',
-          alignItems: 'center'
-        }}>
-          <HiOutlineCheckCircle size={24} style={{ color: '#059669' }} />
-          <div>
-            <p style={{ fontWeight: 600, margin: 0, color: '#065f46' }}>Verified</p>
-            <p style={{ fontSize: '12px', color: '#047857', margin: '4px 0 0 0' }}>Your account is ready to receive payments</p>
-            {kycData.verified_at && (
-              <p style={{ fontSize: '11px', color: '#047857', margin: '4px 0 0 0' }}>
-                Verified on {new Date(kycData.verified_at).toLocaleDateString()}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {kycData?.status === 'pending' && (
-        <div style={{
-          padding: '16px',
-          backgroundColor: '#fef3c7',
-          borderRadius: '8px',
-          border: '1px solid #fcd34d',
-          marginBottom: '20px'
-        }}>
-          <p style={{ fontWeight: 600, margin: 0, color: '#92400e' }}>Under Review</p>
-          <p style={{ fontSize: '12px', color: '#b45309', margin: '4px 0 0 0' }}>Your verification is being reviewed. This typically takes 24-48 hours.</p>
-          {kycData.created_at && (
-            <p style={{ fontSize: '11px', color: '#b45309', margin: '4px 0 0 0' }}>
-              Submitted on {new Date(kycData.created_at).toLocaleDateString()}
-            </p>
-          )}
-        </div>
-      )}
-
-      {kycData?.status === 'rejected' && (
-        <div style={{
-          padding: '16px',
-          backgroundColor: '#fee2e2',
-          borderRadius: '8px',
-          border: '1px solid #fecaca',
-          marginBottom: '20px'
-        }}>
-          <p style={{ fontWeight: 600, margin: 0, color: '#991b1b' }}>Rejected</p>
-          <p style={{ fontSize: '12px', color: '#7f1d1d', margin: '4px 0 0 0' }}>Your KYC submission was rejected. Please contact support.</p>
-        </div>
-      )}
-
-      {!kycData && (
-        <>
-          <div style={{
-            padding: '16px',
-            backgroundColor: '#f3f4f6',
-            borderRadius: '8px',
-            border: '1px solid #e5e7eb',
-            marginBottom: '20px'
-          }}>
-            <p style={{ fontWeight: 600, margin: 0 }}>Not Yet Verified</p>
-            <p style={{ fontSize: '12px', color: '#6b7280', margin: '4px 0 0 0' }}>You need to complete KYC to receive payments</p>
-          </div>
-
-          {!formOpen && (
-            <button
-              onClick={() => setFormOpen(true)}
-              style={{
-                padding: '10px 16px',
-                backgroundColor: '#3b82f6',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: 600
-              }}
-            >
-              Start Verification
-            </button>
-          )}
-        </>
-      )}
-
-      {kycData?.status === 'rejected' && (
-        <>
-          {!formOpen && (
-            <button
-              onClick={() => setFormOpen(true)}
-              style={{
-                padding: '10px 16px',
-                backgroundColor: '#3b82f6',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: 600
-              }}
-            >
-              Resubmit
-            </button>
-          )}
-        </>
-      )}
-
-      {formOpen && (
-        <form onSubmit={handleSubmit} style={{
-          display: 'grid',
-          gap: '16px',
-          padding: '16px',
-          backgroundColor: '#f9fafb',
-          borderRadius: '8px',
-          border: '1px solid #e5e7eb'
-        }}>
-          <div>
-            <label style={{ display: 'block', fontWeight: 600, marginBottom: '6px', fontSize: '14px' }}>ID Type</label>
-            <select
-              value={formData.idType}
-              onChange={(e) => setFormData({ ...formData, idType: e.target.value })}
-              disabled={submitting}
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px',
-                fontSize: '14px'
-              }}
-            >
-              <option value="passport">Passport</option>
-              <option value="driver_license">Driver's License</option>
-              <option value="national_id">National ID</option>
-            </select>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontWeight: 600, marginBottom: '6px', fontSize: '14px' }}>ID Number</label>
-            <input
-              type="text"
-              value={formData.idNumber}
-              onChange={(e) => setFormData({ ...formData, idNumber: e.target.value })}
-              disabled={submitting}
-              required
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px',
-                fontSize: '14px'
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontWeight: 600, marginBottom: '6px', fontSize: '14px' }}>Date of Birth</label>
-            <input
-              type="date"
-              value={formData.dob}
-              onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
-              disabled={submitting}
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px',
-                fontSize: '14px'
-              }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontWeight: 600, marginBottom: '6px', fontSize: '14px' }}>Country</label>
-            <select
-              value={formData.country}
-              onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-              disabled={submitting}
-              required
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px',
-                fontSize: '14px'
-              }}
-            >
-              <option value="">Select a country</option>
-              {COUNTRIES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.name} ({c.code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {error && <p style={{ color: '#dc2626', margin: '0' }}>{error}</p>}
-
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              type="submit"
-              disabled={submitting}
-              style={{
-                flex: 1,
-                padding: '10px',
-                backgroundColor: '#3b82f6',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: submitting ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-                opacity: submitting ? 0.5 : 1
-              }}
-            >
-              {submitting ? 'Submitting…' : 'Submit'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setFormOpen(false)}
-              disabled={submitting}
-              style={{
-                flex: 1,
-                padding: '10px',
-                backgroundColor: '#e5e7eb',
-                color: '#374151',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: submitting ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-                opacity: submitting ? 0.5 : 1
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
-
-      {successModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
+          justifyContent: 'space-between',
           alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000
+          marginBottom: '20px',
         }}>
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '8px',
-            padding: '32px',
-            maxWidth: '400px',
-            textAlign: 'center',
-            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
-          }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>✓</div>
-            <h2 style={{ margin: '0 0 8px 0', color: '#059669' }}>KYC Submitted Successfully!</h2>
-            <p style={{ color: '#666', margin: '0 0 24px 0' }}>
-              Your submission is now under review. You'll be notified once verification is complete.
-            </p>
+          <h3 style={{ margin: 0, marginBottom: '20px', fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>
+            {showForm ? 'Complete Your KYC' : 'Submit KYC Information'}
+          </h3>
+          {!showForm && (
             <button
-              onClick={() => setSuccessModal(false)}
+              onClick={() => setShowForm(true)}
               style={{
-                padding: '10px 24px',
+                padding: '10px 20px',
                 backgroundColor: '#3b82f6',
                 color: 'white',
                 border: 'none',
                 borderRadius: '6px',
                 cursor: 'pointer',
                 fontWeight: '600',
-                fontSize: '14px'
               }}
             >
-              Got it
+              Start KYC
+            </button>
+          )}
+        </div>
+
+        {showForm ? (
+          <KYCForm
+            onSubmitSuccess={() => {
+              setShowForm(false);
+            }}
+          />
+        ) : (
+          <div style={{
+            padding: '24px',
+            backgroundColor: '#f9fafb',
+            borderRadius: '12px',
+            border: '1px solid #e5e7eb',
+            textAlign: 'center',
+          }}>
+            <h4 style={{ color: '#4b5563', marginTop: 0 }}>Ready to verify your identity?</h4>
+            <p style={{ color: '#6b7280', marginBottom: '16px' }}>
+              We need your personal, identity, tax, and bank details to complete compliance requirements.
+            </p>
+            <button
+              onClick={() => setShowForm(true)}
+              style={{
+                padding: '12px 28px',
+                backgroundColor: '#3b82f6',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '16px',
+              }}
+            >
+              Start KYC Process
             </button>
           </div>
+        )}
+      </div>
+
+      {/* Information Section */}
+      <div style={{ marginTop: '40px', paddingTop: '32px', borderTop: '1px solid #e5e7eb' }}>
+        <h3 style={{ marginBottom: '20px', fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>What We Need</h3>
+        <div style={{ display: 'grid', gap: '20px' }}>
+          <div style={{
+            padding: '16px',
+            backgroundColor: '#f0f7ff',
+            borderRadius: '8px',
+            borderLeft: '4px solid #3b82f6',
+          }}>
+            <h4 style={{ margin: '0 0 8px', color: '#1e40af', fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>Personal Information</h4>
+            <p style={{ margin: 0, color: '#3730a3', fontSize: '14px' }}>
+              Your full legal name, date of birth, and nationality for identity verification.
+            </p>
+          </div>
+
+          <div style={{
+            padding: '16px',
+            backgroundColor: '#fef3c7',
+            borderRadius: '8px',
+            borderLeft: '4px solid #f59e0b',
+          }}>
+            <h4 style={{ margin: '0 0 8px', color: '#92400e', fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>Government ID</h4>
+            <p style={{ margin: 0, color: '#78350f', fontSize: '14px' }}>
+              Passport, National ID, or Driver's License details (number, issue & expiry dates).
+            </p>
+          </div>
+
+          <div style={{
+            padding: '16px',
+            backgroundColor: '#dbeafe',
+            borderRadius: '8px',
+            borderLeft: '4px solid #06b6d4',
+          }}>
+            <h4 style={{ margin: '0 0 8px', color: '#0e7490', fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>Residential Address</h4>
+            <p style={{ margin: 0, color: '#164e63', fontSize: '14px' }}>
+              Your current street address, city, state/province, postal code, and country.
+            </p>
+          </div>
+
+          <div style={{
+            padding: '16px',
+            backgroundColor: '#f0fdf4',
+            borderRadius: '8px',
+            borderLeft: '4px solid #22c55e',
+          }}>
+            <h4 style={{ margin: '0 0 8px', color: '#166534', fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>Tax & Bank Info</h4>
+            <p style={{ margin: 0, color: '#15803d', fontSize: '14px' }}>
+              Tax ID, tax residency country, and bank account details for payment processing.
+            </p>
+          </div>
         </div>
-      )}
+      </div>
+
+      {/* FAQ Section */}
+      <div style={{ marginTop: '40px', paddingTop: '32px', borderTop: '1px solid #e5e7eb' }}>
+        <h3 style={{ marginBottom: '20px', fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>Frequently Asked Questions</h3>
+        <FAQAccordion
+          items={[
+            {
+              question: 'Why do you need my KYC information?',
+              answer:
+                'KYC (Know Your Customer) is a regulatory requirement for cross-border payments. It helps us verify your identity and comply with financial regulations.',
+            },
+            {
+              question: 'How long does verification take?',
+              answer:
+                'Most verifications complete within 1-3 business days. On testnet with auto-approve enabled, it\'s instant.',
+            },
+            {
+              question: 'Is my data encrypted?',
+              answer:
+                'Yes, all sensitive personal and financial data is encrypted at rest and in transit. We never store unencrypted sensitive information.',
+            },
+            {
+              question: 'Can I update my KYC information?',
+              answer:
+                'Yes, you can resubmit your KYC information anytime. If rejected, please correct the information and resubmit.',
+            },
+            {
+              question: 'What if my KYC is rejected?',
+              answer:
+                'The rejection reason will be displayed above. Common reasons include expired documents or mismatched information. Please correct and resubmit.',
+            },
+          ]}
+        />
+      </div>
     </div>
   );
 }

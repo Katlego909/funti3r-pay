@@ -11,7 +11,7 @@ export async function registerPasskey(email: string, role = 'enterprise') {
   try {
     // 1. Get options from server
     console.log('[WebAuthn] Requesting registration options...');
-    const { data: options } = await api.post(`${base}/register/start`, { email, role });
+    const { data: options } = await api.post(`${base}/register/start`, { email, role, origin: window.location.origin });
     console.log('[WebAuthn] Registration options received:', options);
 
     // 2. Browser prompts user to create passkey
@@ -27,7 +27,7 @@ export async function registerPasskey(email: string, role = 'enterprise') {
       userId: string;
       email: string;
       role: string;
-    }>(`${base}/register/finish`, { email, credential: registrationResponse });
+    }>(`${base}/register/finish`, { email, credential: registrationResponse, origin: window.location.origin });
 
     useAuthStore.getState().setSession(
       { userId: data.userId, email: data.email, role: data.role },
@@ -45,7 +45,7 @@ export async function loginPasskey(email: string) {
   try {
     // 1. Get authentication options
     console.log('[WebAuthn] Requesting authentication options...');
-    const { data: options } = await api.post(`${base}/login/start`, { email });
+    const { data: options } = await api.post(`${base}/login/start`, { email, origin: window.location.origin });
     console.log('[WebAuthn] Authentication options received:', options);
 
     // 2. Browser prompts user to sign with passkey
@@ -60,7 +60,7 @@ export async function loginPasskey(email: string) {
       userId: string;
       email: string;
       role: string;
-    }>(`${base}/login/finish`, { email, credential: authenticationResponse });
+    }>(`${base}/login/finish`, { email, credential: authenticationResponse, origin: window.location.origin });
 
     useAuthStore.getState().setSession(
       { userId: data.userId, email: data.email, role: data.role },

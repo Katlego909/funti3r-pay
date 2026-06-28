@@ -1,11 +1,11 @@
 import axios from 'axios';
 
 export const api = axios.create({
-  baseURL: window.location.origin.includes('3100') ? 'http://localhost:3000' : 'http://localhost:3000',
+  baseURL: 'http://localhost:3000',
   withCredentials: true, // send httpOnly refresh_token cookie
 });
 
-// Attach access token to every request
+// Attach access token to every request (browser sends Origin automatically)
 api.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('access_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;

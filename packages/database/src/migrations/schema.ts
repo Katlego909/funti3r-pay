@@ -74,17 +74,82 @@ export async function runInitialMigrations() {
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS kyc_records (
+        id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id                 UUID        NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        tier                    VARCHAR(10) NOT NULL DEFAULT 'tier1',
+        status                  VARCHAR(20) NOT NULL DEFAULT 'pending',
+
+        -- Identity (encrypted)
+        full_name               VARCHAR(255),
+        legal_name              VARCHAR(255),
+        date_of_birth           DATE,
+        nationality             VARCHAR(10),
+        country_of_residence    VARCHAR(10),
+
+        -- Government ID
+        id_type                 VARCHAR(50),
+        id_number               VARCHAR(100),
+        id_issue_date           DATE,
+        id_expiry_date          DATE,
+        id_country              VARCHAR(10),
+
+        -- Address (encrypted)
+        street_address          VARCHAR(500),
+        city                    VARCHAR(100),
+        state_province          VARCHAR(100),
+        postal_code             VARCHAR(20),
+        country                 VARCHAR(10),
+
+        -- Tax Information (encrypted)
+        tax_id                  VARCHAR(100),
+        tax_residency_country   VARCHAR(10),
+
+        -- Bank Account (encrypted)
+        bank_name               VARCHAR(255),
+        account_holder_name     VARCHAR(255),
+        account_number          VARCHAR(50),
+        iban                    VARCHAR(50),
+        swift_code              VARCHAR(20),
+        currency                VARCHAR(10),
+
+        -- Verification
+        id_verified_at          TIMESTAMPTZ,
+        address_verified_at     TIMESTAMPTZ,
+        verified_at             TIMESTAMPTZ,
+        verification_notes      TEXT,
+        rejection_reason        TEXT,
+
+        -- Metadata
+        submitted_at            TIMESTAMPTZ,
+        reviewed_at             TIMESTAMPTZ,
+        reviewed_by             VARCHAR(100),
+        created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS kyc_documents (
         id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id       UUID        NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-        status        VARCHAR(20) NOT NULL DEFAULT 'pending',
-        id_type       VARCHAR(50),
-        id_number     VARCHAR(100),
-        date_of_birth DATE,
-        country       VARCHAR(10),
+        kyc_record_id UUID        NOT NULL REFERENCES kyc_records(id) ON DELETE CASCADE,
+        document_type VARCHAR(50) NOT NULL,
+        file_name     VARCHAR(255),
+        file_hash     VARCHAR(100),
+        s3_key        VARCHAR(500),
+        verified      BOOLEAN     NOT NULL DEFAULT FALSE,
         verified_at   TIMESTAMPTZ,
-        expires_at    TIMESTAMPTZ,
-        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS pep_screening (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        kyc_id      UUID        NOT NULL REFERENCES kyc_records(id) ON DELETE CASCADE,
+        status      VARCHAR(20) NOT NULL DEFAULT 'pending',
+        result      JSONB,
+        screened_at TIMESTAMPTZ,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
 
@@ -118,6 +183,11 @@ export async function runInitialMigrations() {
     await db.query('CREATE INDEX IF NOT EXISTS idx_wallets_user_type  ON wallets(user_id, wallet_type);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_wallet_errors_user ON wallet_deployment_errors(user_id);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_wallet_errors_resolved ON wallet_deployment_errors(resolved_at);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_kyc_status         ON kyc_records(status);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_kyc_tier           ON kyc_records(tier);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_kyc_docs           ON kyc_documents(kyc_record_id);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_pep_kyc            ON pep_screening(kyc_id);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_pep_status         ON pep_screening(status);');
 
     logger.info('Migrations completed.');
   } catch (error) {

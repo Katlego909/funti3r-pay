@@ -75,6 +75,92 @@ export enum ComplianceStatus {
   EXPIRED = 'expired',
 }
 
+export enum KYCTier {
+  TIER1 = 'tier1',
+  TIER2 = 'tier2',
+}
+
+export enum KYCDocumentType {
+  GOVERNMENT_ID = 'government_id',
+  PASSPORT = 'passport',
+  DRIVER_LICENSE = 'driver_license',
+  PROOF_OF_ADDRESS = 'proof_of_address',
+  BANK_STATEMENT = 'bank_statement',
+}
+
+export interface KYCIdentity {
+  fullName: string;
+  legalName: string;
+  dateOfBirth: Date;
+  nationality: string;
+  countryOfResidence: string;
+}
+
+export interface KYCGovernmentID {
+  idType: 'passport' | 'national_id' | 'driver_license';
+  idNumber: string;
+  issueDate: Date;
+  expiryDate: Date;
+  country: string;
+}
+
+export interface KYCAddress {
+  streetAddress: string;
+  city: string;
+  stateProvince: string;
+  postalCode: string;
+  country: string;
+}
+
+export interface KYCTaxInfo {
+  taxId: string;
+  taxResidencyCountry: string;
+}
+
+export interface KYCBankAccount {
+  bankName: string;
+  accountHolderName: string;
+  accountNumber: string;
+  iban?: string;
+  swiftCode?: string;
+  currency: string;
+}
+
+export interface KYCDocument {
+  id: string;
+  kycRecordId: string;
+  documentType: KYCDocumentType;
+  fileName: string;
+  fileHash: string;
+  s3Key: string;
+  verified: boolean;
+  verifiedAt?: Date;
+  createdAt: Date;
+}
+
+export interface KYCRecord {
+  id: string;
+  userId: string;
+  tier: KYCTier;
+  status: ComplianceStatus;
+  identity?: KYCIdentity;
+  governmentId?: KYCGovernmentID;
+  address?: KYCAddress;
+  taxInfo?: KYCTaxInfo;
+  bankAccount?: KYCBankAccount;
+  documents?: KYCDocument[];
+  idVerifiedAt?: Date;
+  addressVerifiedAt?: Date;
+  verifiedAt?: Date;
+  verificationNotes?: string;
+  rejectionReason?: string;
+  submittedAt?: Date;
+  reviewedAt?: Date;
+  reviewedBy?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface KYCData {
   userId: string;
   status: ComplianceStatus;
