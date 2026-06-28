@@ -438,20 +438,6 @@ app.post('/api/auth/logout', logoutHandler);
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
-app.get('/users/:id', async (req, res) => {
-  try {
-    const result = await query(
-      'SELECT id, email, role, status, country, created_at FROM users WHERE id = $1',
-      [req.params.id],
-    );
-    if (result.rows.length === 0) throw new NotFoundError('User');
-    res.json(result.rows[0]);
-  } catch (err) {
-    if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 app.get('/users/summary', async (_req, res) => {
   try {
     const total = await query('SELECT COUNT(*) AS total FROM users');
@@ -464,6 +450,20 @@ app.get('/users/summary', async (_req, res) => {
     });
   } catch (err) {
     logger.error('users/summary failed', { error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/users/:id', async (req, res) => {
+  try {
+    const result = await query(
+      'SELECT id, email, role, status, country, created_at FROM users WHERE id = $1',
+      [req.params.id],
+    );
+    if (result.rows.length === 0) throw new NotFoundError('User');
+    res.json(result.rows[0]);
+  } catch (err) {
+    if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
