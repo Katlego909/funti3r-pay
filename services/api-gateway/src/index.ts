@@ -60,6 +60,26 @@ app.use('/auth', authLimiter);
 
 app.use(authMiddleware);
 
+// ── Handle preflight requests ─────────────────────────────────────────────────
+
+app.options('*', (req, res) => {
+  const origin = req.headers.origin as string;
+  const allowedOrigins = [
+    'http://localhost:3100',
+    'http://localhost:3101',
+    'http://localhost:3102',
+  ];
+
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Max-Age', '3600');
+  }
+  res.sendStatus(204);
+});
+
 // ── Request logging ───────────────────────────────────────────────────────────
 
 app.use((req, res, next) => {
