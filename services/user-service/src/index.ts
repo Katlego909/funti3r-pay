@@ -220,20 +220,16 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     // Convert base64url credential ID to hex
     const credIdBase64 = credentialID.replace(/-/g, '+').replace(/_/g, '/') + '==';
     const credIdHex = Buffer.from(credIdBase64, 'base64').toString('hex');
-    console.log('[RegisterFinish] Triggering async SmartWallet deployment', { userId, PAYMENT_SERVICE_URL });
     setImmediate(async () => {
       try {
-        console.log('[RegisterFinish] Making deployment request to', `${PAYMENT_SERVICE_URL}/wallets/worker`);
-        const deployRes = await axios.post(`${PAYMENT_SERVICE_URL}/wallets/worker`, {
+        await axios.post(`${PAYMENT_SERVICE_URL}/wallets/worker`, {
           userId,
           passkeyPkHex: passkeyPkBuffer.toString('hex'),
           credentialIdHex: credIdHex,
-        }, { timeout: 300000 }); // 5 minute timeout
-        logger.info('SmartWallet deployment triggered', { userId, response: deployRes.status });
-        console.log('[RegisterFinish] Deployment response:', deployRes.status, deployRes.data);
+        }, { timeout: 300000 });
+        logger.info('SmartWallet deployment triggered', { userId });
       } catch (err) {
-        logger.error('SmartWallet deployment failed', { userId, error: String(err), stack: err instanceof Error ? err.stack : '' });
-        console.error('[RegisterFinish] Deployment error:', err instanceof Error ? err.message : String(err));
+        logger.error('SmartWallet deployment failed', { userId, error: String(err) });
       }
     });
 

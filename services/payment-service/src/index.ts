@@ -56,9 +56,7 @@ app.post('/wallets/worker', async (req, res) => {
   }
 
   try {
-    console.log('[POST /wallets/worker] Starting deployment for', userId);
     const contractAddress = await stellar.deploySmartWallet(passkeyPkHex, credentialIdHex);
-    console.log('[POST /wallets/worker] SmartWallet deployed:', contractAddress);
 
     await query(
       `INSERT INTO wallets (user_id, wallet_type, contract_address, status, deployed_at, updated_at)
@@ -80,11 +78,8 @@ app.post('/wallets/worker', async (req, res) => {
     logger.info('Worker SmartWallet created', { userId, contractAddress });
     res.status(201).json({ userId, contractAddress });
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    const errStack = err instanceof Error ? err.stack : '';
-    logger.error('Worker wallet creation failed', { userId, error: errMsg, stack: errStack });
-    console.error('[POST /wallets/worker] Error:', errMsg, errStack);
-    res.status(500).json({ error: errMsg, stack: errStack });
+    logger.error('Worker wallet creation failed', { userId, error: String(err) });
+    res.status(500).json({ error: String(err) });
   }
 });
 
