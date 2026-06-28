@@ -57,28 +57,11 @@ app.post('/wallets/worker', async (req, res) => {
 
   try {
     const contractAddress = await stellar.deploySmartWallet(passkeyPkHex, credentialIdHex);
-
-    await query(
-      `INSERT INTO wallets (user_id, wallet_type, contract_address, status, deployed_at, updated_at)
-       VALUES ($1, 'worker', $2, 'active', NOW(), NOW())
-       ON CONFLICT (user_id) DO UPDATE SET
-         contract_address = EXCLUDED.contract_address,
-         status = 'active',
-         deployed_at = NOW(),
-         updated_at = NOW()`,
-      [userId, contractAddress],
-    );
-
-    // Update user's wallet_deployed_at timestamp
-    await query(
-      `UPDATE users SET wallet_deployed_at = NOW() WHERE id = $1`,
-      [userId]
-    );
-
-    logger.info('Worker SmartWallet created', { userId, contractAddress });
-    res.status(201).json({ userId, contractAddress });
+    logger.info('Worker SmartWallet deployed', { userId, contractAddress });
+    // Return contract address; user-service will insert wallet record after creating user
+    res.status(201).json({ contractAddress });
   } catch (err) {
-    logger.error('Worker wallet creation failed', { userId, error: String(err) });
+    logger.error('Worker wallet deployment failed', { userId, error: String(err) });
     res.status(500).json({ error: String(err) });
   }
 });
