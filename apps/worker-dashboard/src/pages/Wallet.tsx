@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useAtom } from 'jotai';
 import { HiOutlineBanknotes } from 'react-icons/hi2';
-import { authAtom } from '../store/authStore';
+import { useAuthStore } from '../store/authStore';
 import { WalletDeploymentStatus } from '../components/WalletDeploymentStatus';
 
 interface WalletBalance {
@@ -19,28 +18,29 @@ interface WalletInfo {
 }
 
 export default function Wallet() {
-  const [auth] = useAtom(authAtom);
+  const { user, accessToken } = useAuthStore();
+  const userId = user?.userId;
   const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(null);
   const [balances, setBalances] = useState<WalletBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!auth?.userId || !auth?.accessToken) {
+    if (!userId || !accessToken) {
       setLoading(false);
       return;
     }
 
     fetchWallet();
-  }, [auth?.userId, auth?.accessToken]);
+  }, [userId, accessToken]);
 
   const fetchWallet = async () => {
     try {
-      if (!auth?.userId || !auth?.accessToken) return;
+      if (!userId || !accessToken) return;
 
-      const response = await fetch(`/api/wallets/${auth.userId}`, {
+      const response = await fetch(`/api/wallets/${userId}`, {
         headers: {
-          'Authorization': `Bearer ${auth.accessToken}`
+          'Authorization': `Bearer ${accessToken}`
         }
       });
 

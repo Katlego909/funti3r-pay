@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useAtom } from 'jotai';
-import { authAtom } from '../store/authStore';
+import { useAuthStore } from '../store/authStore';
 
 export interface WalletDeploymentStatus {
   status: 'idle' | 'deploying' | 'deployed' | 'error';
@@ -13,21 +12,22 @@ const POLL_INTERVAL_MS = 2000; // Poll every 2 seconds
 const MAX_WAIT_MS = 40000; // Max wait 40 seconds
 
 export function useWalletDeployment() {
-  const [auth] = useAtom(authAtom);
+  const { user, accessToken } = useAuthStore();
+  const userId = user?.userId;
   const [deploymentStatus, setDeploymentStatus] = useState<WalletDeploymentStatus>({
     status: 'idle'
   });
   const [isPolling, setIsPolling] = useState(false);
 
   const checkDeploymentStatus = useCallback(async () => {
-    if (!auth?.userId || !auth?.accessToken) return null;
+    if (!userId || !accessToken) return null;
 
     try {
       const response = await fetch(
-        `/api/wallets/${auth.userId}/deployment-status`,
+        `/api/wallets/${userId}/deployment-status`,
         {
           headers: {
-            'Authorization': `Bearer ${auth.accessToken}`
+            'Authorization': `Bearer ${accessToken}`
           }
         }
       );
@@ -43,16 +43,17 @@ export function useWalletDeployment() {
       console.warn('Deployment status check failed:', err);
       return null;
     }
-  }, [auth?.userId, auth?.accessToken]);
+  }, [userId, accessToken]);
 
   useEffect(() => {
     // Only start polling if:
     // 1. User is authenticated
-    // 2. User is a worker (indicated by wallet deployment status being set)
-    // 3. We haven't already deployed
-    if (!auth?.userId) return;
-    if (!auth?.walletDeployment || auth.walletDeployment.status !== 'deploying') return;
+    // 2. We haven't already deployed
+    if (!userId) return;
     if (deploymentStatus.status === 'deployed') return;
+
+    // For workers, assume we should poll for deployment status
+    // This is triggered right after registration
 
     setIsPolling(true);
     const startTime = Date.now();
@@ -66,10 +67,10 @@ export function useWalletDeployment() {
         // Wallet is deployed, fetch full details
         try {
           const response = await fetch(
-            `/api/wallets/${auth.userId}`,
+            `/api/wallets/${userId}`,
             {
               headers: {
-                'Authorization': `Bearer ${auth.accessToken}`
+                'Authorization': `Bearer ${accessToken}`
               }
             }
           );
@@ -127,7 +128,7 @@ export function useWalletDeployment() {
       clearInterval(pollInterval);
       setIsPolling(false);
     };
-  }, [auth?.userId, auth?.walletDeployment, auth?.accessToken, checkDeploymentStatus, deploymentStatus.status]);
+  }, [userId, accessToken, checkDeploymentStatus, deploymentStatus.status]);
 
   return {
     ...deploymentStatus,
