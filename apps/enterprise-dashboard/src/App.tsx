@@ -54,8 +54,11 @@ function NavBar() {
     <header className="header">
       <div className="header-container">
         <div className="logo">
-          <h1>Funti3rPay</h1>
-          <p className="tagline">Cross-Border Workforce Payments</p>
+          <img src="/images/logo.png" alt="Funti3rPay" className="logo-image" />
+          <div className="logo-text">
+            <h1>Funti3rPay</h1>
+            <p className="tagline">Cross-Border Workforce Payments</p>
+          </div>
         </div>
         <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>
           <HiOutlineBars3 size={24} />
