@@ -77,8 +77,11 @@ app.post('/verify', async (req, res) => {
 
     res.status(201).json({ status, message: AUTO_APPROVE ? 'Auto-approved (testnet)' : 'Under review' });
   } catch (err) {
-    logger.error('KYC submission failed', { userId, error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    const errorStack = err instanceof Error ? err.stack : '';
+    console.error('[KYC_SUBMIT_ERROR]', { userId, errorMsg, errorStack });
+    logger.error('KYC submission failed', { userId, error: errorMsg, stack: errorStack });
+    res.status(500).json({ error: errorMsg || 'Internal server error' });
   }
 });
 
