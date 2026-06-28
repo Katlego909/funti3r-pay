@@ -131,19 +131,15 @@ app.use((req, res, next) => {
 });
 
 // Auth & Users → user-service
-app.use('/auth',  proxy(USER_SERVICE));
-app.use('/api/auth', proxy(USER_SERVICE, { '^/api/auth': '/auth' }));
-app.use('/users', proxy(USER_SERVICE));
-app.use('/api/users', proxy(USER_SERVICE, { '^/api/users': '/users' }));
+app.all(['/auth*', '/api/auth*'], proxy(USER_SERVICE, { '^/api/auth': '/auth' }));
+app.all(['/users*', '/api/users*'], proxy(USER_SERVICE, { '^/api/users': '/users' }));
 
 // Wallets & Payouts → payment-service
-app.use('/wallets', proxy(PAYMENT_SERVICE));
-app.use('/payouts',  proxy(PAYMENT_SERVICE));
-app.use('/api/wallets', proxy(PAYMENT_SERVICE, { '^/api/wallets': '/wallets' }));
-app.use('/api/payouts',  proxy(PAYMENT_SERVICE, { '^/api/payouts': '/payouts' }));
+app.all(['/wallets*', '/api/wallets*'], proxy(PAYMENT_SERVICE, { '^/api/wallets': '/wallets' }));
+app.all(['/payouts*', '/api/payouts*'], proxy(PAYMENT_SERVICE, { '^/api/payouts': '/payouts' }));
 
 // Compliance → compliance-service
-app.use('/compliance', proxy(COMPLIANCE_URL));
+app.all('/compliance*', proxy(COMPLIANCE_URL));
 
 // Analytics → analytics-service
 app.use('/analytics', proxy(ANALYTICS_URL));
