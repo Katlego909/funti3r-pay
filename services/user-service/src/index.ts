@@ -106,8 +106,8 @@ app.post('/auth/register/test', (req, res) => {
  */
 const registerStartHandler = async (req: express.Request, res: express.Response) => {
   try {
-    const { email, role = 'worker' } = req.body;
-    const clientOrigin = req.headers.origin || RP_ORIGIN;
+    const { email, role = 'worker', origin } = req.body;
+    const clientOrigin = origin || req.headers.origin || RP_ORIGIN;
 
     if (!email) {
       return res.status(400).json({ error: 'Email is required' });
@@ -122,11 +122,10 @@ const registerStartHandler = async (req: express.Request, res: express.Response)
       userDisplayName: email.split('@')[0] || 'User',
       attestationType: 'none',
       authenticatorSelection: {
-        // Allow both platform (Windows Hello, Touch ID) and cross-platform (security keys)
-        // undefined = user chooses
-        authenticatorAttachment: undefined,
+        // Only platform authenticators: Windows Hello, Touch ID, etc
+        authenticatorAttachment: 'platform',
         residentKey: 'preferred',
-        userVerification: 'preferred',
+        userVerification: 'required',
       },
       supportedAlgorithmIDs: [-7, -257], // ES256, RS256 (ES256 is best for platform authenticators)
     });
@@ -157,9 +156,10 @@ app.post('/api/auth/register/start', registerStartHandler);
  */
 const registerFinishHandler = async (req: express.Request, res: express.Response) => {
   try {
-    const { email, credential } = req.body as {
+    const { email, credential, origin } = req.body as {
       email: string;
       credential: Record<string, unknown>;
+      origin?: string;
     };
     if (!email || !credential) throw new ValidationError('email and credential are required');
 
@@ -170,7 +170,7 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     }
 
     console.log('[registerFinish] Challenge found, verifying credential...');
-    const clientOrigin = req.headers.origin || RP_ORIGIN;
+    const clientOrigin = origin || req.headers.origin || RP_ORIGIN;
     const verification = await verifyRegistrationResponse({
       response: credential as unknown as Parameters<typeof verifyRegistrationResponse>[0]['response'],
       expectedChallenge: session.challenge,
@@ -195,30 +195,6 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
 
     // Generate userId upfront so wallet deployment can reference it
     const userId = randomUUID();
-    let contractAddress: string | null = null;
-
-    // Deploy SmartWallet BEFORE creating user in database
-    // This way if deployment fails, user is never created
-    if (session.role === 'worker') {
-      try {
-        const credIdBase64 = credentialID.replace(/-/g, '+').replace(/_/g, '/') + '==';
-        const credIdHex = Buffer.from(credIdBase64, 'base64').toString('hex');
-
-        const deployRes = await axios.post(`${PAYMENT_SERVICE_URL}/wallets/worker`, {
-          userId,
-          passkeyPkHex: passkeyPkBuffer.toString('hex'),
-          credentialIdHex: credIdHex,
-        }, { timeout: 300000 }); // 5 minute timeout
-
-        contractAddress = deployRes.data.contractAddress;
-        logger.info('SmartWallet deployed', { userId, contractAddress });
-      } catch (err) {
-        logger.error('SmartWallet deployment failed', { userId, error: String(err) });
-        return res.status(500).json({
-          error: 'Wallet deployment failed: ' + String(err)
-        });
-      }
-    }
 
     // Create user in database
     await query(
@@ -241,13 +217,31 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
       ],
     );
 
-    // Create wallet record if deployment succeeded
-    if (contractAddress) {
-      await query(
-        `INSERT INTO wallets (user_id, wallet_type, contract_address, status, deployed_at, updated_at)
-         VALUES ($1, 'worker', $2, 'active', NOW(), NOW())`,
-        [userId, contractAddress],
-      );
+    // Deploy SmartWallet asynchronously (non-blocking)
+    // Worker wallet deploys in background; polling endpoint checks status
+    if (session.role === 'worker') {
+      setImmediate(async () => {
+        try {
+          const credIdBase64 = credentialID.replace(/-/g, '+').replace(/_/g, '/') + '==';
+          const credIdHex = Buffer.from(credIdBase64, 'base64').toString('hex');
+
+          const deployRes = await axios.post(`${PAYMENT_SERVICE_URL}/wallets/worker`, {
+            userId,
+            passkeyPkHex: passkeyPkBuffer.toString('hex'),
+            credentialIdHex: credIdHex,
+          }, { timeout: 300000 }); // 5 minute timeout
+
+          const contractAddress = deployRes.data.contractAddress;
+          await query(
+            `INSERT INTO wallets (user_id, wallet_type, contract_address, status, deployed_at, updated_at)
+             VALUES ($1, 'worker', $2, 'active', NOW(), NOW())`,
+            [userId, contractAddress],
+          );
+          logger.info('SmartWallet deployed async', { userId, contractAddress });
+        } catch (err) {
+          logger.error('SmartWallet deployment failed (async)', { userId, error: String(err) });
+        }
+      });
     }
 
     await deleteKey(`reg:${email}`);
@@ -296,7 +290,7 @@ app.post('/api/auth/register/finish', registerFinishHandler);
  */
 const loginStartHandler = async (req: express.Request, res: express.Response) => {
   try {
-    const { email } = req.body as { email: string };
+    const { email, origin } = req.body as { email: string; origin?: string };
     if (!email) throw new ValidationError('email is required');
 
     const userRow = await query(
@@ -343,9 +337,10 @@ app.post('/api/auth/login/start', loginStartHandler);
  */
 const loginFinishHandler = async (req: express.Request, res: express.Response) => {
   try {
-    const { email, credential } = req.body as {
+    const { email, credential, origin } = req.body as {
       email: string;
       credential: Record<string, unknown>;
+      origin?: string;
     };
     if (!email || !credential) throw new ValidationError('email and credential are required');
 
@@ -366,7 +361,7 @@ const loginFinishHandler = async (req: express.Request, res: express.Response) =
       return res.status(400).json({ error: 'Authentication session expired. Please start again.' });
     }
 
-    const clientOrigin = req.headers.origin || RP_ORIGIN;
+    const clientOrigin = origin || req.headers.origin || RP_ORIGIN;
     const verification = await verifyAuthenticationResponse({
       response: credential as unknown as Parameters<typeof verifyAuthenticationResponse>[0]['response'],
       expectedChallenge: session.challenge,
