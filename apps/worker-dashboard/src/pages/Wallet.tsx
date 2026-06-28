@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAtom } from 'jotai';
 import { HiOutlineBanknotes } from 'react-icons/hi2';
-import { authAtom } from '../store/auth';
+import { authAtom } from '../store/authStore';
 import { WalletDeploymentStatus } from '../components/WalletDeploymentStatus';
 
 interface WalletBalance {

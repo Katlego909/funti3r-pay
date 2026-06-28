@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAtom } from 'jotai';
-import { authAtom } from '../store/auth';
+import { authAtom } from '../store/authStore';
 
 export interface WalletDeploymentStatus {
   status: 'idle' | 'deploying' | 'deployed' | 'error';
