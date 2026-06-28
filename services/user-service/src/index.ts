@@ -169,10 +169,11 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     }
 
     console.log('[registerFinish] Challenge found, verifying credential...');
+    const clientOrigin = req.headers.origin || RP_ORIGIN;
     const verification = await verifyRegistrationResponse({
       response: credential as unknown as Parameters<typeof verifyRegistrationResponse>[0]['response'],
       expectedChallenge: session.challenge,
-      expectedOrigin: RP_ORIGIN,
+      expectedOrigin: clientOrigin,
       expectedRPID: RP_ID,
       requireUserVerification: false,
     });
@@ -337,10 +338,11 @@ const loginFinishHandler = async (req: express.Request, res: express.Response) =
       return res.status(400).json({ error: 'Authentication session expired. Please start again.' });
     }
 
+    const clientOrigin = req.headers.origin || RP_ORIGIN;
     const verification = await verifyAuthenticationResponse({
       response: credential as unknown as Parameters<typeof verifyAuthenticationResponse>[0]['response'],
       expectedChallenge: session.challenge,
-      expectedOrigin: RP_ORIGIN,
+      expectedOrigin: clientOrigin,
       expectedRPID: RP_ID,
       requireUserVerification: false,
       authenticator: {
