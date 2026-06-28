@@ -387,7 +387,7 @@ app.post('/api/auth/login/finish', loginFinishHandler);
  * POST /auth/refresh
  * Uses the httpOnly refresh_token cookie to issue a new access token.
  */
-app.post('/auth/refresh', async (req, res) => {
+const refreshHandler = async (req: express.Request, res: express.Response) => {
   try {
     const token: string | undefined = req.cookies?.refresh_token;
     if (!token) throw new AuthenticationError('No refresh token');
@@ -415,18 +415,26 @@ app.post('/auth/refresh', async (req, res) => {
     logger.error('refresh failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
   }
-});
+};
+
+app.post('/auth/refresh', refreshHandler);
+app.post('/refresh', refreshHandler);
+app.post('/api/auth/refresh', refreshHandler);
 
 /**
  * POST /auth/logout
  * Clears the refresh token from Redis and the cookie.
  */
-app.post('/auth/logout', async (req, res) => {
+const logoutHandler = async (req: express.Request, res: express.Response) => {
   const token: string | undefined = req.cookies?.refresh_token;
   if (token) await deleteKey(`refresh:${hashRefreshToken(token)}`);
   res.clearCookie('refresh_token', { path: '/auth' });
   res.json({ message: 'Logged out' });
-});
+};
+
+app.post('/auth/logout', logoutHandler);
+app.post('/logout', logoutHandler);
+app.post('/api/auth/logout', logoutHandler);
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
