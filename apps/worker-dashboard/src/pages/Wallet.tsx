@@ -72,10 +72,9 @@ export default function Wallet() {
   const triggerWalletDeployment = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/wallets/deploy', {
+      const response = await fetch('/api/wallets/deploy-for-existing-user', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ userId })
