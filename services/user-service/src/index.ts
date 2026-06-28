@@ -240,7 +240,19 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     );
 
     setRefreshCookie(res, refreshToken);
-    res.status(201).json({ accessToken, userId, email, role: session.role });
+
+    // Include wallet deployment status for workers
+    const walletDeploymentStatus = session.role === 'worker'
+      ? { status: 'deploying', estimatedTime: '20-30 seconds' }
+      : null;
+
+    res.status(201).json({
+      accessToken,
+      userId,
+      email,
+      role: session.role,
+      walletDeployment: walletDeploymentStatus
+    });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -501,6 +513,37 @@ app.get('/users/:id', async (req, res) => {
   } catch (err) {
     if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── Wallet Deployment ────────────────────────────────────────────────────────
+
+/**
+ * GET /wallets/:userId/deployment-status
+ * Check worker wallet deployment progress (polls Payment Service)
+ */
+app.get('/wallets/:userId/deployment-status', async (req: express.Request, res: express.Response) => {
+  try {
+    const { userId } = req.params;
+
+    // Query Payment Service for deployment status
+    const statusRes = await axios.get(
+      `${PAYMENT_SERVICE_URL}/wallets/${userId}/deployment-status`,
+      { timeout: 5000 }
+    );
+
+    res.json(statusRes.data);
+  } catch (err) {
+    logger.warn('Failed to get deployment status from Payment Service', {
+      userId: req.params.userId,
+      error: String(err)
+    });
+    // Return "still deploying" if Payment Service unreachable
+    res.json({
+      status: 'deploying',
+      contractAddress: null,
+      deployedAt: null
+    });
   }
 });
 
