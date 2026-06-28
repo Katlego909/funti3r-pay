@@ -195,6 +195,7 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
 
     // Generate userId upfront so wallet deployment can reference it
     const userId = randomUUID();
+    let contractAddress: string | null = null;
 
     // Deploy SmartWallet BEFORE creating user in database
     // This way if deployment fails, user is never created
@@ -203,13 +204,14 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
         const credIdBase64 = credentialID.replace(/-/g, '+').replace(/_/g, '/') + '==';
         const credIdHex = Buffer.from(credIdBase64, 'base64').toString('hex');
 
-        await axios.post(`${PAYMENT_SERVICE_URL}/wallets/worker`, {
+        const deployRes = await axios.post(`${PAYMENT_SERVICE_URL}/wallets/worker`, {
           userId,
           passkeyPkHex: passkeyPkBuffer.toString('hex'),
           credentialIdHex: credIdHex,
         }, { timeout: 300000 }); // 5 minute timeout
 
-        logger.info('SmartWallet deployed', { userId });
+        contractAddress = deployRes.data.contractAddress;
+        logger.info('SmartWallet deployed', { userId, contractAddress });
       } catch (err) {
         logger.error('SmartWallet deployment failed', { userId, error: String(err) });
         return res.status(500).json({
@@ -218,12 +220,13 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
       }
     }
 
-    // Now create user + credential in database
+    // Create user in database
     await query(
       `INSERT INTO users (id, email, role) VALUES ($1, $2, $3)`,
       [userId, email, session.role],
     );
 
+    // Create credential
     await query(
       `INSERT INTO user_credentials
          (user_id, credential_id, public_key, counter, transports, aaguid)
@@ -237,6 +240,20 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
         aaguid,
       ],
     );
+
+    // Create wallet record if deployment succeeded
+    if (contractAddress) {
+      await query(
+        `INSERT INTO wallets (user_id, wallet_type, contract_address, status, deployed_at, updated_at)
+         VALUES ($1, 'worker', $2, 'active', NOW(), NOW())`,
+        [userId, contractAddress],
+      );
+
+      await query(
+        `UPDATE users SET wallet_deployed_at = NOW() WHERE id = $1`,
+        [userId]
+      );
+    }
 
     await deleteKey(`reg:${email}`);
 
