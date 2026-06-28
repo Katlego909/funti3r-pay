@@ -1,0 +1,17 @@
+{
+  "name": "@funti3r/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "node --env-file=../.env.local --import tsx ./deploy.ts",
+    "build:wasm": "cargo build --target wasm32-unknown-unknown --release"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^16.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.6.0",
+    "typescript": "^5.3.0"
+  }
+}
