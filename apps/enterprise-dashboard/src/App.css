@@ -64,6 +64,21 @@ body {
 
 .logo {
   display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+}
+
+.logo-image {
+  height: 60px;
+  width: auto;
+  object-fit: contain;
+}
+
+.logo-text {
+  display: flex;
   flex-direction: column;
   margin: 0;
   padding: 0;
