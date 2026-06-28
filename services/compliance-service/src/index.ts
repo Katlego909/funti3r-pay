@@ -103,6 +103,27 @@ app.get('/:userId/status', async (req, res) => {
   }
 });
 
+// ── Get full KYC details ──────────────────────────────────────────────────────
+
+app.get('/:userId', async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT id, user_id, status, id_type, id_number, date_of_birth, country, verified_at, created_at, updated_at
+         FROM kyc_records WHERE user_id = $1`,
+      [req.params.userId],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No KYC record found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    logger.error('Get KYC details failed', { error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ── Admin approval (used in production, and for testnet manual overrides) ─────
 
 app.post('/:userId/approve', async (req, res) => {
