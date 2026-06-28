@@ -3,6 +3,37 @@ import { HiOutlineCheckCircle } from 'react-icons/hi2';
 import { useAuthStore } from '../store/authStore.js';
 import { api } from '../api/client.js';
 
+const COUNTRIES = [
+  { code: 'ZA', name: 'South Africa' },
+  { code: 'NG', name: 'Nigeria' },
+  { code: 'KE', name: 'Kenya' },
+  { code: 'GH', name: 'Ghana' },
+  { code: 'UG', name: 'Uganda' },
+  { code: 'TZ', name: 'Tanzania' },
+  { code: 'EG', name: 'Egypt' },
+  { code: 'MA', name: 'Morocco' },
+  { code: 'SN', name: 'Senegal' },
+  { code: 'RW', name: 'Rwanda' },
+  { code: 'CM', name: 'Cameroon' },
+  { code: 'CI', name: 'Ivory Coast' },
+  { code: 'ET', name: 'Ethiopia' },
+  { code: 'PK', name: 'Pakistan' },
+  { code: 'IN', name: 'India' },
+  { code: 'PH', name: 'Philippines' },
+  { code: 'ID', name: 'Indonesia' },
+  { code: 'TH', name: 'Thailand' },
+  { code: 'VN', name: 'Vietnam' },
+  { code: 'BR', name: 'Brazil' },
+  { code: 'MX', name: 'Mexico' },
+  { code: 'CO', name: 'Colombia' },
+  { code: 'AR', name: 'Argentina' },
+  { code: 'US', name: 'United States' },
+  { code: 'GB', name: 'United Kingdom' },
+  { code: 'DE', name: 'Germany' },
+  { code: 'FR', name: 'France' },
+  { code: 'CA', name: 'Canada' },
+];
+
 interface KYCDetail {
   status: string;
   created_at: string;
@@ -44,9 +75,14 @@ export default function KYC() {
         dateOfBirth: formData.dob || undefined,
         country: formData.country,
       });
-      setFormOpen(false);
+
       const res = await api.get<KYCDetail>(`/compliance/${user.userId}`);
       setKycData(res.data);
+      setFormOpen(false);
+
+      setTimeout(() => {
+        alert('✓ KYC submitted successfully!\n\nYour submission is now under review.');
+      }, 100);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Submission failed');
     } finally {
@@ -217,11 +253,9 @@ export default function KYC() {
 
           <div>
             <label style={{ display: 'block', fontWeight: 600, marginBottom: '6px', fontSize: '14px' }}>Country</label>
-            <input
-              type="text"
+            <select
               value={formData.country}
               onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-              placeholder="e.g. NG"
               disabled={submitting}
               required
               style={{
@@ -231,7 +265,14 @@ export default function KYC() {
                 borderRadius: '4px',
                 fontSize: '14px'
               }}
-            />
+            >
+              <option value="">Select a country</option>
+              {COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.name} ({c.code})
+                </option>
+              ))}
+            </select>
           </div>
 
           {error && <p style={{ color: '#dc2626', margin: '0' }}>{error}</p>}
