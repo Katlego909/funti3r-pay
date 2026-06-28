@@ -519,6 +519,53 @@ app.get('/users/:id', async (req, res) => {
 // ── Wallet Deployment ────────────────────────────────────────────────────────
 
 /**
+ * POST /wallets/deploy
+ * Trigger SmartWallet deployment for current user or a specific user (admin only).
+ * Can be called by:
+ * - A user for their own wallet (if they don't have one yet)
+ * - An admin to deploy for another user
+ */
+const deployWalletHandler = async (req: express.Request, res: express.Response) => {
+  try {
+    const { userId: targetUserId } = req.body as { userId?: string };
+    const requestingUserId = (req as any).headers['x-user-id'] as string;
+    const requestingRole = (req as any).headers['x-user-role'] as string;
+
+    // Determine which user to deploy for
+    const userId = targetUserId || requestingUserId;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required or must be authenticated' });
+    }
+
+    // Authorization: user can deploy for themselves, or admin can deploy for anyone
+    if (userId !== requestingUserId && requestingRole !== 'admin') {
+      return res.status(403).json({ error: 'Not authorized to deploy wallet for this user' });
+    }
+
+    logger.info('Triggering wallet deployment', { userId, requestedBy: requestingUserId });
+
+    // Call Payment Service to deploy
+    const deployRes = await axios.post(
+      `${PAYMENT_SERVICE_URL}/wallets/deploy-for-existing-user`,
+      { userId },
+      { timeout: 60000 }
+    );
+
+    res.status(201).json(deployRes.data);
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response?.status === 404) {
+      return res.status(404).json({ error: 'User not found or user credentials missing' });
+    }
+    logger.error('Wallet deployment failed', { error: String(err) });
+    res.status(500).json({ error: 'Wallet deployment failed' });
+  }
+};
+
+app.post('/wallets/deploy', deployWalletHandler);
+app.post('/api/wallets/deploy', deployWalletHandler);
+
+/**
  * GET /wallets/:userId/deployment-status
  * Check worker wallet deployment progress (polls Payment Service)
  */
