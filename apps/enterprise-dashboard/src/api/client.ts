@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 export const api = axios.create({
-  baseURL: 'http://localhost:3000',
+  baseURL: window.location.origin.includes('3100') ? 'http://localhost:3000' : 'http://localhost:3000',
   withCredentials: true, // send httpOnly refresh_token cookie
 });
 

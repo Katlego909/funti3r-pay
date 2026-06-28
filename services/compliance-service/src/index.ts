@@ -21,6 +21,11 @@ const WEBHOOK_SECRET = process.env.COMPLIANCE_WEBHOOK_SECRET ?? '';
 const app = express();
 app.use(express.json());
 
+app.use((req, res, next) => {
+  console.log('[COMPLIANCE] Incoming request:', { method: req.method, path: req.path, url: req.url });
+  next();
+});
+
 // ── Health ────────────────────────────────────────────────────────────────────
 
 app.get('/health', (_, res) => {
@@ -35,7 +40,7 @@ app.get('/health', (_, res) => {
  * immediately marks them as VERIFIED. In production this creates a PENDING
  * record and triggers the external KYC provider.
  */
-app.post('/verify', async (req, res) => {
+const verifyHandler = async (req: any, res: any) => {
   const { userId, idType, idNumber, dateOfBirth, country } = req.body as {
     userId: string;
     idType: string;
@@ -83,11 +88,16 @@ app.post('/verify', async (req, res) => {
     logger.error('KYC submission failed', { userId, error: errorMsg, stack: errorStack });
     res.status(500).json({ error: errorMsg || 'Internal server error' });
   }
-});
+};
+
+// Register verify endpoint at multiple paths (like auth service does)
+app.post('/verify', verifyHandler);
+app.post('/compliance/verify', verifyHandler);
+app.post('/api/compliance/verify', verifyHandler);
 
 // ── Status check ──────────────────────────────────────────────────────────────
 
-app.get('/:userId/status', async (req, res) => {
+const statusHandler = async (req: any, res: any) => {
   try {
     const result = await query(
       `SELECT status, verified_at, expires_at, updated_at
@@ -104,11 +114,15 @@ app.get('/:userId/status', async (req, res) => {
     logger.error('Status check failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
   }
-});
+};
+
+app.get('/:userId/status', statusHandler);
+app.get('/compliance/:userId/status', statusHandler);
+app.get('/api/compliance/:userId/status', statusHandler);
 
 // ── Get full KYC details ──────────────────────────────────────────────────────
 
-app.get('/:userId', async (req, res) => {
+const getKycHandler = async (req: any, res: any) => {
   try {
     const result = await query(
       `SELECT id, user_id, status, id_type, id_number, date_of_birth, country, verified_at, created_at, updated_at
@@ -125,14 +139,18 @@ app.get('/:userId', async (req, res) => {
     logger.error('Get KYC details failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
   }
-});
+};
+
+app.get('/:userId', getKycHandler);
+app.get('/compliance/:userId', getKycHandler);
+app.get('/api/compliance/:userId', getKycHandler);
 
 // ── Admin approval (used in production, and for testnet manual overrides) ─────
 
-app.post('/:userId/approve', async (req, res) => {
+const approveHandler = async (req: any, res: any) => {
   const role = req.headers['x-user-role'];
-  if (role !== 'admin') {
-    return res.status(403).json({ error: 'Admin role required' });
+  if (role !== 'admin' && role !== 'enterprise') {
+    return res.status(403).json({ error: 'Admin or enterprise role required' });
   }
 
   try {
@@ -156,12 +174,16 @@ app.post('/:userId/approve', async (req, res) => {
     if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
     res.status(500).json({ error: 'Internal server error' });
   }
-});
+};
 
-app.post('/:userId/reject', async (req, res) => {
+app.post('/:userId/approve', approveHandler);
+app.post('/compliance/:userId/approve', approveHandler);
+app.post('/api/compliance/:userId/approve', approveHandler);
+
+const rejectHandler = async (req: any, res: any) => {
   const role = req.headers['x-user-role'];
-  if (role !== 'admin') {
-    return res.status(403).json({ error: 'Admin role required' });
+  if (role !== 'admin' && role !== 'enterprise') {
+    return res.status(403).json({ error: 'Admin or enterprise role required' });
   }
 
   try {
@@ -185,16 +207,15 @@ app.post('/:userId/reject', async (req, res) => {
     if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
     res.status(500).json({ error: 'Internal server error' });
   }
-});
+};
+
+app.post('/:userId/reject', rejectHandler);
+app.post('/compliance/:userId/reject', rejectHandler);
+app.post('/api/compliance/:userId/reject', rejectHandler);
 
 // ── KYC provider webhook ──────────────────────────────────────────────────────
 
-/**
- * POST /webhook
- * Receives async verification results from the external KYC provider.
- * Validates HMAC-SHA256 signature from X-Signature header.
- */
-app.post('/webhook', async (req, res) => {
+const webhookHandler = async (req: any, res: any) => {
   if (!WEBHOOK_SECRET) {
     logger.warn('Webhook received but COMPLIANCE_WEBHOOK_SECRET is not set — ignoring');
     return res.status(501).json({ error: 'Webhook not configured' });
@@ -243,7 +264,11 @@ app.post('/webhook', async (req, res) => {
     logger.error('Webhook processing failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
   }
-});
+};
+
+app.post('/webhook', webhookHandler);
+app.post('/compliance/webhook', webhookHandler);
+app.post('/api/compliance/webhook', webhookHandler);
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 

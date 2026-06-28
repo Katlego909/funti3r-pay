@@ -60,26 +60,6 @@ app.use('/auth', authLimiter);
 
 app.use(authMiddleware);
 
-// ── Handle preflight requests ─────────────────────────────────────────────────
-
-app.options('*', (req, res) => {
-  const origin = req.headers.origin as string;
-  const allowedOrigins = [
-    'http://localhost:3100',
-    'http://localhost:3101',
-    'http://localhost:3102',
-  ];
-
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.header('Access-Control-Max-Age', '3600');
-  }
-  res.sendStatus(204);
-});
-
 // ── Request logging ───────────────────────────────────────────────────────────
 
 app.use((req, res, next) => {
@@ -104,6 +84,32 @@ app.get('/', (_, res) => {
 
 app.get('/health', (_, res) => {
   res.json({ status: 'healthy', service: 'api-gateway', uptime: process.uptime() });
+});
+
+app.get('/auth.html', (req, res) => {
+  const returnTo = req.query.returnTo as string || 'http://localhost:3100';
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Funti3r-Pay Authentication</title>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width">
+    </head>
+    <body style="font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;">
+      <div id="auth-app" style="text-align: center;">
+        <h1>Authenticating...</h1>
+        <p>Please wait while we set up your authentication.</p>
+      </div>
+      <script>
+        // Store returnTo in sessionStorage and load the auth app
+        sessionStorage.setItem('authReturnTo', '${returnTo}');
+        // Redirect to the actual app which will handle auth
+        window.location.href = returnTo;
+      </script>
+    </body>
+    </html>
+  `);
 });
 
 app.get('/status', async (_, res) => {
@@ -134,13 +140,6 @@ function proxy(target: string, pathRewrite?: Record<string, string>) {
     pathRewrite,
     timeout: 30000,
     on: {
-      proxyRes: (proxyRes, req, res) => {
-        const origin = req.headers.origin;
-        if (origin && ['http://localhost:3100', 'http://localhost:3101', 'http://localhost:3102'].includes(origin)) {
-          res.setHeader('Access-Control-Allow-Origin', origin);
-          res.setHeader('Access-Control-Allow-Credentials', 'true');
-        }
-      },
       error: (err, _req, res) => {
         logger.error('Proxy error', { target, error: String(err) });
         if (!('headersSent' in res && res.headersSent)) {
@@ -170,8 +169,7 @@ app.all(['/wallets*', '/api/wallets*'], proxy(PAYMENT_SERVICE, { '^/api/wallets'
 app.all(['/payouts*', '/api/payouts*'], proxy(PAYMENT_SERVICE, { '^/api/payouts': '/payouts' }));
 
 // Compliance → compliance-service
-app.all('/compliance*', proxy(COMPLIANCE_URL));
-app.all('/api/compliance*', proxy(COMPLIANCE_URL, { '^/api/compliance': '/compliance' }));
+app.all(['/compliance*', '/api/compliance*'], proxy(COMPLIANCE_URL, { '^/api/compliance': '', '^/compliance': '' }));
 
 // Analytics → analytics-service
 app.use('/analytics', proxy(ANALYTICS_URL));
