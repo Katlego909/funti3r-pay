@@ -49,6 +49,7 @@ export default function Landing() {
             {menuOpen ? <HiOutlineXMark size={24} /> : <HiOutlineBars3 size={24} />}
           </button>
           <div className={`nav-actions ${menuOpen ? 'open' : ''}`}>
+            <a href="http://localhost:3102" className="nav-btn nav-btn-secondary" onClick={() => setMenuOpen(false)}>For Enterprise</a>
             <Link to="/login" className="nav-btn nav-btn-secondary" onClick={() => setMenuOpen(false)}>Sign In</Link>
             <Link to="/register" className="nav-btn nav-btn-primary" onClick={() => setMenuOpen(false)}>Get Started</Link>
           </div>
