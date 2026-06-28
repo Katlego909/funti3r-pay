@@ -172,7 +172,7 @@ async function start() {
     logger.info('MongoDB connected');
   } catch { logger.warn('MongoDB unavailable at startup'); }
 
-  app.listen(PORT, 'localhost', () => {
+  app.listen(PORT, '0.0.0.0', () => {
     logger.info(`API Gateway running on port ${PORT}`);
   });
 }
