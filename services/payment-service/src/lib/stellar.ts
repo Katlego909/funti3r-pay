@@ -235,6 +235,9 @@ export async function deploySmartWallet(
 
   const contractAddress = Address.fromScVal(createResult.returnValue!).toString();
 
+  // Wait for contract to be fully initialized on chain before calling init
+  await new Promise(r => setTimeout(r, 2000));
+
   // 3. Initialise the contract with the worker's passkey
   logger.info('Initialising SmartWallet contract', { contractAddress });
   const contract = new Contract(contractAddress);
