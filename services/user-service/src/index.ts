@@ -1,6 +1,6 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes, createHash, randomUUID } from 'crypto';
 import axios from 'axios';
 import {
   generateRegistrationOptions,
@@ -193,12 +193,36 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     // Extract raw P-256 public key for Soroban contract init
     const passkeyPkBuffer = extractP256UncompressedKey(credentialPublicKey);
 
-    // Persist user + credential in a transaction
-    const insertResult = await query(
-      `INSERT INTO users (email, role) VALUES ($1, $2) RETURNING id`,
-      [email, session.role],
+    // Generate userId upfront so wallet deployment can reference it
+    const userId = randomUUID();
+
+    // Deploy SmartWallet BEFORE creating user in database
+    // This way if deployment fails, user is never created
+    if (session.role === 'worker') {
+      try {
+        const credIdBase64 = credentialID.replace(/-/g, '+').replace(/_/g, '/') + '==';
+        const credIdHex = Buffer.from(credIdBase64, 'base64').toString('hex');
+
+        await axios.post(`${PAYMENT_SERVICE_URL}/wallets/worker`, {
+          userId,
+          passkeyPkHex: passkeyPkBuffer.toString('hex'),
+          credentialIdHex: credIdHex,
+        }, { timeout: 300000 }); // 5 minute timeout
+
+        logger.info('SmartWallet deployed', { userId });
+      } catch (err) {
+        logger.error('SmartWallet deployment failed', { userId, error: String(err) });
+        return res.status(500).json({
+          error: 'Wallet deployment failed: ' + String(err)
+        });
+      }
+    }
+
+    // Now create user + credential in database
+    await query(
+      `INSERT INTO users (id, email, role) VALUES ($1, $2, $3)`,
+      [userId, email, session.role],
     );
-    const userId: string = insertResult.rows[0].id;
 
     await query(
       `INSERT INTO user_credentials
@@ -215,27 +239,6 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     );
 
     await deleteKey(`reg:${email}`);
-
-    // Deploy SmartWallet for workers during registration
-    if (session.role === 'worker') {
-      try {
-        const credIdBase64 = credentialID.replace(/-/g, '+').replace(/_/g, '/') + '==';
-        const credIdHex = Buffer.from(credIdBase64, 'base64').toString('hex');
-
-        await axios.post(`${PAYMENT_SERVICE_URL}/wallets/worker`, {
-          userId,
-          passkeyPkHex: passkeyPkBuffer.toString('hex'),
-          credentialIdHex: credIdHex,
-        }, { timeout: 300000 }); // 5 minute timeout
-
-        logger.info('SmartWallet deployed during registration', { userId });
-      } catch (err) {
-        logger.error('SmartWallet deployment failed', { userId, error: String(err) });
-        return res.status(500).json({
-          error: 'Wallet deployment failed: ' + String(err)
-        });
-      }
-    }
 
     const accessToken = generateToken(userId, email, session.role);
     const refreshToken = randomBytes(64).toString('hex');
