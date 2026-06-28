@@ -75,6 +75,10 @@ export async function loginPasskey(email: string) {
 }
 
 export async function logout() {
-  await api.post(`${base}/logout`, {});
-  sessionStorage.removeItem('access_token');
+  try {
+    await api.post(`${base}/logout`, {});
+  } catch (err) {
+    console.error('[WebAuthn] Logout error:', err);
+  }
+  useAuthStore.getState().clearSession();
 }
