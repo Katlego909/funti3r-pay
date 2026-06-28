@@ -18,7 +18,7 @@ use soroban_sdk::{
     auth::CustomAccountInterface,
     contract, contractimpl, contracttype,
     crypto::Hash,
-    Bytes, BytesN, Env, Symbol, Vec, Context, Address,
+    Bytes, BytesN, Env, Vec, Address,
 };
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ impl SmartWallet {
 #[contractimpl]
 impl CustomAccountInterface for SmartWallet {
     type Signature = WebAuthnSignature;
-    type Error = Symbol;
+    type Error = soroban_sdk::Error;
 
     /// Verifies that the WebAuthn assertion was produced by the passkey whose
     /// public key is stored in this contract instance.
@@ -107,10 +107,10 @@ impl CustomAccountInterface for SmartWallet {
         env: Env,
         _signature_payload: Hash<32>,
         sig: WebAuthnSignature,
-        _auth_contexts: Vec<Context>,
+        _auth_contexts: Vec<soroban_sdk::auth::Context>,
     ) -> Result<(), Self::Error> {
         // Step 1: hash the clientDataJSON
-        let cd_hash: BytesN<32> = env.crypto().sha256(&sig.client_data_json);
+        let cd_hash: BytesN<32> = env.crypto().sha256(&sig.client_data_json).into();
 
         // Step 2: authenticatorData ‖ SHA-256(clientDataJSON)
         let cd_hash_bytes = Bytes::from_array(&env, &cd_hash.to_array());
@@ -118,7 +118,7 @@ impl CustomAccountInterface for SmartWallet {
         msg.append(&cd_hash_bytes);
 
         // Step 3: hash the concatenated message
-        let msg_hash: BytesN<32> = env.crypto().sha256(&msg);
+        let msg_hash: soroban_sdk::crypto::Hash<32> = env.crypto().sha256(&msg);
 
         // Step 4: retrieve public key and verify signature
         //
@@ -128,7 +128,7 @@ impl CustomAccountInterface for SmartWallet {
             .storage()
             .instance()
             .get(&DataKey::PasskeyPk)
-            .ok_or(Symbol::new(&env, "NoPubKey"))?;
+            .ok_or((soroban_sdk::xdr::ScErrorType::Auth, soroban_sdk::xdr::ScErrorCode::InvalidAction))?;
 
         env.crypto().secp256r1_verify(&pk, &msg_hash, &sig.signature);
 
