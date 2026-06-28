@@ -9,7 +9,7 @@ export interface WalletDeploymentStatus {
 }
 
 const POLL_INTERVAL_MS = 2000; // Poll every 2 seconds
-const MAX_WAIT_MS = 40000; // Max wait 40 seconds
+const MAX_WAIT_MS = 180000; // Max wait 180 seconds (Stellar testnet can be slow)
 
 export function useWalletDeployment() {
   const { user, accessToken } = useAuthStore();
