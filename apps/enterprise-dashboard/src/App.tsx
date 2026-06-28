@@ -5,11 +5,13 @@ import {
   HiOutlineUsers,
   HiOutlineBars3,
   HiOutlineArrowRightOnRectangle,
+  HiOutlineUser,
 } from 'react-icons/hi2';
 import { useState, useEffect } from 'react';
 import Dashboard from './pages/Dashboard.js';
 import Payments from './pages/Payments.js';
 import Workers from './pages/Workers.js';
+import Profile from './pages/Profile.js';
 import Login from './pages/Login.js';
 import Register from './pages/Register.js';
 import Landing from './pages/Landing.js';
@@ -72,10 +74,16 @@ function NavBar() {
             <span>Workers</span>
           </Link>
           {user && (
-            <button className="nav-link" onClick={handleLogout} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-              <HiOutlineArrowRightOnRectangle size={18} />
-              <span>Sign Out</span>
-            </button>
+            <>
+              <Link to="/profile" className="nav-link" onClick={() => setMenuOpen(false)}>
+                <HiOutlineUser size={18} />
+                <span>Profile</span>
+              </Link>
+              <button className="nav-link" onClick={handleLogout} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                <HiOutlineArrowRightOnRectangle size={18} />
+                <span>Sign Out</span>
+              </button>
+            </>
           )}
         </nav>
       </div>
@@ -117,6 +125,12 @@ export default function App() {
           <NavBar />
           <main className="main">
             <ProtectedRoute><Workers /></ProtectedRoute>
+          </main>
+        </>} />
+        <Route path="/profile" element={<>
+          <NavBar />
+          <main className="main">
+            <ProtectedRoute><Profile /></ProtectedRoute>
           </main>
         </>} />
         <Route path="*" element={<Navigate to="/" replace />} />
