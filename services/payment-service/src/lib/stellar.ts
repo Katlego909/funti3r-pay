@@ -136,25 +136,41 @@ async function pollSorobanTx(txHash: string): Promise<rpc.Api.GetTransactionResp
 async function buildAndSubmitSoroban(
   keypair: Keypair,
   op: ReturnType<typeof Operation.uploadContractWasm>,
+  retries = 3,
 ): Promise<rpc.Api.GetTransactionResponse> {
-  const account = await soroban.getAccount(keypair.publicKey());
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const account = await soroban.getAccount(keypair.publicKey());
 
-  const tx = new TransactionBuilder(account, {
-    fee: String(Number(BASE_FEE) * 100),
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(op)
-    .setTimeout(60)
-    .build();
+      const tx = new TransactionBuilder(account, {
+        fee: String(Number(BASE_FEE) * 100),
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(op)
+        .setTimeout(60)
+        .build();
 
-  const prepared = await soroban.prepareTransaction(tx);
-  prepared.sign(keypair);
+      const prepared = await soroban.prepareTransaction(tx);
+      prepared.sign(keypair);
 
-  const result = await soroban.sendTransaction(prepared);
-  if (result.status === 'ERROR') {
-    throw new Error(`Soroban submit error: ${JSON.stringify(result.errorResult)}`);
+      const result = await soroban.sendTransaction(prepared);
+      if (result.status === 'ERROR') {
+        const errorMsg = JSON.stringify(result.errorResult);
+        // Retry on sequence number errors
+        if (errorMsg.includes('txBadSeq') && attempt < retries - 1) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); // Exponential backoff
+          continue;
+        }
+        throw new Error(`Soroban submit error: ${errorMsg}`);
+      }
+      return pollSorobanTx(result.hash);
+    } catch (err) {
+      if (attempt === retries - 1) throw err;
+      // Exponential backoff before retry
+      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+    }
   }
-  return pollSorobanTx(result.hash);
+  throw new Error('Max retries exceeded');
 }
 
 /**

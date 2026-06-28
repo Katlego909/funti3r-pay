@@ -248,11 +248,6 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
          VALUES ($1, 'worker', $2, 'active', NOW(), NOW())`,
         [userId, contractAddress],
       );
-
-      await query(
-        `UPDATE users SET wallet_deployed_at = NOW() WHERE id = $1`,
-        [userId]
-      );
     }
 
     await deleteKey(`reg:${email}`);
