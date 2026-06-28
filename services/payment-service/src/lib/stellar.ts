@@ -167,9 +167,10 @@ export async function deploySmartWallet(
     throw new Error('STELLAR_OPERATOR_SECRET is required to deploy SmartWallet contracts');
   }
 
+  // Navigate from services/payment-service/src/lib to project root
   const wasmPath = join(
-    process.cwd(),
-    'contracts/target/wasm32-unknown-unknown/release/funti3r_soroban.wasm',
+    __dirname,
+    '../../../../contracts/target/wasm32-unknown-unknown/release/funti3r_soroban.wasm',
   );
 
   let wasmBytes: Buffer;

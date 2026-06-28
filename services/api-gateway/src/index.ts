@@ -53,8 +53,9 @@ const authLimiter = rateLimit({
   message: { error: 'Too many auth attempts, please wait' },
 });
 
-app.use(globalLimiter);
-app.use('/auth', authLimiter);
+// Rate limiting disabled for development
+// app.use(globalLimiter);
+// app.use('/auth', authLimiter);
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
