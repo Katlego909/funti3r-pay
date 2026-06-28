@@ -1,10 +1,23 @@
-import { useEffect, useState, FormEvent } from 'react';
-import { getWorkerWallet, getKYCStatus, submitKYC, type Worker, type WorkerWallet, type KYCStatus } from '../api/workers.js';
+import { useEffect, useState } from 'react';
+import { getWorkerWallet, getKYCStatus, type Worker, type WorkerWallet, type KYCStatus } from '../api/workers.js';
 import { api } from '../api/client.js';
 
 interface WorkerRow extends Worker {
   wallet?: WorkerWallet;
   kyc?: KYCStatus;
+}
+
+interface KYCDetail {
+  id: string;
+  user_id: string;
+  status: string;
+  id_type: string;
+  id_number: string;
+  date_of_birth: string | null;
+  country: string;
+  verified_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 function kycBadge(status?: string) {
@@ -18,16 +31,11 @@ export default function Workers() {
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selected, setSelected] = useState<WorkerRow | null>(null);
-  const [kycForm, setKycForm] = useState(false);
-  const [kycLoading, setKycLoading] = useState(false);
-  const [kycError, setKycError] = useState('');
-
-  // KYC form fields
-  const [idType, setIdType] = useState('passport');
-  const [idNumber, setIdNumber] = useState('');
-  const [dob, setDob] = useState('');
-  const [country, setCountry] = useState('');
+  const [selectedKYC, setSelectedKYC] = useState<KYCDetail | null>(null);
+  const [kycModalOpen, setKycModalOpen] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [actionError, setActionError] = useState('');
 
   useEffect(() => {
     api.get<{ users?: Worker[]; data?: Worker[] }>('/users?role=worker&limit=50')
@@ -52,21 +60,56 @@ export default function Workers() {
       .finally(() => setLoading(false));
   }, []);
 
-  async function handleKYCSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!selected) return;
-    setKycError('');
-    setKycLoading(true);
+  async function viewKYC(workerId: string) {
     try {
-      await submitKYC({ userId: selected.id, idType, idNumber, dateOfBirth: dob || undefined, country });
-      setKycForm(false);
-      // Refresh KYC status for this worker
-      const kyc = await getKYCStatus(selected.id);
-      setWorkers((prev) => prev.map((w) => w.id === selected.id ? { ...w, kyc } : w));
+      const data = await api.get<KYCDetail>(`/compliance/${workerId}`);
+      setSelectedKYC(data.data);
+      setKycModalOpen(true);
+      setActionError('');
     } catch (err: unknown) {
-      setKycError(err instanceof Error ? err.message : 'KYC submission failed');
+      setActionError(err instanceof Error ? err.message : 'Failed to load KYC details');
+    }
+  }
+
+  async function approveKYC() {
+    if (!selectedKYC) return;
+    setApproving(true);
+    setActionError('');
+    try {
+      await api.post(`/compliance/${selectedKYC.user_id}/approve`, {});
+      setSelectedKYC({ ...selectedKYC, status: 'verified' });
+      setWorkers((prev) =>
+        prev.map((w) =>
+          w.id === selectedKYC.user_id
+            ? { ...w, kyc: { ...w.kyc!, status: 'verified' } }
+            : w,
+        ),
+      );
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : 'Failed to approve KYC');
     } finally {
-      setKycLoading(false);
+      setApproving(false);
+    }
+  }
+
+  async function rejectKYC() {
+    if (!selectedKYC) return;
+    setRejecting(true);
+    setActionError('');
+    try {
+      await api.post(`/compliance/${selectedKYC.user_id}/reject`, { reason: 'Rejected by enterprise' });
+      setSelectedKYC({ ...selectedKYC, status: 'rejected' });
+      setWorkers((prev) =>
+        prev.map((w) =>
+          w.id === selectedKYC.user_id
+            ? { ...w, kyc: { ...w.kyc!, status: 'rejected' } }
+            : w,
+        ),
+      );
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : 'Failed to reject KYC');
+    } finally {
+      setRejecting(false);
     }
   }
 
@@ -111,13 +154,17 @@ export default function Workers() {
                 </td>
                 <td>{new Date(w.created_at).toLocaleDateString()}</td>
                 <td>
-                  <button
-                    className="btn-secondary"
-                    style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
-                    onClick={() => { setSelected(w); setKycForm(true); setKycError(''); setIdNumber(''); setDob(''); setCountry(w.country ?? ''); }}
-                  >
-                    Submit KYC
-                  </button>
+                  {w.kyc?.status && w.kyc.status !== 'none' ? (
+                    <button
+                      className="btn-secondary"
+                      style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
+                      onClick={() => viewKYC(w.id)}
+                    >
+                      View KYC
+                    </button>
+                  ) : (
+                    <span className="status pending">No submission</span>
+                  )}
                 </td>
               </tr>
             ))}
@@ -125,33 +172,73 @@ export default function Workers() {
         </table>
       </section>
 
-      {kycForm && selected && (
-        <div className="modal-overlay" onClick={() => setKycForm(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Submit KYC — {selected.email}</h3>
-            <form onSubmit={handleKYCSubmit} className="payment-form">
-              <label>ID Type
-                <select value={idType} onChange={(e) => setIdType(e.target.value)}>
-                  <option value="passport">Passport</option>
-                  <option value="national_id">National ID</option>
-                  <option value="drivers_license">Driver's Licence</option>
-                </select>
-              </label>
-              <label>ID Number
-                <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} required />
-              </label>
-              <label>Date of Birth
-                <input type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
-              </label>
-              <label>Country (ISO-2)
-                <input value={country} onChange={(e) => setCountry(e.target.value)} maxLength={2} required placeholder="NG" />
-              </label>
-              {kycError && <p className="auth-error">{kycError}</p>}
-              <div className="form-actions">
-                <button type="button" className="btn-secondary" onClick={() => setKycForm(false)}>Cancel</button>
-                <button type="submit" className="btn-primary" disabled={kycLoading}>{kycLoading ? 'Submitting…' : 'Submit'}</button>
+      {kycModalOpen && selectedKYC && (
+        <div className="modal-overlay" onClick={() => setKycModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <h3>KYC Details</h3>
+            <div style={{ marginTop: '1.5rem' }}>
+              <div style={{ marginBottom: '1rem' }}>
+                <p style={{ fontSize: '0.875rem', color: '#666', margin: '0 0 0.25rem 0' }}>Status</p>
+                <p style={{ margin: 0, fontWeight: 600 }}>{kycBadge(selectedKYC.status)}</p>
               </div>
-            </form>
+              <div style={{ marginBottom: '1rem' }}>
+                <p style={{ fontSize: '0.875rem', color: '#666', margin: '0 0 0.25rem 0' }}>ID Type</p>
+                <p style={{ margin: 0 }}>{selectedKYC.id_type}</p>
+              </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <p style={{ fontSize: '0.875rem', color: '#666', margin: '0 0 0.25rem 0' }}>ID Number</p>
+                <p style={{ margin: 0, fontFamily: 'monospace' }}>{selectedKYC.id_number}</p>
+              </div>
+              {selectedKYC.date_of_birth && (
+                <div style={{ marginBottom: '1rem' }}>
+                  <p style={{ fontSize: '0.875rem', color: '#666', margin: '0 0 0.25rem 0' }}>Date of Birth</p>
+                  <p style={{ margin: 0 }}>{new Date(selectedKYC.date_of_birth).toLocaleDateString()}</p>
+                </div>
+              )}
+              <div style={{ marginBottom: '1rem' }}>
+                <p style={{ fontSize: '0.875rem', color: '#666', margin: '0 0 0.25rem 0' }}>Country</p>
+                <p style={{ margin: 0 }}>{selectedKYC.country}</p>
+              </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <p style={{ fontSize: '0.875rem', color: '#666', margin: '0 0 0.25rem 0' }}>Submitted</p>
+                <p style={{ margin: 0 }}>{new Date(selectedKYC.created_at).toLocaleString()}</p>
+              </div>
+
+              {actionError && <p style={{ color: '#dc2626', marginBottom: '1rem' }}>{actionError}</p>}
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setKycModalOpen(false)}
+                  disabled={approving || rejecting}
+                >
+                  Close
+                </button>
+                {selectedKYC.status === 'pending' && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={approveKYC}
+                      disabled={approving || rejecting}
+                      style={{ backgroundColor: '#10b981' }}
+                    >
+                      {approving ? 'Approving…' : 'Approve'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={rejectKYC}
+                      disabled={approving || rejecting}
+                      style={{ backgroundColor: '#ef4444' }}
+                    >
+                      {rejecting ? 'Rejecting…' : 'Reject'}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
