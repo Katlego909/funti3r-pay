@@ -45,6 +45,13 @@ export default function Wallet() {
       });
 
       if (!response.ok) {
+        // 404 is expected if wallet is still deploying
+        if (response.status === 404) {
+          setWalletInfo(null);
+          setBalances([]);
+          setLoading(false);
+          return;
+        }
         throw new Error(`Failed to fetch wallet: ${response.statusText}`);
       }
 
@@ -63,7 +70,6 @@ export default function Wallet() {
   };
 
   if (loading) return <div className="loading">Loading wallet...</div>;
-  if (error) return <div className="error-banner">{error}</div>;
 
   const contractAddress = walletInfo?.contract_address || walletInfo?.contractAddress;
 
@@ -71,6 +77,8 @@ export default function Wallet() {
     <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto' }}>
       <h2>Wallet</h2>
       <p style={{ color: '#666', marginBottom: '20px' }}>Your account balances and wallet details</p>
+
+      {error && <div className="error-banner" style={{ marginBottom: '20px' }}>{error}</div>}
 
       <WalletDeploymentStatus />
 
