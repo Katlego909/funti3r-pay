@@ -190,7 +190,10 @@ app.post('/wallets/deploy-for-existing-user', async (req, res) => {
     }
 
     const passkeyPkHex = Buffer.from(credResult.rows[0].public_key, 'base64').toString('hex');
-    const credentialIdHex = Buffer.from(credResult.rows[0].credential_id, 'base64url').toString('hex');
+    // Credential ID is stored as base64url string; convert to standard base64 then to hex
+    const credentialId = credResult.rows[0].credential_id;
+    const credentialIdBase64 = credentialId.replace(/-/g, '+').replace(/_/g, '/') + '==';
+    const credentialIdHex = Buffer.from(credentialIdBase64, 'base64').toString('hex');
 
     // Deploy SmartWallet (includes initialization)
     const contractAddress = await stellar.deploySmartWallet(passkeyPkHex, credentialIdHex);
