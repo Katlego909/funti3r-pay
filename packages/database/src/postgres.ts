@@ -8,12 +8,23 @@ let pool: Pool | null = null;
 export async function initPostgres(): Promise<Pool> {
   if (pool) return pool;
 
-  pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://funti3r_dev:dev_password@127.0.0.1:5432/funti3r_dev',
+  const connectionString =
+    process.env.DATABASE_URL ||
+    'postgresql://funti3r_dev:dev_password@127.0.0.1:5432/funti3r_dev';
+
+  const config = {
+    connectionString,
     max: 20,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
+    connectionTimeoutMillis: 10000,
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+  };
+
+  logger.info('Initializing PostgreSQL connection', {
+    host: new URL(connectionString.replace('postgresql://', 'http://')).hostname,
   });
+
+  pool = new Pool(config);
 
   pool.on('error', (err: Error) => {
     logger.error('Unexpected error on idle client', { error: err.message });

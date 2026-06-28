@@ -1,4 +1,5 @@
 services:
+  # ── Databases ────────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: funti3r-postgres
@@ -7,7 +8,7 @@ services:
       POSTGRES_PASSWORD: dev_password
       POSTGRES_DB: funti3r_dev
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -46,11 +47,118 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Microservices ─────────────────────────────────────────────────────────────
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    container_name: funti3r-user-service
+    env_file: .env.local
+    environment:
+      DATABASE_URL: postgresql://funti3r_dev:dev_password@postgres:5432/funti3r_dev
+      REDIS_URL: redis://redis:6379
+      USER_SERVICE_PORT: "3001"
+      PAYMENT_SERVICE_URL: http://payment-service:3002
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - funti3r-network
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: services/payment-service/Dockerfile
+    container_name: funti3r-payment-service
+    env_file: .env.local
+    environment:
+      DATABASE_URL: postgresql://funti3r_dev:dev_password@postgres:5432/funti3r_dev
+      REDIS_URL: redis://redis:6379
+      PAYMENT_SERVICE_PORT: "3002"
+      COMPLIANCE_SERVICE_URL: http://compliance-service:3003
+      STELLAR_HORIZON_URL: https://horizon-testnet.stellar.org
+      STELLAR_SOROBAN_URL: https://soroban-testnet.stellar.org
+      STELLAR_NETWORK: TESTNET
+    ports:
+      - "3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - funti3r-network
+
+  compliance-service:
+    build:
+      context: .
+      dockerfile: services/compliance-service/Dockerfile
+    container_name: funti3r-compliance-service
+    env_file: .env.local
+    environment:
+      DATABASE_URL: postgresql://funti3r_dev:dev_password@postgres:5432/funti3r_dev
+      COMPLIANCE_SERVICE_PORT: "3003"
+      COMPLIANCE_AUTO_APPROVE: "true"
+    ports:
+      - "3003:3003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - funti3r-network
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: services/analytics-service/Dockerfile
+    container_name: funti3r-analytics-service
+    env_file: .env.local
+    environment:
+      MONGODB_URL: mongodb://funti3r_dev:dev_password@mongodb:27017/funti3r_analytics?authSource=admin
+      ANALYTICS_SERVICE_PORT: "3004"
+    ports:
+      - "3004:3004"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - funti3r-network
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    container_name: funti3r-api-gateway
+    env_file: .env.local
+    environment:
+      DATABASE_URL: postgresql://funti3r_dev:dev_password@postgres:5432/funti3r_dev
+      REDIS_URL: redis://redis:6379
+      MONGODB_URL: mongodb://funti3r_dev:dev_password@mongodb:27017/funti3r_analytics?authSource=admin
+      API_PORT: "3000"
+      USER_SERVICE_URL: http://user-service:3001
+      PAYMENT_SERVICE_URL: http://payment-service:3002
+      COMPLIANCE_SERVICE_URL: http://compliance-service:3003
+      ANALYTICS_SERVICE_URL: http://analytics-service:3004
+      ALLOWED_ORIGINS: http://localhost:3100
+    ports:
+      - "3000:3000"
+    depends_on:
+      - user-service
+      - payment-service
+      - compliance-service
+      - analytics-service
+    networks:
+      - funti3r-network
+
 volumes:
   postgres_data:
   redis_data:
   mongodb_data:
 
 networks:
-  default:
+  funti3r-network:
     name: funti3r-network

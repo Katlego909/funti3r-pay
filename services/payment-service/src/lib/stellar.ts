@@ -5,91 +5,229 @@ import {
   Operation,
   TransactionBuilder,
   Networks,
+  rpc,
+  Contract,
+  nativeToScVal,
+  Address,
+  hash,
+  BASE_FEE,
 } from '@stellar/stellar-sdk';
 import { createLogger } from '@funti3r/shared-utils';
 import axios from 'axios';
+import { randomBytes } from 'crypto';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 const logger = createLogger('StellarService');
 
-const HORIZON_URL = process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org';
-const server = new Horizon.Server(HORIZON_URL);
+const HORIZON_URL =
+  process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org';
+const SOROBAN_URL =
+  process.env.STELLAR_SOROBAN_URL || 'https://soroban-testnet.stellar.org';
+const NETWORK_PASSPHRASE =
+  process.env.STELLAR_NETWORK === 'MAINNET' ? Networks.PUBLIC : Networks.TESTNET;
 
-export interface StellarAccount {
+const horizon = new Horizon.Server(HORIZON_URL);
+const soroban = new rpc.Server(SOROBAN_URL, { allowHttp: false });
+
+export interface StellarKeypair {
   publicKey: string;
   secretKey: string;
 }
 
-export async function createKeypair(): Promise<StellarAccount> {
+// ── Keypair & funding ─────────────────────────────────────────────────────────
+
+export function createKeypair(): StellarKeypair {
   const pair = Keypair.random();
-  return {
-    publicKey: pair.publicKey(),
-    secretKey: pair.secret(),
-  };
+  return { publicKey: pair.publicKey(), secretKey: pair.secret() };
 }
 
 export async function fundWithFriendbot(publicKey: string): Promise<void> {
+  logger.info('Funding account via Friendbot', { publicKey });
   try {
-    logger.info(`Funding account ${publicKey} via Friendbot...`);
-    await axios.get(`https://friendbot.stellar.org?addr=${publicKey}`);
-    logger.info(`Account ${publicKey} funded successfully.`);
-  } catch (error) {
-    logger.error('Friendbot funding failed', { error: String(error) });
-    throw new Error('Failed to fund account via Friendbot');
+    await axios.get(`https://friendbot.stellar.org?addr=${encodeURIComponent(publicKey)}`, { timeout: 10000 });
+    logger.info('Account funded', { publicKey });
+  } catch (err) {
+    logger.warn('Friendbot funding failed (account may be funded manually)', { publicKey, error: String(err) });
   }
 }
 
-export async function getAccountBalance(publicKey: string): Promise<any[]> {
-  try {
-    const account = await server.loadAccount(publicKey);
-    return account.balances;
-  } catch (error) {
-    logger.error('Failed to load account', { publicKey, error: String(error) });
-    throw new Error('Account not found on Stellar network');
-  }
+export async function getAccountBalance(publicKey: string): Promise<Horizon.HorizonApi.BalanceLineType[]> {
+  const account = await horizon.loadAccount(publicKey);
+  return account.balances;
 }
+
+// ── Classic Stellar payments ──────────────────────────────────────────────────
 
 export async function sendPayment(
   sourceSecret: string,
   destinationPublic: string,
   amount: string,
   assetCode: string = 'XLM',
-  assetIssuer?: string
+  assetIssuer?: string,
 ): Promise<string> {
-  try {
-    const sourceKeypair = Keypair.fromSecret(sourceSecret);
-    const sourcePublicKey = sourceKeypair.publicKey();
+  const sourceKeypair = Keypair.fromSecret(sourceSecret);
+  logger.info('Preparing payment', {
+    from: sourceKeypair.publicKey(),
+    to: destinationPublic,
+    amount,
+    assetCode,
+  });
 
-    logger.info(`Preparing payment from ${sourcePublicKey} to ${destinationPublic}...`);
+  const account = await horizon.loadAccount(sourceKeypair.publicKey());
+  const fee = await horizon.fetchBaseFee();
+  const asset = assetCode === 'XLM' ? Asset.native() : new Asset(assetCode, assetIssuer!);
 
-    const account = await server.loadAccount(sourcePublicKey);
-    const fee = await server.fetchBaseFee();
+  const tx = new TransactionBuilder(account, {
+    fee: String(Math.max(fee, 100)),
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(Operation.payment({ destination: destinationPublic, asset, amount }))
+    .setTimeout(60)
+    .build();
 
-    const asset = assetCode === 'XLM' 
-      ? Asset.native() 
-      : new Asset(assetCode, assetIssuer!);
+  tx.sign(sourceKeypair);
+  const result = await horizon.submitTransaction(tx);
+  logger.info('Payment submitted', { hash: result.hash });
+  return result.hash;
+}
 
-    const transaction = new TransactionBuilder(account, {
-      fee: fee.toString(),
-      networkPassphrase: Networks.TESTNET, // Defaulting to testnet for now
-    })
-      .addOperation(
-        Operation.payment({
-          destination: destinationPublic,
-          asset,
-          amount,
-        })
-      )
-      .setTimeout(30)
-      .build();
+export async function addTrustline(
+  accountSecret: string,
+  assetCode: string,
+  assetIssuer: string,
+): Promise<void> {
+  const keypair = Keypair.fromSecret(accountSecret);
+  const account = await horizon.loadAccount(keypair.publicKey());
+  const fee = await horizon.fetchBaseFee();
 
-    transaction.sign(sourceKeypair);
+  const tx = new TransactionBuilder(account, {
+    fee: String(Math.max(fee, 100)),
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.changeTrust({ asset: new Asset(assetCode, assetIssuer), limit: '1000000' }),
+    )
+    .setTimeout(60)
+    .build();
 
-    const result = await server.submitTransaction(transaction);
-    logger.info('Payment successful', { hash: result.hash });
-    return result.hash;
-  } catch (error: any) {
-    const detail = error.response?.data?.extras?.result_codes || error.message;
-    logger.error('Payment failed', { error: detail });
-    throw new Error(`Stellar payment failed: ${JSON.stringify(detail)}`);
+  tx.sign(keypair);
+  await horizon.submitTransaction(tx);
+  logger.info('Trustline established', { account: keypair.publicKey(), asset: assetCode });
+}
+
+// ── Soroban SmartWallet deployment ────────────────────────────────────────────
+
+async function pollSorobanTx(txHash: string): Promise<rpc.Api.GetTransactionResponse> {
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const result = await soroban.getTransaction(txHash);
+    if (result.status !== rpc.Api.GetTransactionStatus.NOT_FOUND) return result;
   }
+  throw new Error(`Soroban transaction ${txHash} was not confirmed within 60 s`);
+}
+
+async function buildAndSubmitSoroban(
+  keypair: Keypair,
+  op: ReturnType<typeof Operation.uploadContractWasm>,
+): Promise<rpc.Api.GetTransactionResponse> {
+  const account = await soroban.getAccount(keypair.publicKey());
+
+  const tx = new TransactionBuilder(account, {
+    fee: String(Number(BASE_FEE) * 100),
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(op)
+    .setTimeout(60)
+    .build();
+
+  const prepared = await soroban.prepareTransaction(tx);
+  prepared.sign(keypair);
+
+  const result = await soroban.sendTransaction(prepared);
+  if (result.status === 'ERROR') {
+    throw new Error(`Soroban submit error: ${JSON.stringify(result.errorResult)}`);
+  }
+  return pollSorobanTx(result.hash);
+}
+
+/**
+ * Deploys a Funti3r SmartWallet Soroban contract for a worker.
+ *
+ * @param passkeyPkHex  Hex-encoded 65-byte uncompressed P-256 public key.
+ * @param credentialIdHex  Hex-encoded WebAuthn credential ID bytes.
+ * @returns The Soroban contract address (Stellar StrKey).
+ */
+export async function deploySmartWallet(
+  passkeyPkHex: string,
+  credentialIdHex: string,
+): Promise<string> {
+  const operatorSecret = process.env.STELLAR_OPERATOR_SECRET;
+  if (!operatorSecret) {
+    throw new Error('STELLAR_OPERATOR_SECRET is required to deploy SmartWallet contracts');
+  }
+
+  const wasmPath = join(
+    process.cwd(),
+    'contracts/target/wasm32-unknown-unknown/release/funti3r_soroban.wasm',
+  );
+
+  let wasmBytes: Buffer;
+  try {
+    wasmBytes = readFileSync(wasmPath);
+  } catch {
+    throw new Error(
+      `SmartWallet WASM not found at ${wasmPath}. ` +
+      'Run: cd contracts && cargo build --target wasm32-unknown-unknown --release',
+    );
+  }
+
+  const keypair = Keypair.fromSecret(operatorSecret);
+  const salt = randomBytes(32);
+  const wasmHash = hash(wasmBytes);
+
+  // 1. Upload WASM (idempotent on-chain — same hash is a no-op if already uploaded)
+  logger.info('Uploading SmartWallet WASM', { wasmHash: wasmHash.toString('hex') });
+  const uploadResult = await buildAndSubmitSoroban(
+    keypair,
+    Operation.uploadContractWasm({ wasm: wasmBytes }),
+  );
+  if (uploadResult.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
+    throw new Error(`WASM upload failed: ${uploadResult.status}`);
+  }
+
+  // 2. Create contract instance
+  logger.info('Creating SmartWallet contract instance');
+  const createResult = await buildAndSubmitSoroban(
+    keypair,
+    Operation.createCustomContract({
+      address: new Address(keypair.publicKey()),
+      wasmHash,
+      salt,
+    }),
+  );
+  if (createResult.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
+    throw new Error(`Contract creation failed: ${createResult.status}`);
+  }
+
+  const contractAddress = Address.fromScVal(createResult.returnValue!).toString();
+
+  // 3. Initialise the contract with the worker's passkey
+  logger.info('Initialising SmartWallet contract', { contractAddress });
+  const contract = new Contract(contractAddress);
+  const initResult = await buildAndSubmitSoroban(
+    keypair,
+    contract.call(
+      'init',
+      nativeToScVal(new Address(contractAddress), { type: 'address' }),
+      nativeToScVal(Buffer.from(credentialIdHex, 'hex'), { type: 'bytes' }),
+      nativeToScVal(Buffer.from(passkeyPkHex, 'hex'), { type: 'bytes' }),
+    ),
+  );
+  if (initResult.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
+    throw new Error(`Contract init failed: ${initResult.status}`);
+  }
+
+  logger.info('SmartWallet deployed', { contractAddress });
+  return contractAddress;
 }
