@@ -1,91 +1,183 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import { createProxyMiddleware } from 'http-proxy-middleware';
+import { v4 as uuid } from 'uuid';
 import { createLogger } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, initMongoDB } from '@funti3r/database';
+import { authMiddleware } from './middleware/auth.js';
 
 const logger = createLogger('APIGateway');
-
 const app = express();
 const PORT = parseInt(process.env.API_PORT || '3000', 10);
 
-// Middleware
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
+const USER_SERVICE    = process.env.USER_SERVICE_URL    || 'http://localhost:3001';
+const PAYMENT_SERVICE = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3002';
+const COMPLIANCE_URL  = process.env.COMPLIANCE_SERVICE_URL || 'http://localhost:3003';
+const ANALYTICS_URL   = process.env.ANALYTICS_SERVICE_URL  || 'http://localhost:3004';
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
+// ── Security & basics ─────────────────────────────────────────────────────────
+
+app.use(helmet());
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS?.split(',') ?? ['http://localhost:3100'],
+  credentials: true,
+}));
+
+// Attach a unique request ID to every request for distributed tracing
+app.use((req, _res, next) => {
+  req.headers['x-request-id'] = req.headers['x-request-id'] ?? uuid();
+  next();
+});
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please slow down' },
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many auth attempts, please wait' },
+});
+
+app.use(globalLimiter);
+app.use('/auth', authLimiter);
+
+// ── Auth middleware ───────────────────────────────────────────────────────────
+
+app.use(authMiddleware);
+
+// ── Request logging ───────────────────────────────────────────────────────────
+
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    logger.info('Request', {
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      ms: Date.now() - start,
+      requestId: req.headers['x-request-id'],
+    });
+  });
+  next();
+});
+
+// ── Own endpoints ─────────────────────────────────────────────────────────────
+
+app.get('/', (_, res) => {
+  res.json({ name: 'Funti3r-Pay API Gateway', version: '0.1.0', docs: '/health' });
+});
+
+app.get('/health', (_, res) => {
+  res.json({ status: 'healthy', service: 'api-gateway', uptime: process.uptime() });
+});
+
+app.get('/status', async (_, res) => {
+  const checks = await Promise.allSettled([
+    initPostgres(),
+    initRedis(),
+    initMongoDB(),
+  ]);
+
+  const [pg, redis, mongo] = checks.map((r) =>
+    r.status === 'fulfilled' ? 'connected' : 'unavailable',
+  );
+
+  const healthy = checks.every((r) => r.status === 'fulfilled');
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'operational' : 'degraded',
+    services: { postgres: pg, redis, mongodb: mongo },
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
   });
 });
 
-// Status endpoint with database checks
-app.get('/status', async (req, res) => {
-  try {
-    // Check PostgreSQL
-    await initPostgres();
+// ── Proxy configuration ───────────────────────────────────────────────────────
 
-    // Check Redis
-    await initRedis();
-
-    // Check MongoDB
-    await initMongoDB();
-
-    res.json({
-      status: 'operational',
-      services: {
-        postgres: 'connected',
-        redis: 'connected',
-        mongodb: 'connected',
+function proxy(target: string, pathRewrite?: Record<string, string>) {
+  return createProxyMiddleware({
+    target,
+    changeOrigin: true,
+    pathRewrite,
+    timeout: 30000,
+    on: {
+      error: (err, _req, res) => {
+        logger.error('Proxy error', { target, error: String(err) });
+        if (!('headersSent' in res && res.headersSent)) {
+          (res as express.Response).status(503).json({ error: 'Service temporarily unavailable' });
+        }
       },
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    res.status(503).json({
-      status: 'degraded',
-      error: String(error),
-      timestamp: new Date().toISOString(),
-    });
+    },
+  });
+}
+
+// Rebuild path for stripped auth routes
+app.use((req, res, next) => {
+  console.log('[GATEWAY] Incoming request:', { method: req.method, path: req.path, url: req.url });
+  if (req.path.match(/^\/(register|login|refresh|logout)\//)) {
+    console.log('[GATEWAY] Rebuilding path from', req.url, 'to', '/auth' + req.url);
+    req.url = '/auth' + req.url;
+  }
+  next();
+});
+
+// Auth & Users → user-service
+app.use('/auth',  proxy(USER_SERVICE));
+app.use('/api/auth', proxy(USER_SERVICE, { '^/api/auth': '/auth' }));
+app.use('/users', proxy(USER_SERVICE));
+
+// Wallets & Payouts → payment-service
+app.use('/wallets', proxy(PAYMENT_SERVICE));
+app.use('/payouts',  proxy(PAYMENT_SERVICE));
+
+// Compliance → compliance-service
+app.use('/compliance', proxy(COMPLIANCE_URL));
+
+// Analytics → analytics-service
+app.use('/analytics', proxy(ANALYTICS_URL));
+
+// ── Error Handler ────────────────────────────────────────────────────────────
+
+app.use((err: any, req: any, res: any, next: any) => {
+  logger.error('Unhandled error', { error: String(err), path: req.path });
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Initialize and start server
+// ── Start ─────────────────────────────────────────────────────────────────────
+
 async function start() {
   try {
-    // Try to initialize database connections, but don't fail if they're unavailable
-    try {
-      await initPostgres();
-      logger.info('PostgreSQL connected');
-    } catch (error) {
-      logger.warn('PostgreSQL unavailable', { error: String(error) });
-    }
+    await initPostgres();
+    logger.info('PostgreSQL connected');
+  } catch { logger.warn('PostgreSQL unavailable at startup'); }
 
-    try {
-      await initRedis();
-      logger.info('Redis connected');
-    } catch (error) {
-      logger.warn('Redis unavailable', { error: String(error) });
-    }
+  try {
+    await initRedis();
+    logger.info('Redis connected');
+  } catch { logger.warn('Redis unavailable at startup'); }
 
-    try {
-      await initMongoDB();
-      logger.info('MongoDB connected');
-    } catch (error) {
-      logger.warn('MongoDB unavailable', { error: String(error) });
-    }
+  try {
+    await initMongoDB();
+    logger.info('MongoDB connected');
+  } catch { logger.warn('MongoDB unavailable at startup'); }
 
-    app.listen(PORT, '0.0.0.0', () => {
-      logger.info(`API Gateway started on port ${PORT}`);
-      logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    });
-  } catch (error) {
-    logger.error('Failed to start API Gateway', { error: String(error) });
-    process.exit(1);
-  }
+  app.listen(PORT, 'localhost', () => {
+    logger.info(`API Gateway running on port ${PORT}`);
+  });
 }
 
-start();
+start().catch((err) => {
+  logger.error('Failed to start', { error: String(err) });
+  process.exit(1);
+});
