@@ -179,9 +179,9 @@ app.post('/wallets/deploy-for-existing-user', async (req, res) => {
       });
     }
 
-    // Get user's credential to extract passkey public key
+    // Get user's credential to extract passkey public key and credential ID
     const credResult = await query(
-      `SELECT public_key FROM user_credentials WHERE user_id = $1`,
+      `SELECT public_key, credential_id FROM user_credentials WHERE user_id = $1`,
       [userId]
     );
 
@@ -190,12 +190,10 @@ app.post('/wallets/deploy-for-existing-user', async (req, res) => {
     }
 
     const passkeyPkHex = Buffer.from(credResult.rows[0].public_key, 'base64').toString('hex');
+    const credentialIdHex = Buffer.from(credResult.rows[0].credential_id, 'base64url').toString('hex');
 
-    // Deploy SmartWallet
-    const contractAddress = await stellar.deploySmartWallet(passkeyPkHex, credResult.rows[0].public_key);
-
-    // Initialize contract
-    await stellar.initializeSmartWallet(contractAddress, passkeyPkHex);
+    // Deploy SmartWallet (includes initialization)
+    const contractAddress = await stellar.deploySmartWallet(passkeyPkHex, credentialIdHex);
 
     // Fund on testnet if applicable
     if (process.env.STELLAR_NETWORK === 'TESTNET') {
