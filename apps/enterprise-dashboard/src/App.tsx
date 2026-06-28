@@ -1,57 +1,109 @@
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import {
   HiOutlineChartBar,
   HiOutlineArrowPathRoundedSquare,
   HiOutlineUsers,
-  HiOutlineCog6Tooth,
   HiOutlineBars3,
+  HiOutlineArrowRightOnRectangle,
 } from 'react-icons/hi2';
-import { useState } from 'react';
-import Dashboard from './pages/Dashboard';
+import { useState, useEffect } from 'react';
+import Dashboard from './pages/Dashboard.js';
+import Payments from './pages/Payments.js';
+import Workers from './pages/Workers.js';
+import Login from './pages/Login.js';
+import Register from './pages/Register.js';
+import Landing from './pages/Landing.js';
+import { useAuthStore } from './store/authStore.js';
+import { logout } from './api/auth.js';
 import './App.css';
 
-export default function App() {
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const token = useAuthStore((s) => s.accessToken);
+  const location = useLocation();
+  if (!token) return <Navigate to="/login" state={{ from: location }} replace />;
+  return <>{children}</>;
+}
+
+function NavBar() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const user = useAuthStore((s) => s.user);
+  const clearSession = useAuthStore((s) => s.clearSession);
+
+  async function handleLogout() {
+    await logout();
+    clearSession();
+  }
+
+  return (
+    <header className="header">
+      <div className="header-container">
+        <div className="logo">
+          <h1>Funti3rPay</h1>
+          <p className="tagline">Cross-Border Workforce Payments</p>
+        </div>
+        <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>
+          <HiOutlineBars3 size={24} />
+        </button>
+        <nav className={`nav ${menuOpen ? 'open' : ''}`}>
+          <Link to="/" className="nav-link" onClick={() => setMenuOpen(false)}>
+            <HiOutlineChartBar size={18} />
+            <span>Dashboard</span>
+          </Link>
+          <Link to="/payments" className="nav-link" onClick={() => setMenuOpen(false)}>
+            <HiOutlineArrowPathRoundedSquare size={18} />
+            <span>Payments</span>
+          </Link>
+          <Link to="/workers" className="nav-link" onClick={() => setMenuOpen(false)}>
+            <HiOutlineUsers size={18} />
+            <span>Workers</span>
+          </Link>
+          {user && (
+            <button className="nav-link" onClick={handleLogout} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+              <HiOutlineArrowRightOnRectangle size={18} />
+              <span>Sign Out</span>
+            </button>
+          )}
+        </nav>
+      </div>
+    </header>
+  );
+}
+
+export default function App() {
+  const token = useAuthStore((s) => s.accessToken);
+  const user = useAuthStore((s) => s.user);
+  const initializeFromStorage = useAuthStore((s) => s.initializeFromStorage);
+
+  useEffect(() => {
+    initializeFromStorage();
+    console.log('[App] Initialized, current auth:', { hasToken: !!token, hasUser: !!user });
+  }, [initializeFromStorage]);
 
   return (
     <BrowserRouter>
-      <div className="app">
-        <header className="header">
-          <div className="header-container">
-            <div className="logo">
-              <h1>Funti3rPay</h1>
-              <p className="tagline">Cross-Border Workforce Payments</p>
-            </div>
-            <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>
-              <HiOutlineBars3 size={24} />
-            </button>
-            <nav className={`nav ${menuOpen ? 'open' : ''}`}>
-              <Link to="/" className="nav-link" onClick={() => setMenuOpen(false)}>
-                <HiOutlineChartBar size={18} />
-                <span>Dashboard</span>
-              </Link>
-              <Link to="/" className="nav-link" onClick={() => setMenuOpen(false)}>
-                <HiOutlineArrowPathRoundedSquare size={18} />
-                <span>Payments</span>
-              </Link>
-              <Link to="/" className="nav-link" onClick={() => setMenuOpen(false)}>
-                <HiOutlineUsers size={18} />
-                <span>Users</span>
-              </Link>
-              <Link to="/" className="nav-link" onClick={() => setMenuOpen(false)}>
-                <HiOutlineCog6Tooth size={18} />
-                <span>Settings</span>
-              </Link>
-            </nav>
-          </div>
-        </header>
-
-        <main className="main">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-          </Routes>
-        </main>
-      </div>
+      <Routes>
+        <Route path="/" element={!token ? <Landing /> : <>
+          <NavBar />
+          <main className="main">
+            <Dashboard />
+          </main>
+        </>} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/payments" element={<>
+          <NavBar />
+          <main className="main">
+            <ProtectedRoute><Payments /></ProtectedRoute>
+          </main>
+        </>} />
+        <Route path="/workers" element={<>
+          <NavBar />
+          <main className="main">
+            <ProtectedRoute><Workers /></ProtectedRoute>
+          </main>
+        </>} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </BrowserRouter>
   );
 }
