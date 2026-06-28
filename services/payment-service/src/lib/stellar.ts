@@ -124,12 +124,13 @@ export async function addTrustline(
 // ── Soroban SmartWallet deployment ────────────────────────────────────────────
 
 async function pollSorobanTx(txHash: string): Promise<rpc.Api.GetTransactionResponse> {
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 2000));
+  // Poll up to 60 times with 3-second intervals = 180 seconds max wait
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
     const result = await soroban.getTransaction(txHash);
     if (result.status !== rpc.Api.GetTransactionStatus.NOT_FOUND) return result;
   }
-  throw new Error(`Soroban transaction ${txHash} was not confirmed within 60 s`);
+  throw new Error(`Soroban transaction ${txHash} was not confirmed within 180 s`);
 }
 
 async function buildAndSubmitSoroban(
