@@ -1,9 +1,11 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import { createCipheriv, createDecipheriv, randomBytes, pbkdf2Sync } from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 const KEY_BYTES = 32;
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
+const SALT_BYTES = 16;
+const PBKDF2_ITERATIONS = 100000;
 
 function getMasterKey(): Buffer {
   const hex = process.env.MASTER_ENCRYPTION_KEY;
@@ -15,30 +17,40 @@ function getMasterKey(): Buffer {
   return key;
 }
 
+function deriveKey(masterKey: Buffer, salt: Buffer): Buffer {
+  return pbkdf2Sync(masterKey, salt, PBKDF2_ITERATIONS, KEY_BYTES, 'sha256');
+}
+
 export interface EncryptedSecret {
   ciphertext: string;
   iv: string;
   tag: string;
+  salt: string;
 }
 
-export function encryptSecret(plaintext: string): EncryptedSecret {
-  const key = getMasterKey();
+export function encryptSecret(plaintext: string, masterKey?: Buffer): EncryptedSecret {
+  const key = masterKey || getMasterKey();
+  const salt = randomBytes(SALT_BYTES);
+  const derivedKey = deriveKey(key, salt);
   const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv(ALGORITHM, key, iv);
+  const cipher = createCipheriv(ALGORITHM, derivedKey, iv);
   const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
   return {
     ciphertext: encrypted.toString('base64'),
     iv: iv.toString('base64'),
     tag: tag.toString('base64'),
+    salt: salt.toString('base64'),
   };
 }
 
-export function decryptSecret(encrypted: EncryptedSecret): string {
-  const key = getMasterKey();
+export function decryptSecret(encrypted: EncryptedSecret, masterKey?: Buffer): string {
+  const key = masterKey || getMasterKey();
+  const salt = Buffer.from(encrypted.salt, 'base64');
+  const derivedKey = deriveKey(key, salt);
   const decipher = createDecipheriv(
     ALGORITHM,
-    key,
+    derivedKey,
     Buffer.from(encrypted.iv, 'base64'),
   );
   decipher.setAuthTag(Buffer.from(encrypted.tag, 'base64'));
