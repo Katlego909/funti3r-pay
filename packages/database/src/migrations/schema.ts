@@ -11,13 +11,15 @@ export async function runInitialMigrations() {
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS users (
-        id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        email         VARCHAR(255) NOT NULL UNIQUE,
-        role          VARCHAR(20)  NOT NULL DEFAULT 'worker',
-        status        VARCHAR(20)  NOT NULL DEFAULT 'active',
-        country       VARCHAR(10),
-        created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-        updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+        id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email                   VARCHAR(255) NOT NULL UNIQUE,
+        role                    VARCHAR(20)  NOT NULL DEFAULT 'worker',
+        status                  VARCHAR(20)  NOT NULL DEFAULT 'active',
+        country                 VARCHAR(10),
+        wallet_deployed_at      TIMESTAMPTZ,
+        wallet_deployment_retries INT        NOT NULL DEFAULT 0,
+        created_at              TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        updated_at              TIMESTAMPTZ  NOT NULL DEFAULT NOW()
       );
     `);
 
@@ -43,8 +45,12 @@ export async function runInitialMigrations() {
         encrypted_secret      TEXT,
         encryption_iv         VARCHAR(64),
         encryption_tag        VARCHAR(64),
+        encryption_salt       VARCHAR(64),
         contract_address      VARCHAR(100),
-        created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        status                VARCHAR(20) NOT NULL DEFAULT 'pending',
+        created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deployed_at           TIMESTAMPTZ,
+        updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
 
@@ -92,10 +98,26 @@ export async function runInitialMigrations() {
       );
     `);
 
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS wallet_deployment_errors (
+        id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id         UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        error_message   TEXT        NOT NULL,
+        error_stack     TEXT,
+        retry_count     INT         NOT NULL DEFAULT 0,
+        last_retry_at   TIMESTAMPTZ,
+        resolved_at     TIMESTAMPTZ,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
     await db.query('CREATE INDEX IF NOT EXISTS idx_payments_enterprise ON payments(enterprise_id);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_payments_worker    ON payments(worker_id);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_payments_status    ON payments(status);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_audit_user         ON audit_logs(user_id);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_wallets_user_type  ON wallets(user_id, wallet_type);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_wallet_errors_user ON wallet_deployment_errors(user_id);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_wallet_errors_resolved ON wallet_deployment_errors(resolved_at);');
 
     logger.info('Migrations completed.');
   } catch (error) {

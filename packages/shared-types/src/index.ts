@@ -122,3 +122,50 @@ export interface AuthResponse {
   refreshToken?: string;
   user: User;
 }
+
+// Wallet types
+export enum WalletType {
+  WORKER = 'worker',
+  ENTERPRISE = 'enterprise',
+}
+
+export enum WalletStatus {
+  PENDING = 'pending',
+  ACTIVE = 'active',
+  SUSPENDED = 'suspended',
+}
+
+export interface Wallet {
+  id: string;
+  userId: string;
+  walletType: WalletType;
+  publicKey?: string;
+  contractAddress?: string;
+  status: WalletStatus;
+  createdAt: Date;
+  deployedAt?: Date;
+  updatedAt: Date;
+}
+
+export interface EncryptedSecret {
+  ciphertext: string;
+  iv: string;
+  tag: string;
+  salt: string;
+}
+
+export interface WalletDeploymentStatus {
+  status: 'idle' | 'deploying' | 'deployed' | 'error';
+  contractAddress?: string;
+  errorMessage?: string;
+}
+
+export interface WalletDeploymentError {
+  id: string;
+  userId: string;
+  errorMessage: string;
+  retryCount: number;
+  lastRetryAt?: Date;
+  resolvedAt?: Date;
+  createdAt: Date;
+}
