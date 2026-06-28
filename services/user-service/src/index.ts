@@ -454,6 +454,39 @@ app.get('/users/summary', async (_req, res) => {
   }
 });
 
+app.get('/users', async (req, res) => {
+  try {
+    const role = req.query.role as string | undefined;
+    const limit = Math.min(Number(req.query.limit ?? 50), 500);
+    const offset = Number(req.query.offset ?? 0);
+
+    let sql = 'SELECT id, email, role, status, country, created_at FROM users';
+    const params: any[] = [];
+
+    if (role) {
+      sql += ' WHERE role = $1';
+      params.push(role);
+    }
+
+    sql += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
+    params.push(limit, offset);
+
+    const result = await query(sql, params);
+    const total = await query(
+      role ? 'SELECT COUNT(*) AS total FROM users WHERE role = $1' : 'SELECT COUNT(*) AS total FROM users',
+      role ? [role] : [],
+    );
+
+    res.json({
+      users: result.rows,
+      total: Number(total.rows[0].total),
+    });
+  } catch (err) {
+    logger.error('users list failed', { error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.get('/users/:id', async (req, res) => {
   try {
     const result = await query(
