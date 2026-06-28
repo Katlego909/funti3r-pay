@@ -16,9 +16,14 @@ import { createLogger } from '@funti3r/shared-utils';
 import axios from 'axios';
 import { randomBytes } from 'crypto';
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 const logger = createLogger('StellarService');
+
+// Get __dirname equivalent in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const HORIZON_URL =
   process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org';
