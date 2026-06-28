@@ -217,7 +217,9 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     await deleteKey(`reg:${email}`);
 
     // Deploy SmartWallet via payment-service (non-blocking for UX; errors are logged)
-    const credIdHex = Buffer.from(credentialID, 'base64url').toString('hex');
+    // Convert base64url credential ID to hex
+    const credIdBase64 = credentialID.replace(/-/g, '+').replace(/_/g, '/') + '==';
+    const credIdHex = Buffer.from(credIdBase64, 'base64').toString('hex');
     setImmediate(async () => {
       try {
         await axios.post(`${PAYMENT_SERVICE_URL}/wallets/worker`, {
