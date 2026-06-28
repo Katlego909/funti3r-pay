@@ -114,6 +114,13 @@ function proxy(target: string, pathRewrite?: Record<string, string>) {
     pathRewrite,
     timeout: 30000,
     on: {
+      proxyRes: (proxyRes, req, res) => {
+        const origin = req.headers.origin;
+        if (origin && ['http://localhost:3100', 'http://localhost:3101', 'http://localhost:3102'].includes(origin)) {
+          res.setHeader('Access-Control-Allow-Origin', origin);
+          res.setHeader('Access-Control-Allow-Credentials', 'true');
+        }
+      },
       error: (err, _req, res) => {
         logger.error('Proxy error', { target, error: String(err) });
         if (!('headersSent' in res && res.headersSent)) {
