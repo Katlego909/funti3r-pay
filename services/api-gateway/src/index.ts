@@ -143,7 +143,7 @@ app.all(['/wallets*', '/api/wallets*'], proxy(PAYMENT_SERVICE, { '^/api/wallets'
 app.all(['/payouts*', '/api/payouts*'], proxy(PAYMENT_SERVICE, { '^/api/payouts': '/payouts' }));
 
 // Compliance → compliance-service
-app.all('/compliance*', proxy(COMPLIANCE_URL));
+app.all(['/compliance*', '/api/compliance*'], proxy(COMPLIANCE_URL, { '^/api/compliance': '/compliance' }));
 
 // Analytics → analytics-service
 app.use('/analytics', proxy(ANALYTICS_URL));
