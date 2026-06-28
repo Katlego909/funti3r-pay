@@ -144,6 +144,123 @@ app.get('/wallets/:userId', async (req, res) => {
   }
 });
 
+// ── Deploy wallet for existing user ──────────────────────────────────────────
+
+/**
+ * POST /wallets/deploy-for-existing-user
+ * Deploy SmartWallet for a user who was created before this feature.
+ * Requires: userId, passkeyPkHex (or fetched from user_credentials)
+ */
+app.post('/wallets/deploy-for-existing-user', async (req, res) => {
+  const { userId } = req.body as { userId: string };
+
+  if (!userId) {
+    return res.status(400).json({ error: 'userId is required' });
+  }
+
+  try {
+    logger.info('Deploying wallet for existing user', { userId });
+
+    // Check if wallet already exists
+    const existing = await query(
+      `SELECT contract_address FROM wallets
+       WHERE user_id = $1 AND wallet_type = 'worker'`,
+      [userId]
+    );
+
+    if (existing.rows.length > 0 && existing.rows[0].contract_address) {
+      logger.warn('Wallet already deployed', {
+        userId,
+        address: existing.rows[0].contract_address
+      });
+      return res.status(200).json({
+        contractAddress: existing.rows[0].contract_address,
+        status: 'already_deployed'
+      });
+    }
+
+    // Get user's credential to extract passkey public key
+    const credResult = await query(
+      `SELECT public_key FROM user_credentials WHERE user_id = $1`,
+      [userId]
+    );
+
+    if (credResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User credentials not found' });
+    }
+
+    const passkeyPkHex = Buffer.from(credResult.rows[0].public_key, 'base64').toString('hex');
+
+    // Deploy SmartWallet
+    const contractAddress = await stellar.deploySmartWallet(passkeyPkHex, credResult.rows[0].public_key);
+
+    // Initialize contract
+    await stellar.initializeSmartWallet(contractAddress, passkeyPkHex);
+
+    // Fund on testnet if applicable
+    if (process.env.STELLAR_NETWORK === 'TESTNET') {
+      try {
+        await stellar.fundWithFriendbot(contractAddress);
+      } catch (err) {
+        logger.warn('Testnet funding failed (non-critical)', { error: String(err) });
+      }
+    }
+
+    // Store wallet
+    const walletResult = await query(
+      `INSERT INTO wallets
+       (user_id, wallet_type, contract_address, status, deployed_at, updated_at)
+       VALUES ($1, $2, $3, $4, NOW(), NOW())
+       RETURNING id, contract_address, status`,
+      [userId, 'worker', contractAddress, 'active']
+    );
+
+    // Update user's deployment timestamp
+    await query(
+      `UPDATE users SET wallet_deployed_at = NOW() WHERE id = $1`,
+      [userId]
+    );
+
+    // Audit log
+    await query(
+      `INSERT INTO audit_logs (user_id, action, details)
+       VALUES ($1, $2, $3)`,
+      [
+        userId,
+        'WALLET_DEPLOYED_EXISTING_USER',
+        JSON.stringify({
+          contractAddress,
+          timestamp: new Date().toISOString()
+        })
+      ]
+    );
+
+    logger.info('Wallet deployed for existing user', { userId, contractAddress });
+
+    res.status(201).json({
+      walletId: walletResult.rows[0].id,
+      contractAddress: walletResult.rows[0].contract_address,
+      status: walletResult.rows[0].status,
+      message: 'SmartWallet deployed for existing user'
+    });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    logger.error('Wallet deployment for existing user failed', { userId, error: errorMsg });
+
+    // Store error for recovery
+    await query(
+      `INSERT INTO wallet_deployment_errors (user_id, error_message, error_stack, retry_count)
+       VALUES ($1, $2, $3, 0)`,
+      [userId, errorMsg, err instanceof Error ? err.stack : null]
+    );
+
+    res.status(500).json({
+      error: 'Wallet deployment failed',
+      details: process.env.NODE_ENV === 'development' ? errorMsg : undefined
+    });
+  }
+});
+
 // ── Wallet deployment status ─────────────────────────────────────────────────
 
 /**

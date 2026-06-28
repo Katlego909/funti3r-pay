@@ -69,6 +69,39 @@ export default function Wallet() {
     }
   };
 
+  const triggerWalletDeployment = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch('/api/wallets/deploy', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ userId })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to trigger deployment: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log('Wallet deployment triggered:', data);
+
+      // Start polling for deployment status
+      setWalletInfo(null);
+      setError('');
+      setLoading(false);
+
+      // Trigger a refresh after a moment
+      setTimeout(() => fetchWallet(), 1000);
+    } catch (err) {
+      console.error('Failed to trigger wallet deployment:', err);
+      setError(err instanceof Error ? err.message : 'Failed to trigger wallet deployment');
+      setLoading(false);
+    }
+  };
+
   if (loading) return <div className="loading">Loading wallet...</div>;
 
   const contractAddress = walletInfo?.contract_address || walletInfo?.contractAddress;
@@ -81,6 +114,40 @@ export default function Wallet() {
       {error && <div className="error-banner" style={{ marginBottom: '20px' }}>{error}</div>}
 
       <WalletDeploymentStatus />
+
+      {/* Show "Create Wallet" button if no wallet exists and not already deploying */}
+      {!walletInfo && !loading && (
+        <div style={{
+          padding: '24px',
+          backgroundColor: '#f0f7ff',
+          borderRadius: '12px',
+          border: '1px solid #bfdbfe',
+          marginTop: '20px',
+          textAlign: 'center'
+        }}>
+          <h3 style={{ marginTop: 0 }}>Ready to set up your wallet?</h3>
+          <p style={{ color: '#4b5563', marginBottom: '20px' }}>
+            Create a non-custodial SmartWallet to start receiving payments.
+          </p>
+          <button
+            onClick={triggerWalletDeployment}
+            disabled={loading}
+            style={{
+              padding: '12px 24px',
+              backgroundColor: '#3b82f6',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontSize: '16px',
+              fontWeight: 600,
+              opacity: loading ? 0.7 : 1
+            }}
+          >
+            {loading ? 'Creating Wallet...' : 'Create Wallet'}
+          </button>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gap: '20px', marginTop: '20px' }}>
         {/* Wallet Info Section */}
