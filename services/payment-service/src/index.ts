@@ -94,9 +94,9 @@ app.post('/wallets/enterprise', async (req, res) => {
     const encrypted = encryptSecret(secretKey);
 
     await query(
-      `INSERT INTO wallets (user_id, wallet_type, public_key, encrypted_secret, encryption_iv, encryption_tag)
-       VALUES ($1, 'enterprise', $2, $3, $4, $5)`,
-      [userId, publicKey, encrypted.ciphertext, encrypted.iv, encrypted.tag],
+      `INSERT INTO wallets (user_id, wallet_type, public_key, encrypted_secret, encryption_iv, encryption_tag, encryption_salt, status, updated_at)
+       VALUES ($1, 'enterprise', $2, $3, $4, $5, $6, 'active', NOW())`,
+      [userId, publicKey, encrypted.ciphertext, encrypted.iv, encrypted.tag, encrypted.salt],
     );
 
     // Fund on testnet asynchronously (don't block response)
@@ -140,6 +140,41 @@ app.get('/wallets/:userId', async (req, res) => {
     res.json({ userId: req.params.userId, walletType: wallet.wallet_type, address, balances });
   } catch (err) {
     if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── Wallet deployment status ─────────────────────────────────────────────────
+
+/**
+ * GET /wallets/:userId/deployment-status
+ * Check worker wallet deployment progress
+ */
+app.get('/wallets/:userId/deployment-status', async (req, res) => {
+  try {
+    const walletResult = await query(
+      `SELECT contract_address, status, deployed_at FROM wallets
+       WHERE user_id = $1 AND wallet_type = 'worker'`,
+      [req.params.userId],
+    );
+
+    if (walletResult.rows.length === 0 || !walletResult.rows[0].contract_address) {
+      return res.json({
+        status: 'deploying',
+        contractAddress: null,
+        deployedAt: null,
+      });
+    }
+
+    const wallet = walletResult.rows[0];
+
+    return res.json({
+      status: 'deployed',
+      contractAddress: wallet.contract_address,
+      deployedAt: wallet.deployed_at,
+    });
+  } catch (err) {
+    logger.error('Deployment status check failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
