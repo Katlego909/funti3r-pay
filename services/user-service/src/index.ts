@@ -263,7 +263,7 @@ app.post('/api/auth/register/finish', registerFinishHandler);
  * Body: { email }
  * Returns WebAuthn authentication options.
  */
-app.post('/auth/login/start', async (req, res) => {
+const loginStartHandler = async (req: express.Request, res: express.Response) => {
   try {
     const { email } = req.body as { email: string };
     if (!email) throw new ValidationError('email is required');
@@ -299,14 +299,18 @@ app.post('/auth/login/start', async (req, res) => {
     logger.error('login/start failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
   }
-});
+};
+
+app.post('/auth/login/start', loginStartHandler);
+app.post('/login/start', loginStartHandler);
+app.post('/api/auth/login/start', loginStartHandler);
 
 /**
  * POST /auth/login/finish
  * Body: { email, credential: AuthenticationResponseJSON }
  * Verifies the WebAuthn assertion and returns a JWT.
  */
-app.post('/auth/login/finish', async (req, res) => {
+const loginFinishHandler = async (req: express.Request, res: express.Response) => {
   try {
     const { email, credential } = req.body as {
       email: string;
@@ -371,7 +375,11 @@ app.post('/auth/login/finish', async (req, res) => {
     logger.error('login/finish failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
   }
-});
+};
+
+app.post('/auth/login/finish', loginFinishHandler);
+app.post('/login/finish', loginFinishHandler);
+app.post('/api/auth/login/finish', loginFinishHandler);
 
 /**
  * POST /auth/refresh
