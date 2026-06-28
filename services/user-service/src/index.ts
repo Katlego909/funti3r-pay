@@ -216,22 +216,26 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
 
     await deleteKey(`reg:${email}`);
 
-    // Deploy SmartWallet via payment-service (non-blocking for UX; errors are logged)
-    // Convert base64url credential ID to hex
-    const credIdBase64 = credentialID.replace(/-/g, '+').replace(/_/g, '/') + '==';
-    const credIdHex = Buffer.from(credIdBase64, 'base64').toString('hex');
-    setImmediate(async () => {
+    // Deploy SmartWallet for workers during registration
+    if (session.role === 'worker') {
       try {
+        const credIdBase64 = credentialID.replace(/-/g, '+').replace(/_/g, '/') + '==';
+        const credIdHex = Buffer.from(credIdBase64, 'base64').toString('hex');
+
         await axios.post(`${PAYMENT_SERVICE_URL}/wallets/worker`, {
           userId,
           passkeyPkHex: passkeyPkBuffer.toString('hex'),
           credentialIdHex: credIdHex,
-        }, { timeout: 300000 });
-        logger.info('SmartWallet deployment triggered', { userId });
+        }, { timeout: 300000 }); // 5 minute timeout
+
+        logger.info('SmartWallet deployed during registration', { userId });
       } catch (err) {
         logger.error('SmartWallet deployment failed', { userId, error: String(err) });
+        return res.status(500).json({
+          error: 'Wallet deployment failed: ' + String(err)
+        });
       }
-    });
+    }
 
     const accessToken = generateToken(userId, email, session.role);
     const refreshToken = randomBytes(64).toString('hex');
@@ -243,17 +247,11 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
 
     setRefreshCookie(res, refreshToken);
 
-    // Include wallet deployment status for workers
-    const walletDeploymentStatus = session.role === 'worker'
-      ? { status: 'deploying', estimatedTime: '20-30 seconds' }
-      : null;
-
     res.status(201).json({
       accessToken,
       userId,
       email,
-      role: session.role,
-      walletDeployment: walletDeploymentStatus
+      role: session.role
     });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
