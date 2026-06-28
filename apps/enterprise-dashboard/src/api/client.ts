@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 export const api = axios.create({
-  baseURL: 'http://localhost:3000',
+  baseURL: 'http://127.0.0.1:3000',
   withCredentials: true, // send httpOnly refresh_token cookie
 });
 
@@ -25,7 +25,7 @@ api.interceptors.response.use(
 
     if (!refreshing) {
       refreshing = axios
-        .post<{ accessToken: string }>('http://localhost:3000/api/auth/refresh', {}, { withCredentials: true })
+        .post<{ accessToken: string }>('http://127.0.0.1:3000/api/auth/refresh', {}, { withCredentials: true })
         .then((r) => {
           sessionStorage.setItem('access_token', r.data.accessToken);
           return r.data.accessToken;
