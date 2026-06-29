@@ -79,6 +79,7 @@ router.post('/external/verify', async (req: Request, res: Response) => {
       publicKeyLength: publicKey.length,
       challengeLength: challenge.length,
       signatureLength: signature.length,
+      signaturePreview: signature.substring(0, 100),
       walletProvider,
     });
 
