@@ -6,6 +6,7 @@
  * In production, switch STELLAR_SETTLEMENT_ASSET to USDC and configure
  * STELLAR_USDC_ISSUER.
  */
+import crypto from 'crypto';
 import type { IPaymentRail, RailPaymentParams, RailQuote, RailQuoteParams, RailResult } from './types.js';
 import { sendPayment, pathPaymentStrictSend } from '../lib/stellar.js';
 import { createLogger } from '@funti3r/shared-utils';
@@ -40,7 +41,7 @@ export class StellarRail implements IPaymentRail {
     }
 
     const settlementAsset = process.env.STELLAR_SETTLEMENT_ASSET ?? 'XLM';
-    const memoHash = Buffer.from(params.paymentId);
+    const memoHash = crypto.createHash('sha256').update(params.paymentId).digest();
 
     logger.info('Sending Stellar payment', {
       paymentId: params.paymentId,
