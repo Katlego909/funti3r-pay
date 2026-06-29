@@ -1,4 +1,4 @@
-import { Keypair, TransactionBuilder, Networks, hash, xdr } from '@stellar/stellar-sdk';
+import { Keypair, TransactionBuilder, Networks, hash, xdr, Transaction } from '@stellar/stellar-sdk';
 import { createLogger } from '@funti3r/shared-utils';
 
 const logger = createLogger('WalletVerification');
@@ -81,8 +81,10 @@ export function verifyWalletSignature(
     // Note: The network passphrase is not stored in XDR, but we use it for signature verification
     const expectedPassphrase = Networks.TESTNET;
 
-    // Compute transaction hash
-    const txHashBuffer = hash(txXdr.toXDR());
+    // Compute transaction hash using the network passphrase (same way it was signed)
+    // Create a Transaction object from the full envelope with the correct network passphrase
+    const txFromEnvelope = new Transaction(txEnvelope, expectedPassphrase);
+    const txHashBuffer = txFromEnvelope.hash();
 
     logger.info('Transaction hash computed', {
       hashHex: txHashBuffer.toString('hex').substring(0, 16) + '...',
