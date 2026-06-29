@@ -179,10 +179,14 @@ const getKycHandler = async (req: any, res: any) => {
   const requesterRole = req.headers['x-user-role'];
   const targetUserId = req.params.userId;
 
+  console.log('[KYC_GET_DEBUG]', { requesterId, requesterRole, targetUserId });
+
   // Only owner, admin, or enterprise can view full KYC details
   if (requesterId !== targetUserId && requesterRole !== 'admin' && requesterRole !== 'enterprise') {
+    console.log('[KYC_GET_BLOCKED]', { requesterId, requesterRole, targetUserId, allowed: false });
     return res.status(403).json({ error: 'Not authorized to view this KYC record' });
   }
+  console.log('[KYC_GET_ALLOWED]', { requesterId, requesterRole, targetUserId, allowed: true });
 
   try {
     const result = await query(

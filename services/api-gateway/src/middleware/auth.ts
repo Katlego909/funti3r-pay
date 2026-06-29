@@ -14,12 +14,8 @@ const PUBLIC_PATHS = new Set([
 
 // Allow access to payment/user data (compliance requires auth for approve/reject)
 const PUBLIC_READ_PATTERNS = [
-  /^\/payouts/,
-  /^\/api\/payouts/,
   /^\/users\/summary/,
   /^\/api\/users\/summary/,
-  /^\/wallets/,
-  /^\/api\/wallets/,
 ];
 
 function isPublic(path: string): boolean {
