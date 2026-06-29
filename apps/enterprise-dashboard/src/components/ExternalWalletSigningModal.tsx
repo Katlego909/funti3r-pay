@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { StellarWalletsKit } from '@creit.tech/stellar-wallets-kit/sdk';
 import { HiXMark, HiCheck, HiExclamationTriangle } from 'react-icons/hi2';
+import { submitSignature } from '../api/payments.js';
 import '../styles/ExternalWalletSigningModal.css';
 
 interface ExternalWalletSigningModalProps {
@@ -42,18 +43,7 @@ export default function ExternalWalletSigningModal({
       setStage('submitting');
 
       // Submit signed transaction to server
-      const resp = await fetch('/api/payouts/submit-signature', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentId, signedXDR: signedTxXdr }),
-      });
-
-      if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.error || 'Failed to submit payment');
-      }
-
-      const result = await resp.json();
+      const result = await submitSignature({ paymentId, signedXDR: signedTxXdr });
       setTxHash(result.stellarTxHash);
       setStage('success');
 
