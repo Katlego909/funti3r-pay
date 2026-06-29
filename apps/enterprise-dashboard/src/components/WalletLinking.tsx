@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { StellarWalletsKit } from '@creit.tech/stellar-wallets-kit/sdk';
 import { Account, TransactionBuilder, Memo, Operation, BASE_FEE } from '@stellar/stellar-sdk';
+import { api } from '../api/client.js';
 
 interface WalletLinkingProps {
   userId: string;
@@ -38,14 +39,8 @@ export default function WalletLinking({ userId, onLinked }: WalletLinkingProps) 
 
       // Request challenge
       console.log('[WalletLinking] Requesting challenge');
-      const challengeResp = await fetch('/api/wallets/external/link-request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, walletProvider: 'albedo' }),
-      });
-
-      if (!challengeResp.ok) throw new Error('Challenge request failed');
-      const { challenge } = await challengeResp.json();
+      const { data } = await api.post<{ challenge: string }>('/wallets/external/link-request', { userId, walletProvider: 'albedo' });
+      const { challenge } = data;
 
       // Create transaction
       console.log('[WalletLinking] Creating transaction');
@@ -105,17 +100,7 @@ export default function WalletLinking({ userId, onLinked }: WalletLinkingProps) 
         signature: payload.signature.substring(0, 50) + '...',
       });
 
-      const verifyResp = await fetch('/api/wallets/external/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!verifyResp.ok) {
-        const errText = await verifyResp.text();
-        throw new Error(`Verification failed: ${errText}`);
-      }
-
+      await api.post('/wallets/external/verify', payload);
       console.log('[WalletLinking] Success!');
       onLinked?.();
     } catch (err) {
