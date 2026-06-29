@@ -84,3 +84,11 @@ export async function getPayment(id: string): Promise<Payment> {
   const { data } = await api.get<Payment>(`/payouts/${id}`);
   return data;
 }
+
+export async function submitSignature(payload: {
+  paymentId: string;
+  signedXDR: string;
+}) {
+  const { data } = await api.post('/payouts/submit-signature', payload);
+  return data;
+}

@@ -80,32 +80,21 @@ export default function Payments() {
     setFormSuccess('');
     setSubmitting(true);
     try {
-      const response = await fetch('/api/payouts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          enterpriseId: user!.userId,
-          workerId,
-          amount: Number(amount),
-          currency,
-          destinationCountry: country,
-          idempotencyKey: crypto.randomUUID(),
-          preferFiat: selectedQuote?.rail !== 'stellar',
-          quoteId: selectedQuote?.quoteId,
-          recipientName: recipientName || undefined,
-          signerWalletId: selectedWalletId || undefined,
-        }),
+      const result = await initiatePayment({
+        enterpriseId: user!.userId,
+        workerId,
+        amount: Number(amount),
+        currency,
+        destinationCountry: country,
+        idempotencyKey: crypto.randomUUID(),
+        preferFiat: selectedQuote?.rail !== 'stellar',
+        quoteId: selectedQuote?.quoteId,
+        recipientName: recipientName || undefined,
+        signerWalletId: selectedWalletId || undefined,
       });
 
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Payment failed');
-      }
-
-      const result = await response.json();
-
       // Check if external wallet signing is needed (HTTP 202)
-      if (response.status === 202) {
+      if (result.status === 'pending_signature') {
         setPendingPaymentId(result.paymentId);
         setUnsignedXDR(result.unsignedXDR);
         setSignerProvider(result.walletProvider);
