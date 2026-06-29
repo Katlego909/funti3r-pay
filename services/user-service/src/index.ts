@@ -52,6 +52,20 @@ app.use(parseBody);
 const RP_NAME = process.env.RP_NAME || 'Funti3r-Pay';
 const RP_ID = process.env.RP_ID || 'localhost';
 const RP_ORIGIN = process.env.RP_ORIGIN || 'http://localhost:3100';
+
+// Allow multiple valid origins for WebAuthn (handles port changes in dev)
+const VALID_WEBAUTHN_ORIGINS = [
+  'http://localhost:3100',
+  'http://localhost:3101',
+  'http://localhost:3102',
+  'http://localhost:3103',
+  'http://localhost:3104',
+  'http://localhost:3105',
+  'http://localhost:3106',
+  'http://localhost:3107',
+  'http://localhost:3108',
+  ...(process.env.WEBAUTHN_ORIGINS?.split(',') || []),
+];
 const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3002';
 const REFRESH_TOKEN_TTL_SEC = 60 * 60 * 24 * 7; // 7 days
 const CHALLENGE_TTL_SEC = 600; // 10 minutes
@@ -133,18 +147,20 @@ app.post('/auth/register/test', (req, res) => {
 });
 
 /**
- * POST /auth/dev-login
+ * POST/GET /auth/dev-login
  * Development-only endpoint to get JWT token without WebAuthn
  * ONLY enabled in development mode
- * Body: { email, role? }
+ * Body/Query: { email, role? }
  */
-app.post('/auth/dev-login', async (req, res) => {
+const devLoginHandler = async (req: express.Request, res: express.Response) => {
   if (process.env.NODE_ENV === 'production') {
     return res.status(403).json({ error: 'Dev login not available in production' });
   }
 
   try {
-    const { email, role = 'worker' } = req.body;
+    // Handle both GET query params and POST body
+    const params = req.method === 'GET' ? req.query : req.body;
+    const { email, role = 'worker' } = params as { email?: string; role?: string };
 
     if (!email) {
       return res.status(400).json({ error: 'Email is required' });
@@ -192,7 +208,11 @@ app.post('/auth/dev-login', async (req, res) => {
     logger.error('Dev login failed', { error: String(err) });
     res.status(500).json({ error: 'Dev login failed' });
   }
-});
+};
+
+// Register both GET and POST routes
+app.get('/auth/dev-login', devLoginHandler);
+app.post('/auth/dev-login', devLoginHandler);
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -275,9 +295,15 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
       requireUserVerification: false,
     });
 
-    console.log('[registerFinish] Verification result:', { verified: verification.verified, hasInfo: !!verification.registrationInfo });
+    console.log('[registerFinish] Verification result:', { verified: verification.verified, hasInfo: !!verification.registrationInfo, clientOrigin });
     if (!verification.verified || !verification.registrationInfo) {
       return res.status(400).json({ error: 'Passkey verification failed' });
+    }
+
+    // Verify origin is in allowed list
+    if (!VALID_WEBAUTHN_ORIGINS.includes(clientOrigin)) {
+      console.log('[registerFinish] Origin not in whitelist', { clientOrigin, allowed: VALID_WEBAUTHN_ORIGINS });
+      return res.status(400).json({ error: `Origin ${clientOrigin} not whitelisted for WebAuthn` });
     }
 
     const { credentialID, credentialPublicKey, counter, aaguid } =
