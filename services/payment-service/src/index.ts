@@ -873,8 +873,11 @@ app.get('/payouts', async (req, res) => {
   const requesterId = req.headers['x-user-id'];
   const requesterRole = req.headers['x-user-role'];
 
+  console.log('[PAYOUTS_GET_DEBUG]', { enterpriseId, requesterId, requesterRole, allHeaders: req.headers });
+
   // Authorization: can only list payments for own enterprise or self as worker
   if (enterpriseId && enterpriseId !== requesterId) {
+    console.log('[PAYOUTS_GET_BLOCKED]', { enterpriseId, requesterId, reason: 'enterprise mismatch' });
     return res.status(403).json({ error: 'Not authorized to view payments for this enterprise' });
   }
   if (workerId && workerId !== requesterId) {
