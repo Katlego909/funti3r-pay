@@ -116,7 +116,6 @@ const registerStartHandler = async (req: express.Request, res: express.Response)
     const options = await generateRegistrationOptions({
       rpName: RP_NAME,
       rpID: RP_ID,
-      rpOrigin: clientOrigin,
       userName: email,
       userID: new Uint8Array(Buffer.from(email.split('@')[0])), // Unique user ID based on email prefix
       userDisplayName: email.split('@')[0] || 'User',
@@ -188,7 +187,10 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
       verification.registrationInfo;
 
     // transports come from the client credential response, not registrationInfo in v10
-    const transports = (credential as { transports?: string[] }).transports ?? [];
+    // For platform authenticators (Windows Hello), transports should be ['internal']
+    const transports = (credential as { transports?: string[] }).transports ?? ['internal'];
+
+    console.log('[registerFinish] Credential transports:', transports);
 
     // Extract raw P-256 public key for Soroban contract init
     const passkeyPkBuffer = extractP256UncompressedKey(credentialPublicKey);
@@ -310,7 +312,7 @@ const loginStartHandler = async (req: express.Request, res: express.Response) =>
       allowCredentials: [
         {
           id: credential_id,
-          transports: transports ?? [],
+          transports: transports ?? ['internal'],
         },
       ],
     });
