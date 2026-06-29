@@ -112,3 +112,8 @@ DEVELOPMENT.md
 ARCHITECTURE.md
 README_MAIN.md
 auth-plan.md
+
+# Working documentation - do not commit
+*.md
+*.txt
+!README.md
