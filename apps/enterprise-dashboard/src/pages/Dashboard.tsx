@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { HiOutlineUsers, HiOutlineBanknotes, HiOutlineClock, HiOutlineCheckCircle, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { getSummary, getRecentPayments, type Payment, type PaymentSummary } from '../api/payments.js';
 import { getUserSummary } from '../api/workers.js';
+import { useAuthStore } from '../store/authStore.js';
 import '../styles/Dashboard.css';
 
 function statusClass(s: string) {
@@ -11,14 +12,32 @@ function statusClass(s: string) {
 }
 
 export default function Dashboard() {
+  const user = useAuthStore((s) => s.user);
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [userCount, setUserCount] = useState<number | null>(null);
+  const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [recent, setRecent] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (!user?.userId) return;
+
     console.log('[Dashboard] Mounting, loading data...');
+
+    async function fetchWalletBalance() {
+      try {
+        const response = await fetch(`/api/wallets/${user.userId}`);
+        if (response.ok) {
+          const data = await response.json();
+          const xlmBalance = data.balances?.find((b: any) => b.asset_type === 'native')?.balance;
+          setWalletBalance(xlmBalance || '0');
+        }
+      } catch (err) {
+        console.error('[Dashboard] Error loading wallet:', err);
+      }
+    }
+
     Promise.all([getSummary(), getUserSummary(), getRecentPayments(8)])
       .then(([pSummary, uSummary, payments]) => {
         console.log('[Dashboard] Data loaded:', { pSummary, uSummary, payments });
@@ -31,7 +50,9 @@ export default function Dashboard() {
         setError(err.message ?? 'Failed to load dashboard');
       })
       .finally(() => setLoading(false));
-  }, []);
+
+    fetchWalletBalance();
+  }, [user]);
 
   if (loading) return <div className="loading">Loading dashboard…</div>;
   if (error) return <div className="error-banner">{error}</div>;
@@ -49,10 +70,12 @@ export default function Dashboard() {
       <div className="metrics-grid">
         <div className="metric-card">
           <div className="metric-header">
-            <HiOutlineUsers size={20} className="metric-icon" />
-            <h3>Registered Users</h3>
+            <HiOutlineBanknotes size={20} className="metric-icon" />
+            <h3>Wallet Balance</h3>
           </div>
-          <div className="metric-value">{userCount?.toLocaleString() ?? '—'}</div>
+          <div className="metric-value" style={{ color: '#3b82f6' }}>
+            {walletBalance ? `${parseFloat(walletBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 7 })} XLM` : '—'}
+          </div>
         </div>
 
         <div className="metric-card">

@@ -86,6 +86,7 @@ export class PuntoRedRail implements IPaymentRail {
     return {
       success: true,
       providerReference: tx.transactionCode,
+      pinCode: tx.pinCode,
       status: 'pending',
       estimatedCompletionAt: new Date(tx.expiresAt),
     };

@@ -33,6 +33,7 @@ export interface RailResult {
   success: boolean;
   providerReference: string;
   stellarTxHash?: string;
+  pinCode?: string;
   status: 'completed' | 'pending' | 'failed';
   estimatedCompletionAt?: Date;
 }

@@ -7,6 +7,20 @@
   </head>
   <body>
     <div id="root"></div>
+    <script type="module">
+      // Initialize Stellar Wallets Kit OUTSIDE React to avoid lifecycle conflicts
+      import { StellarWalletsKit } from '@creit.tech/stellar-wallets-kit/sdk';
+      import { defaultModules } from '@creit.tech/stellar-wallets-kit/modules/utils';
+
+      try {
+        console.log('[INIT] Initializing Stellar Wallets Kit');
+        StellarWalletsKit.init({ modules: defaultModules() });
+        window.__walletKitReady = true;
+        console.log('[INIT] Stellar Wallets Kit initialized');
+      } catch (error) {
+        console.error('[INIT] Failed to initialize kit:', error);
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -2,6 +2,9 @@ import { useEffect, useState, FormEvent } from 'react';
 import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { listPayments, initiatePayment, getQuotes, type Payment, type Quote } from '../api/payments.js';
 import { useAuthStore } from '../store/authStore.js';
+import WalletLinking from '../components/WalletLinking.js';
+import WalletSelector, { type Wallet } from '../components/WalletSelector.js';
+import ExternalWalletSigningModal from '../components/ExternalWalletSigningModal.js';
 
 function statusClass(s: string) {
   if (s === 'completed') return 'completed';
@@ -40,6 +43,13 @@ export default function Payments() {
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
 
+  // Wallet kit state
+  const [selectedWalletId, setSelectedWalletId] = useState<string>('');
+  const [signingModalOpen, setSigningModalOpen] = useState(false);
+  const [pendingPaymentId, setPendingPaymentId] = useState('');
+  const [unsignedXDR, setUnsignedXDR] = useState('');
+  const [signerProvider, setSignerProvider] = useState('');
+
   const PAGE = 15;
 
   function loadPayments() {
@@ -70,17 +80,40 @@ export default function Payments() {
     setFormSuccess('');
     setSubmitting(true);
     try {
-      const result = await initiatePayment({
-        enterpriseId: user!.userId,
-        workerId,
-        amount: Number(amount),
-        currency,
-        destinationCountry: country,
-        idempotencyKey: crypto.randomUUID(),
-        preferFiat: selectedQuote?.rail !== 'stellar',
-        quoteId: selectedQuote?.quoteId,
-        recipientName: recipientName || undefined,
+      const response = await fetch('/api/payouts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enterpriseId: user!.userId,
+          workerId,
+          amount: Number(amount),
+          currency,
+          destinationCountry: country,
+          idempotencyKey: crypto.randomUUID(),
+          preferFiat: selectedQuote?.rail !== 'stellar',
+          quoteId: selectedQuote?.quoteId,
+          recipientName: recipientName || undefined,
+          signerWalletId: selectedWalletId || undefined,
+        }),
       });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Payment failed');
+      }
+
+      const result = await response.json();
+
+      // Check if external wallet signing is needed (HTTP 202)
+      if (response.status === 202) {
+        setPendingPaymentId(result.paymentId);
+        setUnsignedXDR(result.unsignedXDR);
+        setSignerProvider(result.walletProvider);
+        setSigningModalOpen(true);
+        return;
+      }
+
+      // Platform wallet path (existing flow)
       setFormSuccess(`Payment submitted — ${result.rail} — ${result.status}`);
       setFormOpen(false);
       loadPayments();
@@ -106,11 +139,21 @@ export default function Payments() {
 
       {formSuccess && <div className="success-banner">{formSuccess}</div>}
 
+      <WalletLinking userId={user!.userId} onLinked={() => loadPayments()} />
+
       {formOpen && (
         <div className="modal-overlay" onClick={() => setFormOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>New Payment</h3>
             <form onSubmit={handleSend} className="payment-form">
+              {/* Wallet Selection Section */}
+              <div className="wallet-section">
+                <WalletSelector
+                  userId={user!.userId}
+                  onSelect={(wallet) => setSelectedWalletId(wallet.id)}
+                  selectedWalletId={selectedWalletId}
+                />
+              </div>
               <label>Worker ID (UUID)
                 <input value={workerId} onChange={(e) => setWorkerId(e.target.value)} required placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
               </label>
@@ -198,6 +241,21 @@ export default function Payments() {
           </div>
         </section>
       )}
+
+      {/* Signing Modal (For external wallet transactions) */}
+      <ExternalWalletSigningModal
+        isOpen={signingModalOpen}
+        paymentId={pendingPaymentId}
+        unsignedXDR={unsignedXDR}
+        walletProvider={signerProvider}
+        onClose={() => setSigningModalOpen(false)}
+        onSuccess={(txHash) => {
+          setSigningModalOpen(false);
+          setFormSuccess(`Payment submitted with tx: ${txHash.substring(0, 16)}...`);
+          setFormOpen(false);
+          loadPayments();
+        }}
+      />
     </div>
   );
 }
