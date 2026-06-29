@@ -117,3 +117,10 @@ auth-plan.md
 *.md
 *.txt
 !README.md
+
+# Local temp/cache files - do not commit
+AppData/
+**/AppData/**
+**/Temp/**
+**/temp/**
+**/.cache/**
