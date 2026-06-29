@@ -60,6 +60,40 @@ const CHALLENGE_TTL_SEC = 600; // 10 minutes
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
+ * Ensure user has a Stellar account - create one if they don't have it
+ * Called for every user to guarantee they have a Stellar public key
+ */
+async function ensureUserHasStellarAccount(userId: string): Promise<string> {
+  // Check if user already has a Stellar account
+  const result = await query(
+    'SELECT stellar_public_key FROM users WHERE id = $1',
+    [userId],
+  );
+
+  if (result.rows.length === 0) {
+    throw new Error('User not found');
+  }
+
+  if (result.rows[0].stellar_public_key) {
+    return result.rows[0].stellar_public_key;
+  }
+
+  // Generate new Stellar account
+  const keypair = Keypair.random();
+  const stellarPublicKey = keypair.publicKey();
+  const stellarSecretKey = keypair.secret();
+
+  // Store in database
+  await query(
+    'UPDATE users SET stellar_public_key = $1, stellar_secret_key = $2 WHERE id = $3',
+    [stellarPublicKey, stellarSecretKey, userId],
+  );
+
+  logger.info('Generated Stellar account', { userId, stellarKey: stellarPublicKey.substring(0, 10) });
+  return stellarPublicKey;
+}
+
+/**
  * Extracts the raw 65-byte uncompressed P-256 public key (04 ‖ x ‖ y) from a
  * COSE-encoded credential public key returned by @simplewebauthn/server.
  */
@@ -548,12 +582,21 @@ app.get('/users', async (req, res) => {
 
 app.get('/users/:id', async (req, res) => {
   try {
+    const userId = req.params.id;
+
+    // Ensure user has Stellar account (auto-creates if missing)
+    const stellarPublicKey = await ensureUserHasStellarAccount(userId);
+
     const result = await query(
-      'SELECT id, email, role, status, country, stellar_public_key, created_at FROM users WHERE id = $1',
-      [req.params.id],
+      'SELECT id, email, role, status, country, created_at FROM users WHERE id = $1',
+      [userId],
     );
     if (result.rows.length === 0) throw new NotFoundError('User');
-    res.json(result.rows[0]);
+
+    res.json({
+      ...result.rows[0],
+      stellarPublicKey,
+    });
   } catch (err) {
     if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
     res.status(500).json({ error: 'Internal server error' });
@@ -563,25 +606,29 @@ app.get('/users/:id', async (req, res) => {
 /**
  * GET /wallets/:userId
  * Get user's Stellar wallet public key
+ * Auto-creates a Stellar account if user doesn't have one yet
  */
 app.get('/wallets/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
+
+    // Ensure user has a Stellar account (creates one if missing)
+    const stellarPublicKey = await ensureUserHasStellarAccount(userId);
+
     const result = await query(
-      'SELECT id, email, stellar_public_key FROM users WHERE id = $1',
+      'SELECT id, email FROM users WHERE id = $1',
       [userId],
     );
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
+
     const user = result.rows[0];
-    if (!user.stellar_public_key) {
-      return res.status(400).json({ error: 'User has no Stellar wallet' });
-    }
     res.json({
       userId: user.id,
       email: user.email,
-      stellarPublicKey: user.stellar_public_key,
+      stellarPublicKey,
     });
   } catch (err) {
     logger.error('Failed to get wallet', { error: String(err) });
