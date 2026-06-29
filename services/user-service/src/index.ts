@@ -132,6 +132,68 @@ app.post('/auth/register/test', (req, res) => {
   res.json({ test: 'works', challenge: 'test-challenge' });
 });
 
+/**
+ * POST /auth/dev-login
+ * Development-only endpoint to get JWT token without WebAuthn
+ * ONLY enabled in development mode
+ * Body: { email, role? }
+ */
+app.post('/auth/dev-login', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Dev login not available in production' });
+  }
+
+  try {
+    const { email, role = 'worker' } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    // Get or create user
+    const userResult = await query(
+      'SELECT id FROM users WHERE email = $1',
+      [email],
+    );
+
+    let userId: string;
+    if (userResult.rows.length > 0) {
+      userId = userResult.rows[0].id;
+    } else {
+      userId = randomUUID();
+      const keypair = Keypair.random();
+      await query(
+        `INSERT INTO users (id, email, role, stellar_public_key, stellar_secret_key)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, email, role, keypair.publicKey(), keypair.secret()],
+      );
+      logger.info('Dev user created', { userId, email, stellarKey: keypair.publicKey().substring(0, 10) });
+    }
+
+    // Generate tokens
+    const accessToken = generateToken(userId, email, role);
+    const refreshToken = randomBytes(64).toString('hex');
+    await setJSON(
+      `refresh:${hashRefreshToken(refreshToken)}`,
+      { userId, email, role },
+      REFRESH_TOKEN_TTL_SEC,
+    );
+
+    setRefreshCookie(res, refreshToken);
+
+    res.status(200).json({
+      accessToken,
+      userId,
+      email,
+      role,
+      message: 'Dev login successful - Stellar account auto-created',
+    });
+  } catch (err) {
+    logger.error('Dev login failed', { error: String(err) });
+    res.status(500).json({ error: 'Dev login failed' });
+  }
+});
+
 // ── Registration ──────────────────────────────────────────────────────────────
 
 /**
