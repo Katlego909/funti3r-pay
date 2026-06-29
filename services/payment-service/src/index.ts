@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import { createLogger, encryptSecret, decryptSecret, ValidationError, NotFoundError } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, runInitialMigrations, query, transaction, getRedis } from '@funti3r/database';
 import { PaymentStatus, PaymentMethod } from '@funti3r/shared-types';
@@ -508,7 +509,7 @@ app.post('/payouts', async (req, res) => {
     if (isExternalSigner) {
       logger.info('Preparing unsigned payment for external wallet', { paymentId, walletProvider: signerWallet.wallet_provider });
 
-      const memoHash = Buffer.from(paymentId);
+      const memoHash = crypto.createHash('sha256').update(paymentId).digest();
       const unsignedXDR = await stellar.prepareUnsignedPayment(
         signerWallet.public_key,
         workerContractAddress,
@@ -543,8 +544,8 @@ app.post('/payouts', async (req, res) => {
       metadata: { sourceSecret: sourceSecret! },
     });
 
-    const memoHash = paymentId ? Buffer.from(paymentId).toString('hex') : undefined;
-    if (memoHash && paymentId) {
+    const memoHashHex = paymentId ? crypto.createHash('sha256').update(paymentId).digest('hex') : undefined;
+    if (memoHashHex && paymentId) {
       await query(
         `UPDATE payments
             SET status = $1, stellar_tx_hash = $2, memo_hash = $3, updated_at = NOW()
@@ -552,7 +553,7 @@ app.post('/payouts', async (req, res) => {
         [
           railResult.status === 'completed' ? PaymentStatus.COMPLETED : PaymentStatus.PENDING,
           railResult.stellarTxHash ?? railResult.providerReference,
-          memoHash,
+          memoHashHex,
           paymentId,
         ],
       );
