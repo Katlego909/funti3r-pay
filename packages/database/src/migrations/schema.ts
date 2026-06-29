@@ -9,6 +9,18 @@ export async function runInitialMigrations() {
   try {
     logger.info('Running migrations...');
 
+    // Alter user_credentials table to support multiple credentials per user
+    // This allows one credential per origin instead of one per user
+    await db.query(`
+      ALTER TABLE user_credentials
+      DROP CONSTRAINT IF EXISTS user_credentials_user_id_key
+    `).catch(() => {}); // Ignore if constraint doesn't exist
+
+    await db.query(`
+      ALTER TABLE user_credentials
+      ADD COLUMN IF NOT EXISTS origin VARCHAR(255)
+    `).catch(() => {}); // Ignore if column already exists
+
     await db.query(`
       CREATE TABLE IF NOT EXISTS users (
         id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),

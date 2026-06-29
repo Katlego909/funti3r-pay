@@ -195,14 +195,31 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     // Extract raw P-256 public key for Soroban contract init
     const passkeyPkBuffer = extractP256UncompressedKey(credentialPublicKey);
 
-    // Generate userId upfront so wallet deployment can reference it
-    const userId = randomUUID();
-
-    // Create user in database
-    await query(
-      `INSERT INTO users (id, email, role) VALUES ($1, $2, $3)`,
-      [userId, email, session.role],
+    // Check if user already exists
+    const existingUserRow = await query(
+      `SELECT id FROM users WHERE email = $1`,
+      [email],
     );
+
+    let userId: string;
+    if (existingUserRow.rows.length > 0) {
+      // User exists, check if they already have a credential for this origin
+      userId = existingUserRow.rows[0].id;
+      const existingCredentialRow = await query(
+        `SELECT id FROM user_credentials WHERE user_id = $1 AND origin = $2`,
+        [userId, clientOrigin],
+      );
+      if (existingCredentialRow.rows.length > 0) {
+        return res.status(409).json({ error: 'You already have a credential registered for this browser/origin' });
+      }
+    } else {
+      // New user, create them
+      userId = randomUUID();
+      await query(
+        `INSERT INTO users (id, email, role) VALUES ($1, $2, $3)`,
+        [userId, email, session.role],
+      );
+    }
 
     // Create credential
     // Store credentialID as base64 string for consistent retrieval
