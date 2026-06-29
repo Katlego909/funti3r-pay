@@ -75,6 +75,7 @@ export async function initiatePayment(payload: {
   quoteId?: string;
   recipientName?: string;
   recipientAccount?: string;
+  signerWalletId?: string;
 }) {
   const { data } = await api.post('/payouts', payload);
   return data;

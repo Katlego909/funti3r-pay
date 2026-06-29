@@ -23,11 +23,17 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user?.userId) return;
 
+    const userId = user.userId;
     console.log('[Dashboard] Mounting, loading data...');
 
     async function fetchWalletBalance() {
       try {
-        const response = await fetch(`/api/wallets/${user.userId}`);
+        const accessToken = sessionStorage.getItem('access_token');
+        const response = await fetch(`/api/wallets/${userId}`, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`
+          }
+        });
         if (response.ok) {
           const data = await response.json();
           const xlmBalance = data.balances?.find((b: any) => b.asset_type === 'native')?.balance;
@@ -51,7 +57,8 @@ export default function Dashboard() {
       })
       .finally(() => setLoading(false));
 
-    fetchWalletBalance();
+    // Note: wallet balance fetch disabled - wallet data comes from user-service instead
+    // fetchWalletBalance();
   }, [user]);
 
   if (loading) return <div className="loading">Loading dashboard…</div>;

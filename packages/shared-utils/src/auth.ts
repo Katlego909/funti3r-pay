@@ -1,18 +1,21 @@
 import jwt, { SignOptions } from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import { JwtPayload, UserRole } from '@funti3r/shared-types';
 
 const JWT_SECRET: string = process.env.JWT_SECRET || 'dev-secret-change-in-production';
 const JWT_EXPIRATION: string = process.env.JWT_EXPIRATION || '24h';
 
 export function generateToken(
-  userId: string,
-  email: string,
-  role: UserRole
+  payload: { userId: string; email: string; role: UserRole } | string,
+  expirationOverride?: string
 ): string {
+  const tokenPayload = typeof payload === 'string' ? { userId: payload } : payload;
+  const expiration = expirationOverride || JWT_EXPIRATION;
+
   return jwt.sign(
-    { userId, email, role },
+    tokenPayload,
     JWT_SECRET,
-    { expiresIn: JWT_EXPIRATION } as SignOptions
+    { expiresIn: expiration } as SignOptions
   );
 }
 
@@ -30,4 +33,12 @@ export function extractToken(authHeader: string): string {
     throw new Error('Invalid authorization header');
   }
   return parts[1];
+}
+
+export async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, 10);
+}
+
+export async function comparePassword(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash);
 }

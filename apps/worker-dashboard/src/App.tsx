@@ -21,19 +21,6 @@ import { useAuthStore } from './store/authStore.js';
 import { logout } from './api/auth.js';
 import './App.css';
 
-// Fallback: check sessionStorage directly if store is out of sync
-function hasToken(): boolean {
-  const storeToken = useAuthStore.getState().accessToken;
-  if (storeToken) return true;
-  // Fallback: check sessionStorage directly
-  const sessionToken = sessionStorage.getItem('access_token');
-  if (sessionToken) {
-    console.warn('[Auth] Token in sessionStorage but not in store, syncing...');
-    useAuthStore.getState().initializeFromStorage();
-    return true;
-  }
-  return false;
-}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.accessToken);
@@ -106,8 +93,7 @@ export default function App() {
     console.log('[App] Initialized, current auth:', { hasToken: !!token, hasUser: !!user });
   }, [initializeFromStorage]);
 
-  // Use both store token and fallback check
-  const isAuthenticated = token || hasToken();
+  const isAuthenticated = !!token;
 
   return (
     <BrowserRouter>

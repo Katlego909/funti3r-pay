@@ -147,7 +147,23 @@ function proxy(target: string, pathRewrite?: Record<string, string>) {
     pathRewrite,
     timeout: 30000,
     on: {
-      error: (err, _req, res) => {
+      proxyReq: (proxyReq: any, req: any) => {
+        // Forward auth headers set by auth middleware
+        const userId = Array.isArray(req.headers['x-user-id'])
+          ? req.headers['x-user-id'][0]
+          : req.headers['x-user-id'];
+        const role = Array.isArray(req.headers['x-user-role'])
+          ? req.headers['x-user-role'][0]
+          : req.headers['x-user-role'];
+        const email = Array.isArray(req.headers['x-user-email'])
+          ? req.headers['x-user-email'][0]
+          : req.headers['x-user-email'];
+
+        if (userId) proxyReq.setHeader('x-user-id', userId);
+        if (role) proxyReq.setHeader('x-user-role', role);
+        if (email) proxyReq.setHeader('x-user-email', email);
+      },
+      error: (err: any, _req: any, res: any) => {
         logger.error('Proxy error', { target, error: String(err) });
         if (!('headersSent' in res && res.headersSent)) {
           (res as express.Response).status(503).json({ error: 'Service temporarily unavailable' });
@@ -168,18 +184,23 @@ app.use((req, res, next) => {
 });
 
 // Auth & Users → user-service
-app.all(['/auth*', '/api/auth*'], proxy(USER_SERVICE, { '^/api/auth': '/auth' }));
-app.all(['/users*', '/api/users*'], proxy(USER_SERVICE, { '^/api/users': '/users' }));
+app.all(['/auth', '/auth/**'], proxy(USER_SERVICE));
+app.all(['/api/auth', '/api/auth/**'], proxy(USER_SERVICE, { '^/api/auth': '/auth' }));
+app.all(['/users', '/users/**'], proxy(USER_SERVICE));
+app.all(['/api/users', '/api/users/**'], proxy(USER_SERVICE, { '^/api/users': '/users' }));
 
 // Wallets & Payouts → payment-service
-app.all(['/wallets*', '/api/wallets*'], proxy(PAYMENT_SERVICE, { '^/api/wallets': '/wallets' }));
-app.all(['/payouts*', '/api/payouts*'], proxy(PAYMENT_SERVICE, { '^/api/payouts': '/payouts' }));
+app.all(['/wallets', '/wallets/**'], proxy(PAYMENT_SERVICE));
+app.all(['/api/wallets', '/api/wallets/**'], proxy(PAYMENT_SERVICE, { '^/api/wallets': '/wallets' }));
+app.all(['/payouts', '/payouts/**'], proxy(PAYMENT_SERVICE));
+app.all(['/api/payouts', '/api/payouts/**'], proxy(PAYMENT_SERVICE, { '^/api/payouts': '/payouts' }));
 
 // Compliance → compliance-service
-app.all(['/compliance*', '/api/compliance*'], proxy(COMPLIANCE_URL, { '^/api/compliance': '', '^/compliance': '' }));
+app.all(['/compliance', '/compliance/**'], proxy(COMPLIANCE_URL));
+app.all(['/api/compliance', '/api/compliance/**'], proxy(COMPLIANCE_URL, { '^/api/compliance': '' }));
 
 // Analytics → analytics-service
-app.use('/analytics', proxy(ANALYTICS_URL));
+app.all(['/analytics', '/analytics/**'], proxy(ANALYTICS_URL));
 
 // ── Error Handler ────────────────────────────────────────────────────────────
 

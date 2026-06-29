@@ -1,11 +1,9 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { loginPasskey } from '../api/auth.js';
-import { useAuthStore } from '../store/authStore.js';
 
 export default function Login() {
   const navigate = useNavigate();
-  const setSession = useAuthStore((s) => s.setSession);
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,7 +14,6 @@ export default function Login() {
     setLoading(true);
     try {
       const session = await loginPasskey(email);
-      setSession({ userId: session.userId, email: session.email, role: session.role }, session.accessToken);
       navigate('/');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Login failed';

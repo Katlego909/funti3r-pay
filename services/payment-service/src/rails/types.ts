@@ -24,7 +24,7 @@ export interface RailPaymentParams {
   destinationCountry: string;
   recipientName: string;
   recipientAccount?: string; // phone, account number, etc.
-  stellarContractAddress?: string;
+  stellarRecipientAddress?: string; // Classic Stellar account or contract address
   quoteId?: string;
   metadata?: Record<string, string>;
 }
