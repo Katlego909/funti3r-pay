@@ -49,6 +49,7 @@ export default function Payments() {
   const [pendingPaymentId, setPendingPaymentId] = useState('');
   const [unsignedXDR, setUnsignedXDR] = useState('');
   const [signerProvider, setSignerProvider] = useState('');
+  const [platformWallet, setPlatformWallet] = useState<Wallet | null>(null);
 
   const PAGE = 15;
 
@@ -61,7 +62,29 @@ export default function Payments() {
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => { loadPayments(); }, [user, offset]);
+  async function loadPlatformWallet() {
+    if (!user?.userId) return;
+    try {
+      const response = await fetch(`/api/wallets/${user.userId}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.address) {
+          setPlatformWallet({
+            id: user.userId,
+            publicKey: data.address,
+            status: data.status || 'active',
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load platform wallet:', err);
+    }
+  }
+
+  useEffect(() => {
+    loadPayments();
+    loadPlatformWallet();
+  }, [user, offset]);
 
   async function fetchQuotes() {
     if (!amount || isNaN(Number(amount))) return;
@@ -141,6 +164,7 @@ export default function Payments() {
                   userId={user!.userId}
                   onSelect={(wallet) => setSelectedWalletId(wallet.id)}
                   selectedWalletId={selectedWalletId}
+                  defaultPlatformWallet={platformWallet || undefined}
                 />
               </div>
               <label>Worker ID (UUID)
