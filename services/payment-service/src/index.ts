@@ -1,6 +1,8 @@
 import express, { Request, Response } from 'express';
 import { initPostgres, query } from '@funti3r/database';
 import { createLogger, verifyToken } from '@funti3r/shared-utils';
+import * as stellar from './stellar.js';
+import { addLog, getLogs, getLogsSummary, clearLogs } from './logs.js';
 
 const logger = createLogger('PaymentService');
 const app = express();
@@ -320,11 +322,338 @@ app.get('/wallets/:userId', requireAuth, async (req: Request, res: Response) => 
 });
 
 // ──────────────────────────────────────────────────────────────────────────
+// Stellar Integration Endpoints
+// ──────────────────────────────────────────────────────────────────────────
+
+app.post('/payments/:paymentId/submit', requireAuth, async (req: Request, res: Response) => {
+  const { userId, role } = req as any;
+  const { paymentId } = req.params;
+
+  logger.info('[Payment] Submitting payment to Stellar', { paymentId, userId, role });
+
+  try {
+    // Get payment
+    const paymentResult = await query(
+      `SELECT p.*, e.user_id as enterprise_user_id FROM payments p
+       JOIN enterprises e ON p.enterprise_id = e.id WHERE p.id = $1`,
+      [paymentId]
+    );
+
+    if (paymentResult.rows.length === 0) {
+      logger.warn('[Payment] Payment not found', { paymentId });
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    const payment = paymentResult.rows[0];
+
+    // Authorization
+    if (role !== 'enterprise' || payment.enterprise_user_id !== userId) {
+      logger.warn('[Payment] Unauthorized payment submission', { paymentId, userId });
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    // Check if already submitted
+    if (payment.status !== 'initiated') {
+      logger.warn('[Payment] Payment already submitted', { paymentId, status: payment.status });
+      return res.status(409).json({ error: `Payment already ${payment.status}` });
+    }
+
+    logger.info('[Payment] Building Stellar transaction', {
+      paymentId,
+      destination: payment.stellar_destination,
+      amount: payment.amount,
+      currency: payment.currency,
+    });
+
+    // Build transaction (no source secret yet - we'll simulate for now)
+    // In production, this would come from enterprise's wallet
+    const memo = `Payment-${paymentId.substring(0, 8)}`;
+
+    // For now, log that we would submit
+    logger.info('[Payment] Would submit to Stellar', {
+      paymentId,
+      destination: payment.stellar_destination,
+      amount: payment.amount,
+      memo,
+    });
+
+    // Update status to pending_signature
+    await query(
+      'UPDATE payments SET status = $1, updated_at = NOW() WHERE id = $2',
+      ['pending_signature', paymentId]
+    );
+
+    logger.info('[Payment] Payment status updated to pending_signature', { paymentId });
+
+    res.json({
+      id: paymentId,
+      status: 'pending_signature',
+      message: 'Payment ready for Stellar submission. Awaiting enterprise signature.',
+    });
+  } catch (err) {
+    logger.error('[Payment] Failed to submit payment to Stellar', {
+      paymentId,
+      error: String(err),
+    });
+    res.status(500).json({ error: 'Failed to submit payment' });
+  }
+});
+
+app.post('/payments/:paymentId/confirm-stellar', requireAuth, async (req: Request, res: Response) => {
+  const { userId, role } = req as any;
+  const { paymentId } = req.params;
+  const { signedXdr } = req.body;
+
+  if (!signedXdr) {
+    logger.warn('[Payment] Missing signedXdr in request', { paymentId });
+    return res.status(400).json({ error: 'signedXdr is required' });
+  }
+
+  logger.info('[Payment] Confirming Stellar transaction', {
+    paymentId,
+    userId,
+    role,
+    xdrLength: signedXdr.length,
+  });
+
+  try {
+    // Get payment
+    const paymentResult = await query(
+      `SELECT p.*, e.user_id as enterprise_user_id FROM payments p
+       JOIN enterprises e ON p.enterprise_id = e.id WHERE p.id = $1`,
+      [paymentId]
+    );
+
+    if (paymentResult.rows.length === 0) {
+      logger.warn('[Payment] Payment not found', { paymentId });
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    const payment = paymentResult.rows[0];
+
+    // Authorization
+    if (role !== 'enterprise' || payment.enterprise_user_id !== userId) {
+      logger.warn('[Payment] Unauthorized confirmation', { paymentId, userId });
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    if (payment.status !== 'pending_signature') {
+      logger.warn('[Payment] Payment not pending signature', { paymentId, status: payment.status });
+      return res.status(409).json({ error: 'Payment not pending signature' });
+    }
+
+    logger.info('[Stellar] Submitting signed transaction', { paymentId });
+
+    try {
+      const result = await stellar.submitTransaction(signedXdr);
+
+      logger.info('[Stellar] Transaction submitted successfully', {
+        paymentId,
+        txHash: result.txHash,
+      });
+
+      // Update payment with tx hash
+      await query(
+        'UPDATE payments SET status = $1, stellar_tx_hash = $2, submitted_at = NOW(), updated_at = NOW() WHERE id = $3',
+        ['submitted', result.txHash, paymentId]
+      );
+
+      logger.info('[Payment] Payment status updated to submitted', {
+        paymentId,
+        txHash: result.txHash,
+      });
+
+      res.json({
+        id: paymentId,
+        status: 'submitted',
+        stellarTxHash: result.txHash,
+        message: 'Payment submitted to Stellar network',
+      });
+    } catch (stellarErr) {
+      logger.error('[Stellar] Transaction submission failed', {
+        paymentId,
+        error: String(stellarErr),
+      });
+
+      // Update payment status to failed
+      await query(
+        'UPDATE payments SET status = $1, failed_at = NOW(), updated_at = NOW() WHERE id = $2',
+        ['failed', paymentId]
+      );
+
+      logger.info('[Payment] Payment marked as failed', { paymentId });
+
+      res.status(400).json({
+        error: 'Failed to submit to Stellar',
+        details: String(stellarErr),
+      });
+    }
+  } catch (err) {
+    logger.error('[Payment] Failed to process Stellar confirmation', {
+      paymentId,
+      error: String(err),
+    });
+    res.status(500).json({ error: 'Failed to process confirmation' });
+  }
+});
+
+app.get('/payments/:paymentId/stellar-status', requireAuth, async (req: Request, res: Response) => {
+  const { userId, role } = req as any;
+  const { paymentId } = req.params;
+
+  logger.info('[Payment] Checking Stellar status', { paymentId, userId });
+
+  try {
+    // Get payment
+    const paymentResult = await query(
+      `SELECT p.*, e.user_id as enterprise_user_id FROM payments p
+       JOIN enterprises e ON p.enterprise_id = e.id WHERE p.id = $1`,
+      [paymentId]
+    );
+
+    if (paymentResult.rows.length === 0) {
+      logger.warn('[Payment] Payment not found', { paymentId });
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    const payment = paymentResult.rows[0];
+
+    // Authorization
+    if (
+      (role === 'enterprise' && payment.enterprise_user_id !== userId) ||
+      (role === 'worker' && payment.worker_id !== userId)
+    ) {
+      logger.warn('[Payment] Unauthorized status check', { paymentId, userId });
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    if (!payment.stellar_tx_hash) {
+      logger.info('[Payment] No Stellar tx hash yet', { paymentId, status: payment.status });
+      return res.json({
+        paymentId,
+        status: payment.status,
+        stellarStatus: 'not_submitted',
+        message: 'Payment not yet submitted to Stellar',
+      });
+    }
+
+    logger.info('[Stellar] Checking transaction status', { txHash: payment.stellar_tx_hash });
+
+    const stellarStatus = await stellar.getTransactionStatus(payment.stellar_tx_hash);
+
+    logger.info('[Stellar] Transaction status retrieved', {
+      txHash: payment.stellar_tx_hash,
+      status: stellarStatus.status,
+    });
+
+    // Update payment status if confirmed
+    if (stellarStatus.status === 'confirmed' && payment.status !== 'completed') {
+      logger.info('[Payment] Updating payment to completed', { paymentId });
+
+      await query(
+        'UPDATE payments SET status = $1, completed_at = NOW(), updated_at = NOW() WHERE id = $2',
+        ['completed', paymentId]
+      );
+    }
+
+    res.json({
+      paymentId,
+      paymentStatus: payment.status,
+      stellarStatus: stellarStatus.status,
+      stellarLedger: stellarStatus.ledger,
+      stellarTimestamp: stellarStatus.timestamp,
+      stellarResultCode: stellarStatus.resultCode,
+    });
+  } catch (err) {
+    logger.error('[Payment] Failed to check Stellar status', {
+      paymentId,
+      error: String(err),
+    });
+    res.status(500).json({ error: 'Failed to check Stellar status' });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────
 // Health & Info
 // ──────────────────────────────────────────────────────────────────────────
 
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'healthy', service: 'payment-service', uptime: process.uptime() });
+});
+
+app.get('/health/stellar', async (_req: Request, res: Response) => {
+  logger.info('[Health] Checking Stellar connectivity');
+
+  try {
+    const isConnected = await stellar.testConnection();
+
+    if (isConnected) {
+      logger.info('[Health] Stellar connection OK');
+      res.json({
+        status: 'healthy',
+        service: 'payment-service',
+        stellar: 'connected',
+      });
+    } else {
+      logger.warn('[Health] Stellar connection failed');
+      res.status(503).json({
+        status: 'degraded',
+        service: 'payment-service',
+        stellar: 'disconnected',
+      });
+    }
+  } catch (err) {
+    logger.error('[Health] Error checking Stellar connection', { error: String(err) });
+    res.status(503).json({
+      status: 'degraded',
+      service: 'payment-service',
+      stellar: 'error',
+      error: String(err),
+    });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Logging & Monitoring Endpoints
+// ──────────────────────────────────────────────────────────────────────────
+
+app.get('/logs', (_req: Request, res: Response) => {
+  const { paymentId, component, level, limit } = _req.query;
+
+  const options: any = {};
+  if (paymentId) options.paymentId = paymentId;
+  if (component) options.component = component;
+  if (level) options.level = level;
+  if (limit) options.limit = parseInt(limit as string);
+
+  const logs = getLogs(options);
+
+  res.json({
+    count: logs.length,
+    logs,
+  });
+});
+
+app.get('/logs/summary', (_req: Request, res: Response) => {
+  const summary = getLogsSummary();
+  res.json(summary);
+});
+
+app.get('/logs/payment/:paymentId', (_req: Request, res: Response) => {
+  const { paymentId } = _req.params;
+
+  const logs = getLogs({ paymentId, limit: 100 });
+
+  res.json({
+    paymentId,
+    count: logs.length,
+    logs,
+  });
+});
+
+app.post('/logs/clear', (_req: Request, res: Response) => {
+  clearLogs();
+  res.json({ message: 'Logs cleared' });
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -333,14 +662,60 @@ app.get('/health', (_req: Request, res: Response) => {
 
 async function start() {
   try {
-    await initPostgres();
-    logger.info('PostgreSQL connected');
+    logger.info('[StartUp] Initializing Payment Service');
 
+    // Initialize PostgreSQL
+    logger.info('[StartUp] Connecting to PostgreSQL');
+    await initPostgres();
+    logger.info('[StartUp] ✓ PostgreSQL connected');
+    addLog('info', 'startup', 'PostgreSQL connected');
+
+    // Test Stellar connectivity
+    logger.info('[StartUp] Testing Stellar network connectivity');
+    const stellarConnected = await stellar.testConnection();
+    if (stellarConnected) {
+      logger.info('[StartUp] ✓ Stellar network connected');
+      addLog('info', 'startup', 'Stellar network connected');
+    } else {
+      logger.warn('[StartUp] ⚠ Stellar network NOT connected (will retry on first payment)');
+      addLog('warn', 'startup', 'Stellar network connection failed');
+    }
+
+    // Start HTTP server
+    logger.info('[StartUp] Starting HTTP server on port', { port: PORT });
     app.listen(PORT, '0.0.0.0', () => {
-      logger.info(`Payment Service running on port ${PORT}`);
+      logger.info(`[StartUp] ✓ Payment Service running on port ${PORT}`);
+      addLog('info', 'startup', `Payment Service listening on port ${PORT}`);
+      console.log('');
+      console.log('╔════════════════════════════════════════════════════════╗');
+      console.log('║         Funti3r-Pay Payment Service Started            ║');
+      console.log('╠════════════════════════════════════════════════════════╣');
+      console.log(`║ Port: ${PORT}                                              ║`);
+      console.log(`║ Database: ✓ Connected                                  ║`);
+      console.log(`║ Stellar: ${stellarConnected ? '✓ Connected' : '⚠ Pending'}                                  ║`);
+      console.log('╠════════════════════════════════════════════════════════╣');
+      console.log('║ Available Endpoints:                                   ║');
+      console.log('║ - POST   /payments (create payment)                    ║');
+      console.log('║ - GET    /payments (list payments)                     ║');
+      console.log('║ - GET    /payments/:id (get payment)                   ║');
+      console.log('║ - POST   /payments/:id/submit (to Stellar)             ║');
+      console.log('║ - POST   /payments/:id/confirm-stellar (with sig)      ║');
+      console.log('║ - GET    /payments/:id/stellar-status (check tx)       ║');
+      console.log('║ - GET    /health (service health)                      ║');
+      console.log('║ - GET    /health/stellar (Stellar connectivity)        ║');
+      console.log('║ - GET    /logs (view all logs)                         ║');
+      console.log('║ - GET    /logs/summary (log summary)                   ║');
+      console.log('║ - GET    /logs/payment/:id (payment logs)              ║');
+      console.log('╚════════════════════════════════════════════════════════╝');
+      console.log('');
     });
   } catch (err) {
-    logger.error('Failed to start', { error: String(err) });
+    logger.error('[StartUp] Failed to start Payment Service', { error: String(err) });
+    addLog('error', 'startup', `Startup failed: ${String(err)}`);
+    console.error('');
+    console.error('❌ Payment Service startup FAILED');
+    console.error(String(err));
+    console.error('');
     process.exit(1);
   }
 }
