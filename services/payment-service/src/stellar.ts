@@ -296,7 +296,6 @@ export async function testConnection(): Promise<boolean> {
 
     logger.info('[Stellar] Connected to Stellar network', {
       horizonVersion: root.horizon_version,
-      stellarCoreVersion: root.stellar_core_version,
     });
 
     return true;

@@ -384,62 +384,129 @@ app.post('/payments/:paymentId/submit', requireAuth, async (req: Request, res: R
       return res.status(400).json({ error: 'Enterprise wallet not configured' });
     }
 
-    logger.info('[Payment] Building Stellar transaction using official SDK', {
+    // Get enterprise's Stellar keypair for signing (from vault in production)
+    logger.info('[Stellar] Loading enterprise signing credentials', { enterpriseId: payment.enterprise_id, paymentId });
+
+    const enterpriseKeysResult = await query(
+      'SELECT stellar_secret_key FROM enterprises WHERE id = $1',
+      [payment.enterprise_id]
+    );
+
+    if (!enterpriseKeysResult.rows[0]?.stellar_secret_key) {
+      logger.error('[Stellar] Enterprise signing key not found', { paymentId, enterpriseId: payment.enterprise_id });
+      addLog('error', 'Stellar', 'Enterprise signing key missing', { paymentId });
+      return res.status(400).json({ error: 'Enterprise signing key not configured' });
+    }
+
+    const enterpriseSecretKey = enterpriseKeysResult.rows[0].stellar_secret_key;
+
+    logger.info('[Stellar] Building transaction using official SDK pattern', {
       paymentId,
       destination: payment.stellar_destination,
       amount: payment.amount,
       currency: payment.currency,
-      memo: `Payment-${paymentId.substring(0, 8)}`,
     });
 
-    // In production, this would:
-    // 1. Load enterprise's signing keypair from vault
-    // 2. Load account from Stellar to get sequence number
-    // 3. Build transaction with Operation.payment()
-    // 4. Sign transaction with Keypair.sign()
-    // 5. Submit to Horizon with server.submitTransaction()
-    // 6. Get tx hash from result.hash
-
-    // For MVP, update status to submitted without actual submission
-    // Actual submission will be added in next phase
-    logger.info('[Payment] [PLACEHOLDER] Would submit to Stellar network', {
-      paymentId,
-      destination: payment.stellar_destination,
-      amount: payment.amount,
-      source: enterpriseWalletAddress,
-    });
-
-    addLog('info', 'Stellar', 'Transaction submission placeholder', {
+    addLog('info', 'Stellar', 'Building payment transaction', {
       paymentId,
       destination: payment.stellar_destination,
       amount: payment.amount,
     });
 
-    // Update status to submitted
-    // In production: stellarTxHash would come from server.submitTransaction() result
-    await query(
-      `UPDATE payments
-       SET status = $1, submitted_at = NOW(), updated_at = NOW()
-       WHERE id = $2`,
-      ['submitted', paymentId]
-    );
+    try {
+      // Build transaction using official Stellar SDK pattern
+      const txXdr = await stellar.buildPaymentTransaction({
+        sourceSecret: enterpriseSecretKey,
+        destinationAddress: payment.stellar_destination,
+        amount: payment.amount,
+        currency: payment.currency,
+        memo: `Payment-${paymentId.substring(0, 8)}`,
+      });
 
-    logger.info('[Payment] Payment status updated to submitted', {
-      paymentId,
-      nextStep: 'Transaction confirmation tracking',
-    });
+      logger.info('[Stellar] Transaction built successfully, submitting to network', {
+        paymentId,
+        xdrLength: txXdr.length,
+      });
 
-    addLog('info', 'Payment', 'Payment submitted to Stellar', {
-      paymentId,
-      status: 'submitted',
-    });
+      addLog('info', 'Stellar', 'Transaction built, submitting to Horizon', {
+        paymentId,
+        xdrLength: txXdr.length,
+      });
 
-    res.json({
-      id: paymentId,
-      status: 'submitted',
-      message: 'Payment submitted to Stellar network. Monitor status via GET /payments/:id/stellar-status',
-      nextStep: 'Track confirmation using GET endpoint',
-    });
+      // Submit transaction to Stellar network
+      const result = await stellar.submitTransaction(txXdr);
+
+      logger.info('[Stellar] Transaction submitted successfully', {
+        paymentId,
+        txHash: result.txHash,
+        status: result.status,
+      });
+
+      addLog('info', 'Stellar', 'Transaction submitted to network', {
+        paymentId,
+        txHash: result.txHash,
+        ledger: result.xdr ? 'pending' : 'unknown',
+      });
+
+      // Update payment with transaction hash
+      await query(
+        `UPDATE payments
+         SET status = $1, stellar_tx_hash = $2, submitted_at = NOW(), updated_at = NOW()
+         WHERE id = $3`,
+        ['submitted', result.txHash, paymentId]
+      );
+
+      logger.info('[Payment] Payment status updated to submitted', {
+        paymentId,
+        txHash: result.txHash,
+        nextStep: 'Monitor confirmation via GET /payments/:id/stellar-status',
+      });
+
+      addLog('info', 'Payment', 'Payment submitted to Stellar network', {
+        paymentId,
+        txHash: result.txHash,
+        status: 'submitted',
+      });
+
+      res.json({
+        id: paymentId,
+        status: 'submitted',
+        stellarTxHash: result.txHash,
+        message: 'Payment submitted to Stellar network. Monitor status via GET /payments/:id/stellar-status',
+        nextStep: 'Track confirmation using GET endpoint',
+      });
+    } catch (stellarErr) {
+      logger.error('[Stellar] Transaction submission failed', {
+        paymentId,
+        error: String(stellarErr),
+        errorType: stellarErr instanceof Error ? stellarErr.constructor.name : 'Unknown',
+        destination: payment.stellar_destination,
+        amount: payment.amount,
+      });
+
+      addLog('error', 'Stellar', 'Transaction submission failed', {
+        paymentId,
+        error: String(stellarErr),
+      });
+
+      // Mark payment as failed in database
+      try {
+        await query(
+          `UPDATE payments
+           SET status = $1, failed_at = NOW(), updated_at = NOW()
+           WHERE id = $2`,
+          ['failed', paymentId]
+        );
+        logger.info('[Payment] Payment marked as failed due to Stellar error', { paymentId });
+      } catch (dbErr) {
+        logger.error('[Payment] Failed to mark payment as failed', { paymentId, error: String(dbErr) });
+      }
+
+      res.status(500).json({
+        error: 'Failed to submit payment to Stellar network',
+        details: String(stellarErr),
+      });
+    }
   } catch (err) {
     logger.error('[Payment] Failed to submit payment', {
       paymentId,
@@ -571,7 +638,8 @@ app.get('/payments/:paymentId/stellar-status', requireAuth, async (req: Request,
   const { userId, role } = req as any;
   const { paymentId } = req.params;
 
-  logger.info('[Payment] Checking Stellar status', { paymentId, userId });
+  logger.info('[Stellar:Confirmation] Checking transaction status', { paymentId, userId, role });
+  addLog('info', 'Stellar', 'Confirmation status check initiated', { paymentId });
 
   try {
     // Get payment
@@ -582,7 +650,8 @@ app.get('/payments/:paymentId/stellar-status', requireAuth, async (req: Request,
     );
 
     if (paymentResult.rows.length === 0) {
-      logger.warn('[Payment] Payment not found', { paymentId });
+      logger.warn('[Stellar:Confirmation] Payment not found', { paymentId });
+      addLog('warn', 'Stellar', 'Payment not found for status check', { paymentId });
       return res.status(404).json({ error: 'Payment not found' });
     }
 
@@ -593,53 +662,132 @@ app.get('/payments/:paymentId/stellar-status', requireAuth, async (req: Request,
       (role === 'enterprise' && payment.enterprise_user_id !== userId) ||
       (role === 'worker' && payment.worker_id !== userId)
     ) {
-      logger.warn('[Payment] Unauthorized status check', { paymentId, userId });
+      logger.warn('[Stellar:Confirmation] Unauthorized status check', { paymentId, userId, enterpriseUserId: payment.enterprise_user_id });
+      addLog('warn', 'Stellar', 'Unauthorized confirmation status check', { paymentId });
       return res.status(403).json({ error: 'Not authorized' });
     }
 
     if (!payment.stellar_tx_hash) {
-      logger.info('[Payment] No Stellar tx hash yet', { paymentId, status: payment.status });
+      logger.info('[Stellar:Confirmation] No transaction hash - payment not submitted yet', {
+        paymentId,
+        status: payment.status,
+      });
+      addLog('info', 'Stellar', 'Payment awaiting submission', { paymentId, status: payment.status });
       return res.json({
         paymentId,
         status: payment.status,
         stellarStatus: 'not_submitted',
-        message: 'Payment not yet submitted to Stellar',
+        message: 'Payment not yet submitted to Stellar network',
       });
     }
 
-    logger.info('[Stellar] Checking transaction status', { txHash: payment.stellar_tx_hash });
+    logger.info('[Stellar:Confirmation] Polling Horizon for transaction status', {
+      txHash: payment.stellar_tx_hash,
+      paymentId,
+    });
+
+    addLog('info', 'Stellar', 'Polling Horizon for confirmation', {
+      paymentId,
+      txHash: payment.stellar_tx_hash,
+    });
 
     const stellarStatus = await stellar.getTransactionStatus(payment.stellar_tx_hash);
 
-    logger.info('[Stellar] Transaction status retrieved', {
+    logger.info('[Stellar:Confirmation] Transaction status retrieved from Horizon', {
       txHash: payment.stellar_tx_hash,
       status: stellarStatus.status,
+      ledger: stellarStatus.ledger,
+      resultCode: stellarStatus.resultCode,
+      timestamp: stellarStatus.timestamp,
+      paymentId,
+    });
+
+    addLog('info', 'Stellar', 'Transaction status from Horizon', {
+      paymentId,
+      txHash: payment.stellar_tx_hash,
+      status: stellarStatus.status,
+      ledger: stellarStatus.ledger,
     });
 
     // Update payment status if confirmed
     if (stellarStatus.status === 'confirmed' && payment.status !== 'completed') {
-      logger.info('[Payment] Updating payment to completed', { paymentId });
+      logger.info('[Stellar:Confirmation] Transaction confirmed, updating payment status', {
+        paymentId,
+        txHash: payment.stellar_tx_hash,
+        ledger: stellarStatus.ledger,
+        resultCode: stellarStatus.resultCode,
+      });
 
       await query(
-        'UPDATE payments SET status = $1, completed_at = NOW(), updated_at = NOW() WHERE id = $2',
+        `UPDATE payments
+         SET status = $1, completed_at = NOW(), updated_at = NOW()
+         WHERE id = $2`,
         ['completed', paymentId]
       );
+
+      logger.info('[Payment] Payment completed successfully', {
+        paymentId,
+        txHash: payment.stellar_tx_hash,
+        ledger: stellarStatus.ledger,
+      });
+
+      addLog('info', 'Payment', 'Payment completed', {
+        paymentId,
+        txHash: payment.stellar_tx_hash,
+        ledger: stellarStatus.ledger,
+      });
+    } else if (stellarStatus.status === 'failed') {
+      logger.warn('[Stellar:Confirmation] Transaction failed', {
+        paymentId,
+        txHash: payment.stellar_tx_hash,
+        resultCode: stellarStatus.resultCode,
+      });
+
+      addLog('warn', 'Stellar', 'Transaction failed on network', {
+        paymentId,
+        txHash: payment.stellar_tx_hash,
+        resultCode: stellarStatus.resultCode,
+      });
+
+      // Update payment status to failed
+      if (payment.status !== 'failed') {
+        await query(
+          `UPDATE payments
+           SET status = $1, failed_at = NOW(), updated_at = NOW()
+           WHERE id = $2`,
+          ['failed', paymentId]
+        );
+
+        logger.info('[Payment] Payment marked as failed due to Stellar transaction failure', {
+          paymentId,
+          resultCode: stellarStatus.resultCode,
+        });
+      }
     }
 
     res.json({
       paymentId,
-      paymentStatus: payment.status,
+      status: payment.status,
       stellarStatus: stellarStatus.status,
+      stellarTxHash: payment.stellar_tx_hash,
       stellarLedger: stellarStatus.ledger,
       stellarTimestamp: stellarStatus.timestamp,
       stellarResultCode: stellarStatus.resultCode,
+      message: stellarStatus.status === 'confirmed' ? 'Payment confirmed on Stellar network' : 'Payment pending confirmation',
     });
   } catch (err) {
-    logger.error('[Payment] Failed to check Stellar status', {
+    logger.error('[Stellar:Confirmation] Failed to check transaction status', {
+      paymentId,
+      error: String(err),
+      errorType: err instanceof Error ? err.constructor.name : 'Unknown',
+    });
+
+    addLog('error', 'Stellar', 'Failed to check confirmation status', {
       paymentId,
       error: String(err),
     });
-    res.status(500).json({ error: 'Failed to check Stellar status' });
+
+    res.status(500).json({ error: 'Failed to check Stellar transaction status' });
   }
 });
 
