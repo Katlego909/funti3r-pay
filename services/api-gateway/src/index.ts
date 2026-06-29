@@ -25,12 +25,6 @@ app.use(cors({
     'http://localhost:3100',
     'http://localhost:3101',
     'http://localhost:3102',
-    'http://localhost:3103',
-    'http://localhost:3104',
-    'http://localhost:3105',
-    'http://localhost:3106',
-    'http://localhost:3107',
-    'http://localhost:3108',
   ],
   credentials: true,
 }));
@@ -147,23 +141,7 @@ function proxy(target: string, pathRewrite?: Record<string, string>) {
     pathRewrite,
     timeout: 30000,
     on: {
-      proxyReq: (proxyReq: any, req: any) => {
-        // Forward auth headers set by auth middleware
-        const userId = Array.isArray(req.headers['x-user-id'])
-          ? req.headers['x-user-id'][0]
-          : req.headers['x-user-id'];
-        const role = Array.isArray(req.headers['x-user-role'])
-          ? req.headers['x-user-role'][0]
-          : req.headers['x-user-role'];
-        const email = Array.isArray(req.headers['x-user-email'])
-          ? req.headers['x-user-email'][0]
-          : req.headers['x-user-email'];
-
-        if (userId) proxyReq.setHeader('x-user-id', userId);
-        if (role) proxyReq.setHeader('x-user-role', role);
-        if (email) proxyReq.setHeader('x-user-email', email);
-      },
-      error: (err: any, _req: any, res: any) => {
+      error: (err, _req, res) => {
         logger.error('Proxy error', { target, error: String(err) });
         if (!('headersSent' in res && res.headersSent)) {
           (res as express.Response).status(503).json({ error: 'Service temporarily unavailable' });
@@ -184,25 +162,18 @@ app.use((req, res, next) => {
 });
 
 // Auth & Users → user-service
-app.all(['/auth', '/auth/**'], proxy(USER_SERVICE));
-app.all(['/api/auth', '/api/auth/**'], proxy(USER_SERVICE, { '^/api/auth': '/auth' }));
-app.all(['/users', '/users/**'], proxy(USER_SERVICE));
-app.all(['/api/users', '/api/users/**'], proxy(USER_SERVICE, { '^/api/users': '/users' }));
-app.all(['/wallets', '/wallets/**'], proxy(USER_SERVICE));
-app.all(['/api/wallets', '/api/wallets/**'], proxy(USER_SERVICE, { '^/api/wallets': '/wallets' }));
+app.all(['/auth*', '/api/auth*'], proxy(USER_SERVICE, { '^/api/auth': '/auth' }));
+app.all(['/users*', '/api/users*'], proxy(USER_SERVICE, { '^/api/users': '/users' }));
 
-// Payments → payment-service
-app.all(['/payments', '/payments/**'], proxy(PAYMENT_SERVICE));
-app.all(['/api/payments', '/api/payments/**'], proxy(PAYMENT_SERVICE, { '^/api/payments': '/payments' }));
-app.all(['/payouts', '/payouts/**'], proxy(PAYMENT_SERVICE));
-app.all(['/api/payouts', '/api/payouts/**'], proxy(PAYMENT_SERVICE, { '^/api/payouts': '/payouts' }));
+// Wallets & Payouts → payment-service
+app.all(['/wallets*', '/api/wallets*'], proxy(PAYMENT_SERVICE, { '^/api/wallets': '/wallets' }));
+app.all(['/payouts*', '/api/payouts*'], proxy(PAYMENT_SERVICE, { '^/api/payouts': '/payouts' }));
 
-// Compliance → user-service (stubs)
-app.all(['/compliance', '/compliance/**'], proxy(USER_SERVICE));
-app.all(['/api/compliance', '/api/compliance/**'], proxy(USER_SERVICE, { '^/api/compliance': '/compliance' }));
+// Compliance → compliance-service
+app.all(['/compliance*', '/api/compliance*'], proxy(COMPLIANCE_URL, { '^/api/compliance': '', '^/compliance': '' }));
 
 // Analytics → analytics-service
-app.all(['/analytics', '/analytics/**'], proxy(ANALYTICS_URL));
+app.use('/analytics', proxy(ANALYTICS_URL));
 
 // ── Error Handler ────────────────────────────────────────────────────────────
 
@@ -214,33 +185,6 @@ app.use((err: any, req: any, res: any, next: any) => {
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-
-// 404 Handler
-app.use((_req: express.Request, res: express.Response) => {
-  res.status(404).json({ error: 'Endpoint not found' });
-});
-
-// Centralized Error Handler (MUST be last middleware)
-app.use((err: any, req: express.Request, res: express.Response, _next: any) => {
-  const status = err.status || err.statusCode || 500;
-  const message = err.message || 'Internal server error';
-  const code = err.code || 'INTERNAL_ERROR';
-
-  logger.error('Request error', {
-    path: req.path,
-    method: req.method,
-    status,
-    code,
-    message,
-  });
-
-  if (!res.headersSent) {
-    res.status(status).json({
-      error: code,
-      message,
-    });
-  }
-});
 
 async function start() {
   try {

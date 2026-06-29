@@ -30,9 +30,9 @@ export class StellarRail implements IPaymentRail {
   }
 
   async sendPayment(params: RailPaymentParams): Promise<RailResult> {
-    const destination = params.stellarRecipientAddress;
+    const destination = params.stellarContractAddress;
     if (!destination) {
-      throw new Error('stellarRecipientAddress is required for Stellar rail');
+      throw new Error('stellarContractAddress is required for Stellar rail');
     }
 
     const sourceSecret = params.metadata?.sourceSecret;

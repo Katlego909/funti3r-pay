@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { HiOutlineShieldCheck } from 'react-icons/hi2';
 import { KYCForm } from '../components/KYCForm';
 import { KYCStatus } from '../components/KYCStatus';
+import { FAQAccordion } from '../components/FAQAccordion';
 
 export default function KYCPage() {
   const [showForm, setShowForm] = useState(false);
@@ -142,6 +143,39 @@ export default function KYCPage() {
         </div>
       </div>
 
+      {/* FAQ Section */}
+      <div style={{ marginTop: '40px', paddingTop: '32px', borderTop: '1px solid #e5e7eb' }}>
+        <h3 style={{ marginBottom: '20px', fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>Frequently Asked Questions</h3>
+        <FAQAccordion
+          items={[
+            {
+              question: 'Why do you need my KYC information?',
+              answer:
+                'KYC (Know Your Customer) is a regulatory requirement for cross-border payments. It helps us verify your identity and comply with financial regulations.',
+            },
+            {
+              question: 'How long does verification take?',
+              answer:
+                'Most verifications complete within 1-3 business days. On testnet with auto-approve enabled, it\'s instant.',
+            },
+            {
+              question: 'Is my data encrypted?',
+              answer:
+                'Yes, all sensitive personal and financial data is encrypted at rest and in transit. We never store unencrypted sensitive information.',
+            },
+            {
+              question: 'Can I update my KYC information?',
+              answer:
+                'Yes, you can resubmit your KYC information anytime. If rejected, please correct the information and resubmit.',
+            },
+            {
+              question: 'What if my KYC is rejected?',
+              answer:
+                'The rejection reason will be displayed above. Common reasons include expired documents or mismatched information. Please correct and resubmit.',
+            },
+          ]}
+        />
+      </div>
     </div>
   );
 }

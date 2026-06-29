@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
 import { createLogger } from '@funti3r/shared-utils';
 import { initMongoDB, getCollection } from '@funti3r/database';
 
@@ -157,33 +157,6 @@ app.get('/events/timeseries', async (req, res) => {
 });
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
-
-// 404 Handler
-app.use((_req: Request, res: Response, _next: Function) => {
-  res.status(404).json({ error: 'Endpoint not found' });
-});
-
-// Centralized Error Handler (MUST be last middleware)
-app.use((err: any, req: Request, res: Response, _next: Function) => {
-  const status = err.status || err.statusCode || 500;
-  const message = err.message || 'Internal server error';
-  const code = err.code || 'INTERNAL_ERROR';
-
-  logger.error('Request error', {
-    path: req.path,
-    method: req.method,
-    status,
-    code,
-    message,
-  });
-
-  if (!res.headersSent) {
-    res.status(status).json({
-      error: code,
-      message,
-    });
-  }
-});
 
 async function start() {
   await initMongoDB();

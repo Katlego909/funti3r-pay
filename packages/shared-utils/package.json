@@ -17,12 +17,10 @@
   },
   "dependencies": {
     "@funti3r/shared-types": "workspace:*",
-    "bcryptjs": "^3.0.3",
     "jsonwebtoken": "^9.0.3",
     "zod": "^3.22.0"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.5",
     "typescript": "^5.3.0"
   }

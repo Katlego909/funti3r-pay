@@ -1,9 +1,12 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { registerPasskey } from '../api/auth.js';
+import { useAuthStore } from '../store/authStore.js';
+import { api } from '../api/client.js';
 
 export default function Register() {
   const navigate = useNavigate();
+  const setSession = useAuthStore((s) => s.setSession);
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -19,6 +22,13 @@ export default function Register() {
       console.log('[Register] Starting passkey registration for:', email);
       const session = await registerPasskey(email, 'worker');
       console.log('[Register] Passkey registration succeeded:', session.userId);
+      setSession({ userId: session.userId, email: session.email, role: session.role }, session.accessToken);
+
+      // TODO: Create enterprise wallet when endpoint is ready
+      // setStep('wallet');
+      // console.log('[Register] Creating enterprise wallet');
+      // await api.post('/wallets/enterprise', { userId: session.userId });
+
       console.log('[Register] Registration complete, navigating to dashboard');
       navigate('/');
     } catch (err: unknown) {

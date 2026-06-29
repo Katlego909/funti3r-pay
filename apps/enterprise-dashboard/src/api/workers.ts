@@ -4,11 +4,9 @@ export interface Worker {
   id: string;
   email: string;
   role: string;
-  firstName?: string | null;
-  lastName?: string | null;
-  kycStatus?: string;
-  status?: string;
-  createdAt: string;
+  status: string;
+  country?: string;
+  created_at: string;
 }
 
 export interface WorkerWallet {

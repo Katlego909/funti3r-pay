@@ -3,6 +3,7 @@ import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { listPayments, initiatePayment, getQuotes, type Payment, type Quote } from '../api/payments.js';
 import { useAuthStore } from '../store/authStore.js';
 import { api } from '../api/client.js';
+import WalletLinking from '../components/WalletLinking.js';
 import WalletSelector, { type Wallet } from '../components/WalletSelector.js';
 import ExternalWalletSigningModal from '../components/ExternalWalletSigningModal.js';
 
@@ -147,6 +148,8 @@ export default function Payments() {
       </div>
 
       {formSuccess && <div className="success-banner">{formSuccess}</div>}
+
+      <WalletLinking userId={user!.userId} onLinked={() => loadPayments()} />
 
       {formOpen && (
         <div className="modal-overlay" onClick={() => setFormOpen(false)}>

@@ -101,8 +101,14 @@ npm/
 $RECYCLE.BIN/
 *.cab
 
-# Local documentation and working files (only code required)
-*.md
-*.txt
-!README.md
-!docs/
+# Local documentation (scaffolding reference only)
+CLAUDE.md
+QUICKSTART.md
+TROUBLESHOOT.md
+SCAFFOLD_SETUP.md
+SCAFFOLD_SUMMARY.md
+SCAFFOLD_CHECKLIST.md
+DEVELOPMENT.md
+ARCHITECTURE.md
+README_MAIN.md
+auth-plan.md

@@ -21,27 +21,18 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user?.userId) return;
 
-    const userId = user.userId;
     console.log('[Dashboard] Mounting, loading data...');
 
     async function fetchWalletBalance() {
       try {
-        const accessToken = sessionStorage.getItem('access_token');
-        const response = await fetch(`/api/wallets/${userId}`, {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`
-          }
-        });
+        const response = await fetch(`/api/wallets/${user.userId}`);
         if (response.ok) {
-          // Wallet endpoint returns { userId, walletType, address }
-          // For now, default to 0 (actual balance would require Stellar API call)
-          setWalletBalance('0');
-        } else {
-          setWalletBalance('0');
+          const data = await response.json();
+          const xlmBalance = data.balances?.find((b: any) => b.asset_type === 'native')?.balance;
+          setWalletBalance(xlmBalance || '0');
         }
       } catch (err) {
         console.error('[Dashboard] Error loading wallet:', err);
-        setWalletBalance('0');
       }
     }
 
