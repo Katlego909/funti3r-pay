@@ -2,6 +2,7 @@ import { useEffect, useState, FormEvent } from 'react';
 import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { listPayments, initiatePayment, getQuotes, type Payment, type Quote } from '../api/payments.js';
 import { useAuthStore } from '../store/authStore.js';
+import { api } from '../api/client.js';
 import WalletLinking from '../components/WalletLinking.js';
 import WalletSelector, { type Wallet } from '../components/WalletSelector.js';
 import ExternalWalletSigningModal from '../components/ExternalWalletSigningModal.js';
@@ -65,16 +66,13 @@ export default function Payments() {
   async function loadPlatformWallet() {
     if (!user?.userId) return;
     try {
-      const response = await fetch(`/api/wallets/${user.userId}`);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.address) {
-          setPlatformWallet({
-            id: user.userId,
-            publicKey: data.address,
-            status: data.status || 'active',
-          });
-        }
+      const { data } = await api.get(`/wallets/${user.userId}`);
+      if (data.address) {
+        setPlatformWallet({
+          id: user.userId,
+          publicKey: data.address,
+          status: data.status || 'active',
+        });
       }
     } catch (err) {
       console.error('Failed to load platform wallet:', err);
