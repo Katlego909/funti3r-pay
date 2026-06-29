@@ -189,9 +189,11 @@ app.all(['/api/auth', '/api/auth/**'], proxy(USER_SERVICE, { '^/api/auth': '/aut
 app.all(['/users', '/users/**'], proxy(USER_SERVICE));
 app.all(['/api/users', '/api/users/**'], proxy(USER_SERVICE, { '^/api/users': '/users' }));
 
-// Wallets & Payouts → payment-service
+// Wallets & Payments → payment-service
 app.all(['/wallets', '/wallets/**'], proxy(PAYMENT_SERVICE));
 app.all(['/api/wallets', '/api/wallets/**'], proxy(PAYMENT_SERVICE, { '^/api/wallets': '/wallets' }));
+app.all(['/payments', '/payments/**'], proxy(PAYMENT_SERVICE));
+app.all(['/api/payments', '/api/payments/**'], proxy(PAYMENT_SERVICE, { '^/api/payments': '/payments' }));
 app.all(['/payouts', '/payouts/**'], proxy(PAYMENT_SERVICE));
 app.all(['/api/payouts', '/api/payouts/**'], proxy(PAYMENT_SERVICE, { '^/api/payouts': '/payouts' }));
 

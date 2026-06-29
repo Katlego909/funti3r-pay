@@ -164,6 +164,70 @@ app.get('/payments', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// Alias: /payouts → /payments
+app.get('/payouts', requireAuth, async (req: Request, res: Response) => {
+  const { userId, role } = req as any;
+  const { status, limit = '50', offset = '0' } = req.query;
+
+  try {
+    let whereClause = '';
+    let params: any[] = [];
+
+    if (role === 'enterprise') {
+      whereClause = 'WHERE e.user_id = $1';
+      params.push(userId);
+    } else if (role === 'worker') {
+      whereClause = 'WHERE p.worker_id = $1';
+      params.push(userId);
+    } else {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    if (status) {
+      whereClause += ` AND p.status = $${params.length + 1}`;
+      params.push(status);
+    }
+
+    const countResult = await query(
+      `SELECT COUNT(*) as total FROM payments p
+       JOIN enterprises e ON p.enterprise_id = e.id
+       ${whereClause}`,
+      params
+    );
+
+    const total = parseInt(countResult.rows[0].total, 10);
+
+    const result = await query(
+      `SELECT p.id, p.status, p.amount, p.currency, p.worker_id, p.stellar_tx_hash, p.created_at, p.completed_at
+       FROM payments p
+       JOIN enterprises e ON p.enterprise_id = e.id
+       ${whereClause}
+       ORDER BY p.created_at DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, parseInt(limit as string), parseInt(offset as string)]
+    );
+
+    res.json({
+      payments: result.rows.map(p => ({
+        id: p.id,
+        status: p.status,
+        amount: p.amount,
+        currency: p.currency,
+        workerId: p.worker_id,
+        stellarTxHash: p.stellar_tx_hash,
+        createdAt: p.created_at,
+        completedAt: p.completed_at,
+      })),
+      total,
+      limit: parseInt(limit as string),
+      offset: parseInt(offset as string),
+    });
+  } catch (err) {
+    logger.error('Failed to fetch payouts', { error: String(err) });
+    res.status(500).json({ error: 'Failed to fetch payouts' });
+  }
+});
+
 app.get('/payments/:paymentId', requireAuth, async (req: Request, res: Response) => {
   const { userId, role } = req as any;
   const { paymentId } = req.params;
