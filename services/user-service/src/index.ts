@@ -242,10 +242,10 @@ app.post('/auth/register/start', async (req: Request, res: Response) => {
       },
     });
 
-    // Store challenge for verification later
-    challengeStore.set(`reg_${email}`, { challenge: options.challenge, timestamp: Date.now() });
+    // Store challenge for verification later (including role to prevent client tampering)
+    challengeStore.set(`reg_${email}`, { challenge: options.challenge, role, timestamp: Date.now() });
 
-    logger.info('[WebAuthn] Registration options generated', { email });
+    logger.info('[WebAuthn] Registration options generated', { email, role });
 
     res.json(options);
   } catch (err) {
@@ -255,7 +255,7 @@ app.post('/auth/register/start', async (req: Request, res: Response) => {
 });
 
 app.post('/auth/register/finish', async (req: Request, res: Response) => {
-  const { email, credential, origin, role = 'enterprise' } = req.body;
+  const { email, credential, origin } = req.body;
 
   if (!email || !credential) {
     return res.status(400).json({ error: 'email and credential are required' });
@@ -266,6 +266,9 @@ app.post('/auth/register/finish', async (req: Request, res: Response) => {
     if (!stored) {
       return res.status(400).json({ error: 'Registration challenge not found or expired' });
     }
+
+    // Retrieve role from stored challenge (prevents client tampering with role)
+    const role = stored.role;
 
     // Verify using official SimpleWebAuthn
     const verification = await verifyRegistrationResponse({
@@ -545,7 +548,7 @@ app.get('/users', requireAuth, async (req: Request, res: Response) => {
     }
 
     const result = await query(
-      `SELECT id, email, role, first_name, last_name, kyc_status, created_at
+      `SELECT id, email, role, first_name, last_name, kyc_status, status, created_at
        FROM users
        ${whereClause}
        ORDER BY created_at DESC
@@ -568,6 +571,7 @@ app.get('/users', requireAuth, async (req: Request, res: Response) => {
         firstName: u.first_name,
         lastName: u.last_name,
         kycStatus: u.kyc_status,
+        status: u.status,
         createdAt: u.created_at,
       })),
       total,
@@ -616,7 +620,7 @@ app.get('/wallets/:userId', requireAuth, async (req: Request, res: Response) => 
     res.json({
       userId: user.id,
       walletType: 'worker',
-      stellarPublicKey: user.stellar_public_key,
+      address: user.stellar_public_key,
     });
   } catch (err) {
     logger.error('Failed to fetch wallet', { userId, error: String(err) });

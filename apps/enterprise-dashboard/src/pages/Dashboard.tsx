@@ -35,12 +35,15 @@ export default function Dashboard() {
           }
         });
         if (response.ok) {
-          const data = await response.json();
-          const xlmBalance = data.balances?.find((b: any) => b.asset_type === 'native')?.balance;
-          setWalletBalance(xlmBalance || '0');
+          // Wallet endpoint returns { userId, walletType, address }
+          // For now, default to 0 (enterprise wallets don't have XLM balance)
+          setWalletBalance('0');
+        } else {
+          setWalletBalance('0');
         }
       } catch (err) {
         console.error('[Dashboard] Error loading wallet:', err);
+        setWalletBalance('0');
       }
     }
 
@@ -57,8 +60,7 @@ export default function Dashboard() {
       })
       .finally(() => setLoading(false));
 
-    // Note: wallet balance fetch disabled - wallet data comes from user-service instead
-    // fetchWalletBalance();
+    fetchWalletBalance();
   }, [user]);
 
   if (loading) return <div className="loading">Loading dashboard…</div>;

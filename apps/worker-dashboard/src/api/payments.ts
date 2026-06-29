@@ -34,12 +34,12 @@ export interface Quote {
 }
 
 export async function getSummary(): Promise<PaymentSummary> {
-  const { data } = await api.get<PaymentSummary>('/payouts/worker/summary');
+  const { data } = await api.get<PaymentSummary>('/payouts/summary');
   return data;
 }
 
 export async function getRecentPayments(limit = 10): Promise<Payment[]> {
-  const { data } = await api.get<{ payments: Payment[] }>('/payouts/worker/recent', { params: { limit } });
+  const { data } = await api.get<{ payments: Payment[] }>('/payouts/recent', { params: { limit } });
   return data.payments;
 }
 

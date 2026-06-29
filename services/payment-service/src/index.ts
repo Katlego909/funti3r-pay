@@ -120,6 +120,11 @@ app.get('/payouts/summary', requireAuth, async (req: Request, res: Response) => 
     if (role === 'enterprise') {
       whereClause = 'WHERE e.user_id = $1';
       params.push(userId);
+    } else if (role === 'worker') {
+      whereClause = 'WHERE p.worker_id = $1';
+      params.push(userId);
+    } else {
+      return res.status(403).json({ error: 'Not authorized' });
     }
 
     const statusResult = await query(
@@ -245,9 +250,10 @@ app.get('/payouts/recent', requireAuth, async (req: Request, res: Response) => {
     }
 
     const result = await query(
-      `SELECT p.id, p.amount, p.currency, p.status, p.created_at, p.stellar_tx_hash
+      `SELECT p.id, p.amount, p.currency, p.status, p.created_at, p.stellar_tx_hash, p.enterprise_id, p.worker_id, u.email as worker_email
        FROM payments p
        JOIN enterprises e ON p.enterprise_id = e.id
+       JOIN users u ON p.worker_id = u.id
        ${whereClause}
        ORDER BY p.created_at DESC
        LIMIT $${params.length + 1}`,
@@ -255,13 +261,18 @@ app.get('/payouts/recent', requireAuth, async (req: Request, res: Response) => {
     );
 
     res.json({
-      payouts: result.rows.map((row: any) => ({
+      payments: result.rows.map((row: any) => ({
         id: row.id,
         amount: row.amount,
         currency: row.currency,
         status: row.status,
-        createdAt: row.created_at,
-        txHash: row.stellar_tx_hash,
+        created_at: row.created_at,
+        stellar_tx_hash: row.stellar_tx_hash,
+        worker_email: row.worker_email,
+        worker_id: row.worker_id,
+        enterprise_id: row.enterprise_id,
+        rail: 'stellar',
+        updated_at: row.created_at,
       })),
     });
   } catch (err) {

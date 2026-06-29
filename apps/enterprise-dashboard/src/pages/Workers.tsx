@@ -152,7 +152,7 @@ export default function Workers() {
                       </a>
                     : <span className="status pending">{w.wallet?.status ?? 'None'}</span>}
                 </td>
-                <td>{new Date(w.created_at).toLocaleDateString()}</td>
+                <td>{new Date(w.createdAt).toLocaleDateString()}</td>
                 <td>
                   {w.kyc?.status && w.kyc.status !== 'none' ? (
                     <button
