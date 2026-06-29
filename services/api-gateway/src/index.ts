@@ -215,6 +215,33 @@ app.use((err: any, req: any, res: any, next: any) => {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
+// 404 Handler
+app.use((_req: express.Request, res: express.Response) => {
+  res.status(404).json({ error: 'Endpoint not found' });
+});
+
+// Centralized Error Handler (MUST be last middleware)
+app.use((err: any, req: express.Request, res: express.Response, _next: any) => {
+  const status = err.status || err.statusCode || 500;
+  const message = err.message || 'Internal server error';
+  const code = err.code || 'INTERNAL_ERROR';
+
+  logger.error('Request error', {
+    path: req.path,
+    method: req.method,
+    status,
+    code,
+    message,
+  });
+
+  if (!res.headersSent) {
+    res.status(status).json({
+      error: code,
+      message,
+    });
+  }
+});
+
 async function start() {
   try {
     await initPostgres();

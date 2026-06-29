@@ -16,7 +16,7 @@
     "@funti3r/database": "workspace:*",
     "@funti3r/shared-types": "workspace:*",
     "@funti3r/shared-utils": "workspace:*",
-    "@simplewebauthn/server": "^10.0.0",
+    "@simplewebauthn/server": "^10.0.1",
     "@stellar/stellar-sdk": "^16.0.0",
     "axios": "^1.6.0",
     "cbor-x": "^1.5.9",

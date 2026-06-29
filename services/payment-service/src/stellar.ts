@@ -5,6 +5,8 @@ import {
   Operation,
   Asset,
   Horizon,
+  Memo,
+  xdr,
 } from '@stellar/stellar-sdk';
 import { createLogger } from '@funti3r/shared-utils';
 
@@ -12,7 +14,7 @@ const logger = createLogger('StellarService');
 
 // Use testnet for development
 const HORIZON_URL = process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org';
-const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK || Networks.TESTNET_NETWORK_PASSPHRASE;
+const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK || Networks.TESTNET;
 
 let horizonServer: Horizon.Server | null = null;
 
@@ -36,13 +38,19 @@ export interface StellarTransaction {
   txHash: string;
   xdr: string;
   status: 'pending' | 'confirmed' | 'failed';
+  ledger?: number;
+}
+
+export interface StellarTransactionEnvelope {
+  transaction: any;
+  xdr: string;
 }
 
 /**
  * Build a Stellar payment transaction
  * Following official Stellar SDK documentation
  */
-export async function buildPaymentTransaction(payment: StellarPayment): Promise<string> {
+export async function buildPaymentTransaction(payment: StellarPayment): Promise<StellarTransactionEnvelope> {
   try {
     logger.info('[Stellar] Building payment transaction', {
       destination: payment.destinationAddress,
@@ -85,7 +93,7 @@ export async function buildPaymentTransaction(payment: StellarPayment): Promise<
 
     // Build transaction following official pattern
     const txBuilder = new TransactionBuilder(sourceAccount, {
-      fee: baseFee,
+      fee: String(baseFee),
       networkPassphrase: NETWORK_PASSPHRASE,
     });
 
@@ -111,7 +119,7 @@ export async function buildPaymentTransaction(payment: StellarPayment): Promise<
     // Add memo if provided
     if (payment.memo) {
       logger.info('[Stellar] Adding text memo', { memoLength: payment.memo.length });
-      txBuilder.addMemo(Horizon.MemoText(payment.memo));
+      txBuilder.addMemo(Memo.text(payment.memo));
     }
 
     // Set timeout and build (30 seconds = standard timeout)
@@ -133,7 +141,7 @@ export async function buildPaymentTransaction(payment: StellarPayment): Promise<
       xdrLength: xdr.length,
     });
 
-    return xdr;
+    return { transaction, xdr };
   } catch (err) {
     logger.error('[Stellar] Failed to build transaction', {
       error: String(err),
@@ -148,28 +156,47 @@ export async function buildPaymentTransaction(payment: StellarPayment): Promise<
  * Submit a signed transaction to Stellar network
  * Following official SDK documentation
  */
-export async function submitTransaction(xdr: string): Promise<StellarTransaction> {
+export async function submitTransaction(envelope: StellarTransactionEnvelope | string): Promise<StellarTransaction> {
   try {
-    logger.info('[Stellar] Submitting transaction to network', { xdrLength: xdr.length });
-
     const server = getServer();
+    let transaction: any;
+    let xdr: string;
 
-    // Submit the transaction
-    logger.info('[Stellar] Submitting to Horizon server...');
-    const result = await server.submitTransaction(xdr);
-
-    logger.info('[Stellar] Transaction submitted successfully', {
-      txHash: result.hash,
-      ledger: result.ledger,
-      resultCode: result.result_code,
-      timestamp: result.created_at,
-    });
-
-    return {
-      txHash: result.hash,
-      xdr,
-      status: 'pending',
-    };
+    // Handle both StellarTransactionEnvelope objects and XDR strings
+    if (typeof envelope === 'string') {
+      logger.info('[Stellar] Submitting transaction from XDR string', { xdrLength: envelope.length });
+      xdr = envelope;
+      // The server.submitTransaction expects a built Transaction object, but we have an XDR
+      // We'll submit the XDR string directly to the API
+      const result = await (server as any).submitTransaction(xdr);
+      logger.info('[Stellar] Transaction submitted successfully', {
+        txHash: result.hash,
+        ledger: result.ledger,
+      });
+      return {
+        txHash: result.hash,
+        xdr,
+        status: 'pending',
+        ledger: result.ledger,
+      };
+    } else {
+      logger.info('[Stellar] Submitting transaction from envelope', { xdrLength: envelope.xdr.length });
+      xdr = envelope.xdr;
+      transaction = envelope.transaction;
+      // Submit the transaction (server expects Transaction object)
+      logger.info('[Stellar] Submitting to Horizon server...');
+      const result = await server.submitTransaction(transaction);
+      logger.info('[Stellar] Transaction submitted successfully', {
+        txHash: result.hash,
+        ledger: result.ledger,
+      });
+      return {
+        txHash: result.hash,
+        xdr,
+        status: 'pending',
+        ledger: result.ledger,
+      };
+    }
   } catch (err: any) {
     // Log detailed error information
     if (err.response?.data?.result_xdr) {
@@ -208,9 +235,7 @@ export async function getTransactionStatus(txHash: string): Promise<{
 
     logger.info('[Stellar] Transaction status retrieved', {
       txHash,
-      ledger: transaction.ledger,
-      resultCode: transaction.result_code,
-      timestamp: transaction.created_at,
+      ledger: (transaction as any).ledger,
       successful: (transaction as any).successful,
     });
 
@@ -220,9 +245,8 @@ export async function getTransactionStatus(txHash: string): Promise<{
 
     return {
       status,
-      ledger: transaction.ledger,
-      timestamp: transaction.created_at,
-      resultCode: transaction.result_code,
+      ledger: (transaction as any).ledger,
+      timestamp: (transaction as any).created_at,
     };
   } catch (err: any) {
     if (err.status === 404) {

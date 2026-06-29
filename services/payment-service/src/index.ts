@@ -103,6 +103,58 @@ app.post('/payments', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+app.get('/payouts/summary', requireAuth, async (req: Request, res: Response) => {
+  const { userId, role } = req as any;
+
+  try {
+    let whereClause = '';
+    let params: any[] = [];
+
+    if (role === 'enterprise') {
+      whereClause = 'WHERE e.user_id = $1';
+      params.push(userId);
+    }
+
+    const statusResult = await query(
+      `SELECT status, COUNT(*) as count, COALESCE(SUM(amount), 0) as volume
+       FROM payments p
+       JOIN enterprises e ON p.enterprise_id = e.id
+       ${whereClause}
+       GROUP BY status`,
+      params
+    );
+
+    const byStatus: Record<string, number> = {};
+    let totalCount = 0;
+    let totalVolume = 0;
+    let completedVolume = 0;
+
+    statusResult.rows.forEach((row: any) => {
+      const count = parseInt(row.count, 10);
+      const volume = parseFloat(row.volume);
+      byStatus[row.status] = count;
+      totalCount += count;
+      totalVolume += volume;
+      if (row.status === 'completed') {
+        completedVolume = volume;
+      }
+    });
+
+    const successRate = totalCount > 0 ? (byStatus['completed'] || 0) / totalCount : 0;
+
+    res.json({
+      totalCount,
+      totalVolume,
+      completedVolume,
+      successRate,
+      byStatus,
+    });
+  } catch (err) {
+    logger.error('Failed to fetch payment summary', { error: String(err) });
+    res.status(500).json({ error: 'Failed to fetch summary' });
+  }
+});
+
 app.get('/payments', requireAuth, async (req: Request, res: Response) => {
   const { userId, role } = req as any;
   const { status, limit = '50', offset = '0' } = req.query;
@@ -415,7 +467,7 @@ app.post('/payments/:paymentId/submit', requireAuth, async (req: Request, res: R
 
     try {
       // Build transaction using official Stellar SDK pattern
-      const txXdr = await stellar.buildPaymentTransaction({
+      const envelope = await stellar.buildPaymentTransaction({
         sourceSecret: enterpriseSecretKey,
         destinationAddress: payment.stellar_destination,
         amount: payment.amount,
@@ -425,16 +477,16 @@ app.post('/payments/:paymentId/submit', requireAuth, async (req: Request, res: R
 
       logger.info('[Stellar] Transaction built successfully, submitting to network', {
         paymentId,
-        xdrLength: txXdr.length,
+        xdrLength: envelope.xdr.length,
       });
 
       addLog('info', 'Stellar', 'Transaction built, submitting to Horizon', {
         paymentId,
-        xdrLength: txXdr.length,
+        xdrLength: envelope.xdr.length,
       });
 
       // Submit transaction to Stellar network
-      const result = await stellar.submitTransaction(txXdr);
+      const result = await stellar.submitTransaction(envelope);
 
       logger.info('[Stellar] Transaction submitted successfully', {
         paymentId,
@@ -877,6 +929,33 @@ app.post('/logs/clear', (_req: Request, res: Response) => {
 // ──────────────────────────────────────────────────────────────────────────
 // Startup
 // ──────────────────────────────────────────────────────────────────────────
+
+// 404 Handler
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ error: 'Endpoint not found' });
+});
+
+// Centralized Error Handler (MUST be last middleware - 4 parameters)
+app.use((err: any, req: Request, res: Response, _next: any) => {
+  const status = err.status || err.statusCode || 500;
+  const message = err.message || 'Internal server error';
+  const code = err.code || 'INTERNAL_ERROR';
+
+  logger.error('Request error', {
+    path: req.path,
+    method: req.method,
+    status,
+    code,
+    message,
+  });
+
+  if (!res.headersSent) {
+    res.status(status).json({
+      error: code,
+      message,
+    });
+  }
+});
 
 async function start() {
   try {
