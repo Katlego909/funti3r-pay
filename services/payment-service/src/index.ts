@@ -14,20 +14,27 @@ app.use(express.json());
 // Middleware
 // ──────────────────────────────────────────────────────────────────────────
 
-function getAuthToken(req: Request): string | null {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  return authHeader.slice(7);
-}
-
 function requireAuth(req: Request, res: Response, next: Function): void {
-  const token = getAuthToken(req);
-  if (!token) {
+  // Check for x-user-* headers from API Gateway first
+  const userId = req.headers['x-user-id'];
+  const role = req.headers['x-user-role'];
+
+  if (userId && role) {
+    // Headers from gateway - user is already authenticated
+    (req as any).userId = userId;
+    (req as any).role = role;
+    return next();
+  }
+
+  // Fall back to Bearer token validation (direct calls, not through gateway)
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Missing authorization header' });
     return;
   }
 
   try {
+    const token = authHeader.slice(7);
     const payload = verifyToken(token);
     (req as any).userId = payload.userId;
     (req as any).role = payload.role;
@@ -218,6 +225,51 @@ app.get('/payments', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
+// Get recent payouts
+app.get('/payouts/recent', requireAuth, async (req: Request, res: Response) => {
+  const { userId, role } = req as any;
+  const { limit = '8' } = req.query;
+
+  try {
+    let whereClause = '';
+    let params: any[] = [];
+
+    if (role === 'enterprise') {
+      whereClause = 'WHERE e.user_id = $1';
+      params.push(userId);
+    } else if (role === 'worker') {
+      whereClause = 'WHERE p.worker_id = $1';
+      params.push(userId);
+    } else {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    const result = await query(
+      `SELECT p.id, p.amount, p.currency, p.status, p.created_at, p.stellar_tx_hash
+       FROM payments p
+       JOIN enterprises e ON p.enterprise_id = e.id
+       ${whereClause}
+       ORDER BY p.created_at DESC
+       LIMIT $${params.length + 1}`,
+      [...params, Math.min(parseInt(limit as string), 50)]
+    );
+
+    res.json({
+      payouts: result.rows.map((row: any) => ({
+        id: row.id,
+        amount: row.amount,
+        currency: row.currency,
+        status: row.status,
+        createdAt: row.created_at,
+        txHash: row.stellar_tx_hash,
+      })),
+    });
+  } catch (err) {
+    logger.error('[Payment] Failed to get recent payouts', { error: String(err) });
+    res.status(500).json({ error: 'Failed to fetch recent payouts' });
+  }
+});
+
 // Alias: /payouts → /payments
 app.get('/payouts', requireAuth, async (req: Request, res: Response) => {
   const { userId, role } = req as any;
@@ -327,49 +379,6 @@ app.get('/payments/:paymentId', requireAuth, async (req: Request, res: Response)
   } catch (err) {
     logger.error('Failed to fetch payment', { paymentId, error: String(err) });
     res.status(500).json({ error: 'Failed to fetch payment' });
-  }
-});
-
-// ──────────────────────────────────────────────────────────────────────────
-// Wallet Endpoint (for workers to view their wallet)
-// ──────────────────────────────────────────────────────────────────────────
-
-app.get('/wallets/:userId', requireAuth, async (req: Request, res: Response) => {
-  const { userId: requesterId } = req as any;
-  const { userId } = req.params;
-
-  if (requesterId !== userId) {
-    return res.status(403).json({ error: 'Not authorized to view this wallet' });
-  }
-
-  try {
-    const userResult = await query(
-      'SELECT id, stellar_public_key, role FROM users WHERE id = $1',
-      [userId]
-    );
-
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const user = userResult.rows[0];
-
-    if (user.role !== 'worker') {
-      return res.status(400).json({ error: 'Only workers have Stellar wallets' });
-    }
-
-    if (!user.stellar_public_key) {
-      return res.status(500).json({ error: 'Stellar account not initialized' });
-    }
-
-    res.json({
-      userId: user.id,
-      walletType: 'worker',
-      stellarPublicKey: user.stellar_public_key,
-    });
-  } catch (err) {
-    logger.error('Failed to fetch wallet', { userId, error: String(err) });
-    res.status(500).json({ error: 'Failed to fetch wallet' });
   }
 });
 

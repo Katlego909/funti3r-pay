@@ -188,18 +188,18 @@ app.all(['/auth', '/auth/**'], proxy(USER_SERVICE));
 app.all(['/api/auth', '/api/auth/**'], proxy(USER_SERVICE, { '^/api/auth': '/auth' }));
 app.all(['/users', '/users/**'], proxy(USER_SERVICE));
 app.all(['/api/users', '/api/users/**'], proxy(USER_SERVICE, { '^/api/users': '/users' }));
+app.all(['/wallets', '/wallets/**'], proxy(USER_SERVICE));
+app.all(['/api/wallets', '/api/wallets/**'], proxy(USER_SERVICE, { '^/api/wallets': '/wallets' }));
 
-// Wallets & Payments → payment-service
-app.all(['/wallets', '/wallets/**'], proxy(PAYMENT_SERVICE));
-app.all(['/api/wallets', '/api/wallets/**'], proxy(PAYMENT_SERVICE, { '^/api/wallets': '/wallets' }));
+// Payments → payment-service
 app.all(['/payments', '/payments/**'], proxy(PAYMENT_SERVICE));
 app.all(['/api/payments', '/api/payments/**'], proxy(PAYMENT_SERVICE, { '^/api/payments': '/payments' }));
 app.all(['/payouts', '/payouts/**'], proxy(PAYMENT_SERVICE));
 app.all(['/api/payouts', '/api/payouts/**'], proxy(PAYMENT_SERVICE, { '^/api/payouts': '/payouts' }));
 
-// Compliance → compliance-service
-app.all(['/compliance', '/compliance/**'], proxy(COMPLIANCE_URL));
-app.all(['/api/compliance', '/api/compliance/**'], proxy(COMPLIANCE_URL, { '^/api/compliance': '' }));
+// Compliance → user-service (stubs)
+app.all(['/compliance', '/compliance/**'], proxy(USER_SERVICE));
+app.all(['/api/compliance', '/api/compliance/**'], proxy(USER_SERVICE, { '^/api/compliance': '/compliance' }));
 
 // Analytics → analytics-service
 app.all(['/analytics', '/analytics/**'], proxy(ANALYTICS_URL));

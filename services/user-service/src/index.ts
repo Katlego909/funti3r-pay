@@ -16,20 +16,29 @@ app.use(cookieParser());
 // Middleware
 // ──────────────────────────────────────────────────────────────────────────
 
-function getAuthToken(req: Request): string | null {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  return authHeader.slice(7);
-}
-
 function requireAuth(req: Request, res: Response, next: Function): void {
-  const token = getAuthToken(req);
-  if (!token) {
+  // Check for x-user-* headers from API Gateway first
+  const userId = req.headers['x-user-id'];
+  const role = req.headers['x-user-role'];
+  const email = req.headers['x-user-email'];
+
+  if (userId && role && email) {
+    // Headers from gateway - user is already authenticated
+    (req as any).userId = userId;
+    (req as any).role = role;
+    (req as any).email = email;
+    return next();
+  }
+
+  // Fall back to Bearer token validation (direct calls, not through gateway)
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Missing authorization header' });
     return;
   }
 
   try {
+    const token = authHeader.slice(7);
     const payload = verifyToken(token);
     (req as any).userId = payload.userId;
     (req as any).role = payload.role;
@@ -676,6 +685,32 @@ app.get('/kyc/status', requireAuth, async (req: Request, res: Response) => {
 
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'healthy', service: 'user-service', uptime: process.uptime() });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Compliance Stubs (placeholder for future compliance service)
+// ──────────────────────────────────────────────────────────────────────────
+
+app.get('/compliance/:userId/status', requireAuth, async (req: Request, res: Response) => {
+  const { userId } = req.params;
+  logger.info('[Compliance] Status check', { userId });
+  res.json({
+    userId,
+    status: 'approved',
+    kycLevel: 'verified',
+    riskScore: 0,
+    lastUpdated: new Date().toISOString(),
+  });
+});
+
+app.post('/compliance/:userId/check', requireAuth, async (req: Request, res: Response) => {
+  const { userId } = req.params;
+  logger.info('[Compliance] Running compliance check', { userId });
+  res.json({
+    userId,
+    passed: true,
+    checks: { kyc: 'passed', sanctions: 'passed', aml: 'passed' },
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────────

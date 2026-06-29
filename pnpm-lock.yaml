@@ -399,7 +399,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared-utils
       '@simplewebauthn/server':
-        specifier: ^10.0.0
+        specifier: ^10.0.1
         version: 10.0.1
       '@stellar/stellar-sdk':
         specifier: ^16.0.0
