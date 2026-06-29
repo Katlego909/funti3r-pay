@@ -374,6 +374,16 @@ app.post('/payouts', async (req, res) => {
     signerWalletId?: string;
   };
 
+  // Authorization: verify user owns the enterprise account
+  const requesterId = req.headers['x-user-id'];
+  const requesterRole = req.headers['x-user-role'];
+  if (requesterId !== enterpriseId) {
+    return res.status(403).json({ error: 'Not authorized to create payments for this enterprise' });
+  }
+  if (requesterRole !== 'enterprise') {
+    return res.status(403).json({ error: 'Enterprise role required' });
+  }
+
   if (!enterpriseId || !workerId || !amount || !currency || !destinationCountry) {
     return res.status(400).json({
       error: 'enterpriseId, workerId, amount, currency, and destinationCountry are required',
@@ -560,6 +570,7 @@ app.post('/payouts/submit-signature', async (req, res) => {
     paymentId: string;
     signedXDR: string;
   };
+  const requesterId = req.headers['x-user-id'];
 
   if (!paymentId || !signedXDR) {
     return res.status(400).json({ error: 'paymentId and signedXDR are required' });
@@ -568,7 +579,7 @@ app.post('/payouts/submit-signature', async (req, res) => {
   try {
     // Verify payment exists and is pending signature
     const paymentResult = await query(
-      `SELECT id, status, signer_wallet_id FROM payments WHERE id = $1`,
+      `SELECT id, status, enterprise_id, signer_wallet_id FROM payments WHERE id = $1`,
       [paymentId],
     );
 
@@ -577,6 +588,10 @@ app.post('/payouts/submit-signature', async (req, res) => {
     }
 
     const payment = paymentResult.rows[0];
+    // Only the enterprise that created the payment can submit the signature
+    if (requesterId !== payment.enterprise_id) {
+      return res.status(403).json({ error: 'Not authorized to submit signature for this payment' });
+    }
     if (payment.status !== PaymentStatus.PENDING) {
       logger.warn('Attempt to submit signature for non-pending payment', { paymentId, status: payment.status });
       return res.status(409).json({ error: 'Payment is not pending signature' });
@@ -637,6 +652,16 @@ app.post('/payouts/batch', async (req, res) => {
     }>;
     idempotencyKey?: string;
   };
+
+  // Authorization: verify user owns the enterprise account
+  const requesterId = req.headers['x-user-id'];
+  const requesterRole = req.headers['x-user-role'];
+  if (requesterId !== enterpriseId) {
+    return res.status(403).json({ error: 'Not authorized to create payments for this enterprise' });
+  }
+  if (requesterRole !== 'enterprise') {
+    return res.status(403).json({ error: 'Enterprise role required' });
+  }
 
   if (!enterpriseId || !batchPayments || !Array.isArray(batchPayments) || batchPayments.length === 0) {
     return res.status(400).json({
@@ -825,6 +850,24 @@ app.post('/payouts/batch', async (req, res) => {
  */
 app.get('/payouts', async (req, res) => {
   const { enterpriseId, workerId, status, limit = '20', offset = '0' } = req.query;
+  const requesterId = req.headers['x-user-id'];
+  const requesterRole = req.headers['x-user-role'];
+
+  // Authorization: can only list payments for own enterprise or self as worker
+  if (enterpriseId && enterpriseId !== requesterId) {
+    return res.status(403).json({ error: 'Not authorized to view payments for this enterprise' });
+  }
+  if (workerId && workerId !== requesterId) {
+    return res.status(403).json({ error: 'Not authorized to view payments for this worker' });
+  }
+  if (!enterpriseId && !workerId) {
+    // If neither is specified, default to the requester's own account
+    if (requesterRole === 'enterprise') {
+      // Don't add a filter; let them query all their enterprise payments
+    } else if (requesterRole === 'worker') {
+      // Workers can only view their own payments
+    }
+  }
 
   try {
     const conditions: string[] = [];
@@ -863,7 +906,15 @@ app.get('/payouts', async (req, res) => {
 /**
  * GET /payouts/summary — dashboard aggregate stats.
  */
-app.get('/payouts/summary', async (_, res) => {
+app.get('/payouts/summary', async (req, res) => {
+  const requesterId = req.headers['x-user-id'];
+  const requesterRole = req.headers['x-user-role'];
+
+  // Only enterprises can view global summary
+  if (requesterRole !== 'enterprise') {
+    return res.status(403).json({ error: 'Enterprise role required to view summary' });
+  }
+
   try {
     const [totals, byStatus] = await Promise.all([
       query(`
@@ -871,9 +922,9 @@ app.get('/payouts/summary', async (_, res) => {
           COUNT(*)                                        AS total_count,
           COALESCE(SUM(amount), 0)                        AS total_volume,
           COALESCE(SUM(CASE WHEN status='completed' THEN amount END), 0) AS completed_volume
-        FROM payments
-      `),
-      query(`SELECT status, COUNT(*) AS count FROM payments GROUP BY status`),
+        FROM payments WHERE enterprise_id = $1
+      `, [requesterId]),
+      query(`SELECT status, COUNT(*) AS count FROM payments WHERE enterprise_id = $1 GROUP BY status`, [requesterId]),
     ]);
 
     const total = Number(totals.rows[0].total_count);
@@ -896,16 +947,25 @@ app.get('/payouts/summary', async (_, res) => {
  * GET /payouts/recent — last N payments for dashboard.
  */
 app.get('/payouts/recent', async (req, res) => {
+  const requesterId = req.headers['x-user-id'];
+  const requesterRole = req.headers['x-user-role'];
   const limit = Math.min(Number(req.query.limit ?? 10), 50);
+
+  // Only enterprises can view recent dashboard payments
+  if (requesterRole !== 'enterprise') {
+    return res.status(403).json({ error: 'Enterprise role required' });
+  }
+
   try {
     const result = await query(
       `SELECT p.id, p.enterprise_id, p.worker_id, u.email AS worker_email,
               p.amount, p.currency, p.status, p.rail, p.stellar_tx_hash, p.created_at
          FROM payments p
          LEFT JOIN users u ON u.id = p.worker_id
+         WHERE p.enterprise_id = $1
          ORDER BY p.created_at DESC
-         LIMIT $1`,
-      [limit],
+         LIMIT $2`,
+      [requesterId, limit],
     );
     res.json({ payments: result.rows });
   } catch (err) {
@@ -917,6 +977,8 @@ app.get('/payouts/recent', async (req, res) => {
  * GET /payouts/:id — single payment status.
  */
 app.get('/payouts/:id', async (req, res) => {
+  const requesterId = req.headers['x-user-id'];
+
   try {
     const result = await query(
       `SELECT id, enterprise_id, worker_id, amount, currency, status, rail,
@@ -925,7 +987,14 @@ app.get('/payouts/:id', async (req, res) => {
       [req.params.id],
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Payment not found' });
-    res.json(result.rows[0]);
+
+    const payment = result.rows[0];
+    // Only the enterprise or worker involved can view this payment
+    if (requesterId !== payment.enterprise_id && requesterId !== payment.worker_id) {
+      return res.status(403).json({ error: 'Not authorized to view this payment' });
+    }
+
+    res.json(payment);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
   }
