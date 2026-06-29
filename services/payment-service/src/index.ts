@@ -122,6 +122,13 @@ app.post('/wallets/enterprise', async (req, res) => {
 // ── Wallet info ───────────────────────────────────────────────────────────────
 
 app.get('/wallets/:userId', async (req, res) => {
+  const requesterId = req.headers['x-user-id'];
+
+  // Authorization: users can only view their own wallet
+  if (requesterId !== req.params.userId) {
+    return res.status(403).json({ error: 'Not authorized to view this wallet' });
+  }
+
   try {
     const result = await query(
       'SELECT wallet_type, public_key, contract_address FROM wallets WHERE user_id = $1',
@@ -166,9 +173,15 @@ app.get('/wallets/:userId', async (req, res) => {
  */
 app.post('/wallets/deploy-for-existing-user', async (req, res) => {
   const { userId } = req.body as { userId: string };
+  const requesterId = req.headers['x-user-id'];
 
   if (!userId) {
     return res.status(400).json({ error: 'userId is required' });
+  }
+
+  // Authorization: users can only deploy wallets for themselves
+  if (requesterId !== userId) {
+    return res.status(403).json({ error: 'Not authorized to deploy wallet for this user' });
   }
 
   try {
@@ -282,6 +295,13 @@ app.post('/wallets/deploy-for-existing-user', async (req, res) => {
  * Check worker wallet deployment progress
  */
 app.get('/wallets/:userId/deployment-status', async (req, res) => {
+  const requesterId = req.headers['x-user-id'];
+
+  // Authorization: users can only check their own wallet deployment status
+  if (requesterId !== req.params.userId) {
+    return res.status(403).json({ error: 'Not authorized to view this wallet status' });
+  }
+
   try {
     const walletResult = await query(
       `SELECT contract_address, status, deployed_at FROM wallets
