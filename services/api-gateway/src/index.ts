@@ -25,6 +25,12 @@ app.use(cors({
     'http://localhost:3100',
     'http://localhost:3101',
     'http://localhost:3102',
+    'http://localhost:3103',
+    'http://localhost:3104',
+    'http://localhost:3105',
+    'http://localhost:3106',
+    'http://localhost:3107',
+    'http://localhost:3108',
   ],
   credentials: true,
 }));
