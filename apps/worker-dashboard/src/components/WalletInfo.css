@@ -31,17 +31,20 @@
   text-transform: uppercase;
 }
 
-.badge.active {
+.badge.active,
+.badge.ACTIVE {
   background-color: #d1fae5;
   color: #047857;
 }
 
-.badge.pending {
+.badge.pending,
+.badge.PENDING {
   background-color: #fef3c7;
   color: #92400e;
 }
 
-.badge.unknown {
+.badge.unknown,
+.badge.UNKNOWN {
   background-color: #e5e7eb;
   color: #374151;
 }
