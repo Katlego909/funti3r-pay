@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/authStore.js';
+import { api } from '../api/client.js';
 import './WalletInfo.css';
 
 interface WalletData {
@@ -26,10 +27,8 @@ export default function WalletInfo() {
 
     async function fetchWallet() {
       try {
-        const response = await fetch(`/api/wallets/${user.userId}`);
-        if (response.ok) {
-          setWallet(await response.json());
-        }
+        const { data } = await api.get<WalletData>(`/wallets/${user.userId}`);
+        setWallet(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load wallet');
       } finally {
