@@ -2,6 +2,7 @@ import { useAuthStore } from '../store/authStore.js';
 import { useNavigate } from 'react-router-dom';
 import { logout } from '../api/auth.js';
 import { HiOutlineArrowRightOnRectangle, HiOutlineCheckCircle } from 'react-icons/hi2';
+import WalletInfo from '../components/WalletInfo.js';
 
 export default function Profile() {
   const user = useAuthStore((s) => s.user);
@@ -176,6 +177,11 @@ export default function Profile() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Wallet Section */}
+      <div style={{ marginBottom: '40px' }}>
+        <WalletInfo />
       </div>
 
       {/* Security Section */}

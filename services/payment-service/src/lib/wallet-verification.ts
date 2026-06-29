@@ -83,15 +83,23 @@ export function verifyWalletSignature(
 
     // Compute transaction hash using the network passphrase (same way it was signed)
     // Create a Transaction object from the full envelope with the correct network passphrase
-    const txFromEnvelope = new Transaction(txEnvelope, expectedPassphrase);
-    const txHashBuffer = txFromEnvelope.hash();
+    let txHashBuffer: Buffer;
+    try {
+      const txFromEnvelope = new Transaction(txEnvelope, expectedPassphrase);
+      txHashBuffer = txFromEnvelope.hash();
+    } catch (hashErr) {
+      logger.error('Failed to compute transaction hash', { error: String(hashErr) });
+      return { isValid: false, error: `Hash computation failed: ${String(hashErr)}` };
+    }
 
     logger.info('Transaction hash computed', {
-      hashHex: txHashBuffer.toString('hex').substring(0, 16) + '...',
+      hashLength: txHashBuffer.length,
     });
 
     // Extract signatures from envelope
     const signatures = v1Envelope.signatures();
+    logger.info('Signatures found', { count: signatures.length });
+
     if (signatures.length === 0) {
       return { isValid: false, error: 'Transaction has no signatures' };
     }
@@ -99,13 +107,21 @@ export function verifyWalletSignature(
     // Verify signature with public key
     const keypair = Keypair.fromPublicKey(publicKeyString);
 
-    for (const sig of signatures) {
+    logger.info('Verifying signatures', {
+      publicKey: publicKeyString,
+      transactionHashHex: txHashBuffer.toString('hex'),
+    });
+
+    for (let i = 0; i < signatures.length; i++) {
+      const sig = signatures[i];
       const signatureBuffer = sig.signature();
       const isValid = keypair.verify(txHashBuffer, signatureBuffer);
 
       logger.info('Signature verification', {
+        signatureIndex: i,
         isValid,
-        signatureHex: signatureBuffer.toString('hex').substring(0, 16) + '...',
+        signatureHex: signatureBuffer.toString('hex'),
+        signatureLength: signatureBuffer.length,
       });
 
       if (isValid) {

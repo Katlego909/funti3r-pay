@@ -11,8 +11,10 @@ import {
   Address,
   hash,
   BASE_FEE,
+  Memo,
 } from '@stellar/stellar-sdk';
 import { createLogger } from '@funti3r/shared-utils';
+import { getRedis } from '@funti3r/database';
 import axios from 'axios';
 import { randomBytes } from 'crypto';
 import { readFileSync } from 'fs';
@@ -57,7 +59,9 @@ export async function fundWithFriendbot(publicKey: string): Promise<void> {
   }
 }
 
-export async function getAccountBalance(publicKey: string): Promise<Horizon.HorizonApi.BalanceLineType[]> {
+export async function getAccountBalance(
+  publicKey: string,
+): Promise<Array<Horizon.HorizonApi.BalanceLine>> {
   const account = await horizon.loadAccount(publicKey);
   return account.balances;
 }
@@ -70,6 +74,7 @@ export async function sendPayment(
   amount: string,
   assetCode: string = 'XLM',
   assetIssuer?: string,
+  memoHash?: Buffer,
 ): Promise<string> {
   const sourceKeypair = Keypair.fromSecret(sourceSecret);
   logger.info('Preparing payment', {
@@ -83,10 +88,16 @@ export async function sendPayment(
   const fee = await horizon.fetchBaseFee();
   const asset = assetCode === 'XLM' ? Asset.native() : new Asset(assetCode, assetIssuer!);
 
-  const tx = new TransactionBuilder(account, {
-    fee: String(Math.max(fee, 100)),
+  const builder = new TransactionBuilder(account, {
+    fee: String(Math.max(fee * 10, 100)),
     networkPassphrase: NETWORK_PASSPHRASE,
-  })
+  });
+
+  if (memoHash) {
+    builder.addMemo(Memo.hash(memoHash));
+  }
+
+  const tx = builder
     .addOperation(Operation.payment({ destination: destinationPublic, asset, amount }))
     .setTimeout(60)
     .build();
@@ -95,6 +106,74 @@ export async function sendPayment(
   const result = await horizon.submitTransaction(tx);
   logger.info('Payment submitted', { hash: result.hash });
   return result.hash;
+}
+
+export async function pathPaymentStrictSend(
+  sourceSecret: string,
+  destinationPublic: string,
+  sendAsset: Asset,
+  sendAmount: string,
+  destAsset: Asset,
+  memoHash?: Buffer,
+): Promise<string> {
+  const sourceKeypair = Keypair.fromSecret(sourceSecret);
+  logger.info('Preparing path payment', {
+    from: sourceKeypair.publicKey(),
+    to: destinationPublic,
+    sendAmount,
+    sendAssetCode: sendAsset.code || 'XLM',
+    destAssetCode: destAsset.code || 'XLM',
+  });
+
+  const account = await horizon.loadAccount(sourceKeypair.publicKey());
+  const fee = await horizon.fetchBaseFee();
+
+  const builder = new TransactionBuilder(account, {
+    fee: String(Math.max(fee * 10, 100)),
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
+  if (memoHash) {
+    builder.addMemo(Memo.hash(memoHash));
+  }
+
+  const tx = builder
+    .addOperation(
+      Operation.pathPaymentStrictSend({
+        destination: destinationPublic,
+        sendAsset,
+        sendAmount,
+        destAsset,
+        destMin: '0',
+        path: [],
+      }),
+    )
+    .setTimeout(60)
+    .build();
+
+  tx.sign(sourceKeypair);
+  const result = await horizon.submitTransaction(tx);
+  logger.info('Path payment submitted', { hash: result.hash });
+  return result.hash;
+}
+
+export async function checkTrustline(
+  publicKey: string,
+  assetCode: string,
+  assetIssuer: string,
+): Promise<boolean> {
+  try {
+    const account = await horizon.loadAccount(publicKey);
+    return account.balances.some((b) => {
+      if ('asset_code' in b && 'asset_issuer' in b) {
+        return b.asset_code === assetCode && b.asset_issuer === assetIssuer;
+      }
+      return false;
+    });
+  } catch (err) {
+    logger.warn('Failed to check trustline', { publicKey, assetCode, error: String(err) });
+    return false;
+  }
 }
 
 export async function addTrustline(
@@ -107,7 +186,7 @@ export async function addTrustline(
   const fee = await horizon.fetchBaseFee();
 
   const tx = new TransactionBuilder(account, {
-    fee: String(Math.max(fee, 100)),
+    fee: String(Math.max(fee * 10, 100)),
     networkPassphrase: NETWORK_PASSPHRASE,
   })
     .addOperation(
@@ -119,6 +198,21 @@ export async function addTrustline(
   tx.sign(keypair);
   await horizon.submitTransaction(tx);
   logger.info('Trustline established', { account: keypair.publicKey(), asset: assetCode });
+}
+
+export async function ensureTrustline(
+  accountSecret: string,
+  assetCode: string,
+  assetIssuer: string,
+): Promise<void> {
+  const keypair = Keypair.fromSecret(accountSecret);
+  const hasTrustline = await checkTrustline(keypair.publicKey(), assetCode, assetIssuer);
+  if (!hasTrustline) {
+    logger.info('Trustline missing, creating...', { account: keypair.publicKey(), asset: assetCode });
+    await addTrustline(accountSecret, assetCode, assetIssuer);
+  } else {
+    logger.info('Trustline already exists', { account: keypair.publicKey(), asset: assetCode });
+  }
 }
 
 // ── Soroban SmartWallet deployment ────────────────────────────────────────────
@@ -256,4 +350,173 @@ export async function deploySmartWallet(
 
   logger.info('SmartWallet deployed', { contractAddress });
   return contractAddress;
+}
+
+// ── Unsigned transactions for external wallet signing ──────────────────────────
+
+/**
+ * Prepare an unsigned payment transaction for external wallet signing.
+ * Returns the transaction XDR that the wallet will sign.
+ */
+export async function prepareUnsignedPayment(
+  sourcePublic: string,
+  destinationPublic: string,
+  amount: string,
+  assetCode: string = 'XLM',
+  assetIssuer?: string,
+  memoHash?: Buffer,
+): Promise<string> {
+  logger.info('Preparing unsigned payment', {
+    from: sourcePublic,
+    to: destinationPublic,
+    amount,
+    assetCode,
+  });
+
+  const account = await horizon.loadAccount(sourcePublic);
+  const fee = await horizon.fetchBaseFee();
+  const asset = assetCode === 'XLM' ? Asset.native() : new Asset(assetCode, assetIssuer!);
+
+  const builder = new TransactionBuilder(account, {
+    fee: String(Math.max(fee * 10, 100)),
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
+  if (memoHash) {
+    builder.addMemo(Memo.hash(memoHash));
+  }
+
+  const tx = builder
+    .addOperation(Operation.payment({ destination: destinationPublic, asset, amount }))
+    .setTimeout(60)
+    .build();
+
+  return tx.toXDR();
+}
+
+/**
+ * Prepare an unsigned path payment transaction for external wallet signing.
+ */
+export async function prepareUnsignedPathPayment(
+  sourcePublic: string,
+  destinationPublic: string,
+  sendAsset: Asset,
+  sendAmount: string,
+  destAsset: Asset,
+  memoHash?: Buffer,
+): Promise<string> {
+  logger.info('Preparing unsigned path payment', {
+    from: sourcePublic,
+    to: destinationPublic,
+    sendAmount,
+    sendAssetCode: sendAsset.code || 'XLM',
+    destAssetCode: destAsset.code || 'XLM',
+  });
+
+  const account = await horizon.loadAccount(sourcePublic);
+  const fee = await horizon.fetchBaseFee();
+
+  const builder = new TransactionBuilder(account, {
+    fee: String(Math.max(fee * 10, 100)),
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
+  if (memoHash) {
+    builder.addMemo(Memo.hash(memoHash));
+  }
+
+  const tx = builder
+    .addOperation(
+      Operation.pathPaymentStrictSend({
+        destination: destinationPublic,
+        sendAsset,
+        sendAmount,
+        destAsset,
+        destMin: '0',
+        path: [],
+      }),
+    )
+    .setTimeout(60)
+    .build();
+
+  return tx.toXDR();
+}
+
+/**
+ * Submit a transaction that has been signed by an external wallet.
+ * @param signedXDR - The transaction XDR with signature appended
+ */
+export async function submitSignedTransaction(signedXDR: string): Promise<string> {
+  try {
+    // Parse the XDR to get the transaction
+    const tx = new (require('@stellar/stellar-sdk')).TransactionBuilder.fromXDR(signedXDR, NETWORK_PASSPHRASE);
+
+    logger.info('Submitting externally-signed transaction');
+    const result = await horizon.submitTransaction(tx);
+    logger.info('Externally-signed transaction submitted', { hash: result.hash });
+    return result.hash;
+  } catch (err) {
+    logger.error('Failed to submit externally-signed transaction', { error: String(err) });
+    throw err;
+  }
+}
+
+// ── Horizon streaming ─────────────────────────────────────────────────────────
+
+export async function streamEnterprisePayments(
+  enterprisePublicKey: string,
+  onPayment: (hash: string) => Promise<void>,
+): Promise<() => void> {
+  const redis = await getRedis();
+  const cursorKey = `stellar:cursor:${enterprisePublicKey}`;
+
+  let cursor: string | null = null;
+  try {
+    cursor = await redis.get(cursorKey);
+  } catch (err) {
+    logger.warn('Failed to load cursor from Redis', { error: String(err) });
+  }
+
+  logger.info('Starting Horizon payment stream', { enterprisePublicKey, cursor });
+
+  const stream = horizon
+    .payments()
+    .forAccount(enterprisePublicKey)
+    .cursor(cursor ?? 'now')
+    .stream({
+      onmessage: async (
+        op: Horizon.ServerApi.OperationRecord,
+      ) => {
+        if (op.type === 'payment' && 'transaction_hash' in op && op.transaction_hash) {
+          try {
+            logger.info('Payment confirmed on-chain', { hash: op.transaction_hash });
+            await onPayment(op.transaction_hash);
+          } catch (err) {
+            logger.error('Failed to process payment event', {
+              hash: op.transaction_hash,
+              error: String(err),
+            });
+          }
+        }
+
+        // Persist cursor for recovery
+        if ('paging_token' in op && op.paging_token) {
+          try {
+            await redis.set(cursorKey, op.paging_token, { EX: 86400 * 7 });
+          } catch (err) {
+            logger.warn('Failed to persist cursor', { error: String(err) });
+          }
+        }
+      },
+      onerror: (err: unknown) => {
+        logger.error('Horizon stream error', { error: String(err) });
+      },
+    });
+
+  return () => {
+    // Stream returned from Horizon is an event emitter with close ability
+    if (stream && typeof stream === 'object' && 'close' in stream) {
+      (stream as any).close();
+    }
+  };
 }

@@ -1,4 +1,4 @@
-import { Keypair, Server } from '@stellar/stellar-sdk';
+import { Keypair, Horizon } from '@stellar/stellar-sdk';
 import { createLogger } from '@funti3r/shared-utils';
 
 const logger = createLogger('WalletOps');
@@ -8,7 +8,7 @@ const SOROBAN_RPC_URL = process.env.STELLAR_SOROBAN_URL || 'https://soroban-test
 const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK_PASSPHRASE || 'Test SDF Network ; September 2015';
 const OPERATOR_SECRET = process.env.STELLAR_OPERATOR_SECRET || '';
 
-const horizonServer = new Server(HORIZON_URL);
+const horizonServer = new Horizon.Server(HORIZON_URL);
 
 /**
  * Deploy SmartWallet contract to Soroban
