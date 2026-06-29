@@ -28,6 +28,8 @@ export async function runInitialMigrations() {
         role                    VARCHAR(20)  NOT NULL DEFAULT 'worker',
         status                  VARCHAR(20)  NOT NULL DEFAULT 'active',
         country                 VARCHAR(10),
+        stellar_public_key      VARCHAR(56),
+        stellar_secret_key      TEXT,
         wallet_deployed_at      TIMESTAMPTZ,
         wallet_deployment_retries INT        NOT NULL DEFAULT 0,
         created_at              TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -225,6 +227,16 @@ export async function runInitialMigrations() {
         resolved_at     TIMESTAMPTZ,
         created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+    `);
+
+    // Add Stellar columns to users table if they don't exist
+    await db.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS stellar_public_key VARCHAR(56)
+    `);
+    await db.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS stellar_secret_key TEXT
     `);
 
     // Add missing columns to wallets table

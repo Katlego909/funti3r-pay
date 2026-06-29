@@ -2,6 +2,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { randomBytes, createHash, randomUUID } from 'crypto';
 import axios from 'axios';
+import { Keypair } from '@stellar/stellar-sdk';
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -213,12 +214,21 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
         return res.status(409).json({ error: 'You already have a credential registered for this browser/origin' });
       }
     } else {
-      // New user, create them
+      // New user, create them with a Stellar account
       userId = randomUUID();
+
+      // Generate regular Stellar account (ed25519) for payments
+      const keypair = Keypair.random();
+      const stellarPublicKey = keypair.publicKey();
+      const stellarSecretKey = keypair.secret();
+
       await query(
-        `INSERT INTO users (id, email, role) VALUES ($1, $2, $3)`,
-        [userId, email, session.role],
+        `INSERT INTO users (id, email, role, stellar_public_key, stellar_secret_key)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, email, session.role, stellarPublicKey, stellarSecretKey],
       );
+
+      logger.info('User created with Stellar account', { userId, email, stellarKey: stellarPublicKey.substring(0, 10) });
     }
 
     // Create credential
@@ -539,7 +549,7 @@ app.get('/users', async (req, res) => {
 app.get('/users/:id', async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, email, role, status, country, created_at FROM users WHERE id = $1',
+      'SELECT id, email, role, status, country, stellar_public_key, created_at FROM users WHERE id = $1',
       [req.params.id],
     );
     if (result.rows.length === 0) throw new NotFoundError('User');
@@ -547,6 +557,35 @@ app.get('/users/:id', async (req, res) => {
   } catch (err) {
     if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /wallets/:userId
+ * Get user's Stellar wallet public key
+ */
+app.get('/wallets/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const result = await query(
+      'SELECT id, email, stellar_public_key FROM users WHERE id = $1',
+      [userId],
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = result.rows[0];
+    if (!user.stellar_public_key) {
+      return res.status(400).json({ error: 'User has no Stellar wallet' });
+    }
+    res.json({
+      userId: user.id,
+      email: user.email,
+      stellarPublicKey: user.stellar_public_key,
+    });
+  } catch (err) {
+    logger.error('Failed to get wallet', { error: String(err) });
+    res.status(500).json({ error: 'Failed to get wallet' });
   }
 });
 
