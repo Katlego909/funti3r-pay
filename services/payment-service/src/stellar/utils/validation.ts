@@ -18,8 +18,8 @@ export function validatePublicKey(publicKey: string): boolean {
   if (!publicKey || typeof publicKey !== 'string') {
     return false;
   }
-  // Stellar public keys: 56 chars, start with 'G', base32 encoded
-  const publicKeyRegex = /^G[A-Z2-7]{54}$/;
+  // Stellar public keys: 56 chars total, start with 'G', base32 encoded
+  const publicKeyRegex = /^G[A-Z2-7]{55}$/;
   return publicKeyRegex.test(publicKey);
 }
 
@@ -34,8 +34,8 @@ export function validateSecretKey(secretKey: string): boolean {
   if (!secretKey || typeof secretKey !== 'string') {
     return false;
   }
-  // Stellar secret keys: 56 chars, start with 'S', base32 encoded
-  const secretKeyRegex = /^S[A-Z2-7]{54}$/;
+  // Stellar secret keys: 56 chars total, start with 'S', base32 encoded
+  const secretKeyRegex = /^S[A-Z2-7]{55}$/;
   return secretKeyRegex.test(secretKey);
 }
 

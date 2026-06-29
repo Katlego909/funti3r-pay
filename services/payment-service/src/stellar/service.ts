@@ -6,7 +6,6 @@
 
 import {
   Keypair,
-  Server,
   TransactionBuilder,
   Asset,
   Operation,
@@ -14,7 +13,11 @@ import {
   Networks,
   Transaction,
   FeeBumpTransaction,
+  Horizon,
+  Account,
 } from '@stellar/stellar-sdk';
+
+const Server = Horizon.Server;
 import axios from 'axios';
 import { createLogger } from '@funti3r/shared-utils';
 import {
@@ -257,7 +260,10 @@ export async function sendPayment(params: PaymentParams): Promise<PaymentResult>
 
     // Step 4: Build transaction
     logger.debug('Building transaction');
-    const account = await getHorizonServer().loadAccount(fromKeypair.publicKey);
+    const horizonAccount = await getHorizonServer().loadAccount(fromKeypair.publicKey);
+
+    // Convert Horizon response to Account object that TransactionBuilder expects
+    const account = new Account(fromKeypair.publicKey, horizonAccount.sequence);
 
     const builder = new TransactionBuilder(account, {
       fee: baseFee,

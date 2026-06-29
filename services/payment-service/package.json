@@ -8,7 +8,7 @@
     "dev": "node --env-file=../../.env.local --import tsx ./src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "echo 'Tests pending'",
+    "test": "vitest",
     "lint": "eslint src",
     "type-check": "tsc --noEmit"
   },
@@ -23,8 +23,12 @@
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.10.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
     "tsx": "^4.6.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.9"
   }
 }
