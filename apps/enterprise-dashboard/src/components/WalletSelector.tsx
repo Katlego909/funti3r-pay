@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { HiCheck } from 'react-icons/hi2';
+import { api } from '../api/client.js';
 import '../styles/WalletSelector.css';
 
 export interface Wallet {
@@ -37,10 +38,7 @@ export default function WalletSelector({
 
     try {
       // Load external wallets
-      const resp = await fetch(`/api/wallets/${userId}/external`);
-      if (!resp.ok) throw new Error('Failed to load wallets');
-
-      const data = await resp.json();
+      const { data } = await api.get<{ wallets: Wallet[] }>(`/wallets/${userId}/external`);
       const externalWallets = data.wallets || [];
 
       // Combine with platform wallet if available
