@@ -205,13 +205,15 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     );
 
     // Create credential
+    // Store credentialID as base64 string for consistent retrieval
+    const credentialIDBase64 = Buffer.from(credentialID).toString('base64');
     await query(
       `INSERT INTO user_credentials
          (user_id, credential_id, public_key, counter, transports, aaguid)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         userId,
-        credentialID,
+        credentialIDBase64,
         Buffer.from(credentialPublicKey).toString('base64'),
         counter,
         transports,
