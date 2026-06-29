@@ -209,8 +209,8 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     const credentialIDBase64 = Buffer.from(credentialID).toString('base64');
     await query(
       `INSERT INTO user_credentials
-         (user_id, credential_id, public_key, counter, transports, aaguid)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+         (user_id, credential_id, public_key, counter, transports, aaguid, origin)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         userId,
         credentialIDBase64,
@@ -218,6 +218,7 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
         counter,
         transports,
         aaguid,
+        clientOrigin,
       ],
     );
 
@@ -297,14 +298,16 @@ const loginStartHandler = async (req: express.Request, res: express.Response) =>
     const { email, origin } = req.body as { email: string; origin?: string };
     if (!email) throw new ValidationError('email is required');
 
+    const clientOrigin = origin || req.headers.origin as string || RP_ORIGIN;
+
     const userRow = await query(
       `SELECT u.id, uc.credential_id, uc.transports
          FROM users u
          JOIN user_credentials uc ON uc.user_id = u.id
-        WHERE u.email = $1`,
-      [email],
+        WHERE u.email = $1 AND uc.origin = $2`,
+      [email, clientOrigin],
     );
-    if (userRow.rows.length === 0) throw new NotFoundError('User');
+    if (userRow.rows.length === 0) throw new NotFoundError('User or credential for this origin');
 
     const { id: userId, credential_id, transports } = userRow.rows[0];
 
@@ -348,14 +351,16 @@ const loginFinishHandler = async (req: express.Request, res: express.Response) =
     };
     if (!email || !credential) throw new ValidationError('email and credential are required');
 
+    const clientOrigin = origin || req.headers.origin || RP_ORIGIN;
+
     const userRow = await query(
       `SELECT u.id, u.role, uc.credential_id, uc.public_key, uc.counter, uc.transports
          FROM users u
          JOIN user_credentials uc ON uc.user_id = u.id
-        WHERE u.email = $1`,
-      [email],
+        WHERE u.email = $1 AND uc.origin = $2`,
+      [email, clientOrigin],
     );
-    if (userRow.rows.length === 0) throw new NotFoundError('User');
+    if (userRow.rows.length === 0) throw new NotFoundError('User or credential for this origin');
 
     const { id: userId, role, credential_id, public_key, counter, transports } =
       userRow.rows[0];
@@ -364,8 +369,6 @@ const loginFinishHandler = async (req: express.Request, res: express.Response) =
     if (!session) {
       return res.status(400).json({ error: 'Authentication session expired. Please start again.' });
     }
-
-    const clientOrigin = origin || req.headers.origin || RP_ORIGIN;
     const verification = await verifyAuthenticationResponse({
       response: credential as unknown as Parameters<typeof verifyAuthenticationResponse>[0]['response'],
       expectedChallenge: session.challenge,

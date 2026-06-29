@@ -26,20 +26,22 @@ export async function runInitialMigrations() {
     await db.query(`
       CREATE TABLE IF NOT EXISTS user_credentials (
         id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id         UUID        NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        user_id         UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         credential_id   TEXT        NOT NULL UNIQUE,
         public_key      TEXT        NOT NULL,
         counter         BIGINT      NOT NULL DEFAULT 0,
         transports      TEXT[]      NOT NULL DEFAULT '{}',
         aaguid          VARCHAR(100),
-        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        origin          VARCHAR(255),
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(user_id, credential_id)
       );
     `);
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS wallets (
         id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id               UUID        NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        user_id               UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         wallet_type           VARCHAR(20) NOT NULL DEFAULT 'worker',
         public_key            VARCHAR(100),
         encrypted_secret      TEXT,
@@ -48,9 +50,42 @@ export async function runInitialMigrations() {
         encryption_salt       VARCHAR(64),
         contract_address      VARCHAR(100),
         status                VARCHAR(20) NOT NULL DEFAULT 'pending',
+        wallet_provider       VARCHAR(50),
+        is_external           BOOLEAN     NOT NULL DEFAULT FALSE,
+        public_key_verified   BOOLEAN     NOT NULL DEFAULT FALSE,
+        verification_challenge TEXT,
+        verification_signature TEXT,
+        verified_at           TIMESTAMPTZ,
         created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         deployed_at           TIMESTAMPTZ,
-        updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(user_id, wallet_type, is_external)
+      );
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS wallet_metadata (
+        id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        wallet_id        UUID        NOT NULL UNIQUE REFERENCES wallets(id) ON DELETE CASCADE,
+        provider_config  JSONB,
+        connection_status VARCHAR(50) NOT NULL DEFAULT 'connected',
+        last_activity_at TIMESTAMPTZ,
+        connection_error TEXT,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS payment_batches (
+        id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        enterprise_id  UUID        NOT NULL REFERENCES users(id),
+        stellar_tx_hash VARCHAR(100),
+        total_amount   DECIMAL(18, 7) NOT NULL,
+        payment_count  INT         NOT NULL,
+        status         VARCHAR(20) NOT NULL DEFAULT 'pending',
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
 
@@ -66,7 +101,11 @@ export async function runInitialMigrations() {
         payment_method    VARCHAR(30)  NOT NULL,
         rail              VARCHAR(30),
         stellar_tx_hash   VARCHAR(100),
+        memo_hash         VARCHAR(64),
+        fee_paid_xlm      DECIMAL(18, 7),
         failure_reason    TEXT,
+        batch_id          UUID REFERENCES payment_batches(id),
+        signer_wallet_id  UUID REFERENCES wallets(id),
         created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
         updated_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
       );
@@ -176,11 +215,60 @@ export async function runInitialMigrations() {
       );
     `);
 
+    // Add missing columns to wallets table
+    await db.query(`
+      ALTER TABLE wallets
+      ADD COLUMN IF NOT EXISTS wallet_provider VARCHAR(50)
+    `);
+    await db.query(`
+      ALTER TABLE wallets
+      ADD COLUMN IF NOT EXISTS is_external BOOLEAN DEFAULT FALSE
+    `);
+    await db.query(`
+      ALTER TABLE wallets
+      ADD COLUMN IF NOT EXISTS public_key_verified BOOLEAN DEFAULT FALSE
+    `);
+    await db.query(`
+      ALTER TABLE wallets
+      ADD COLUMN IF NOT EXISTS verification_challenge TEXT
+    `);
+    await db.query(`
+      ALTER TABLE wallets
+      ADD COLUMN IF NOT EXISTS verification_signature TEXT
+    `);
+    await db.query(`
+      ALTER TABLE wallets
+      ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ
+    `);
+
+    // Add missing columns to payments table if they don't exist
+    await db.query(`
+      ALTER TABLE payments
+      ADD COLUMN IF NOT EXISTS memo_hash VARCHAR(64)
+    `);
+    await db.query(`
+      ALTER TABLE payments
+      ADD COLUMN IF NOT EXISTS fee_paid_xlm DECIMAL(18, 7)
+    `);
+    await db.query(`
+      ALTER TABLE payments
+      ADD COLUMN IF NOT EXISTS batch_id UUID REFERENCES payment_batches(id)
+    `);
+    await db.query(`
+      ALTER TABLE payments
+      ADD COLUMN IF NOT EXISTS signer_wallet_id UUID REFERENCES wallets(id)
+    `);
+
     await db.query('CREATE INDEX IF NOT EXISTS idx_payments_enterprise ON payments(enterprise_id);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_payments_worker    ON payments(worker_id);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_payments_status    ON payments(status);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_payments_batch     ON payments(batch_id);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_payments_signer    ON payments(signer_wallet_id);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_audit_user         ON audit_logs(user_id);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_wallets_user_type  ON wallets(user_id, wallet_type);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_wallets_external   ON wallets(user_id, is_external);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_wallets_provider   ON wallets(wallet_provider);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_wallet_metadata    ON wallet_metadata(wallet_id);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_wallet_errors_user ON wallet_deployment_errors(user_id);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_wallet_errors_resolved ON wallet_deployment_errors(resolved_at);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_kyc_status         ON kyc_records(status);');
@@ -188,6 +276,7 @@ export async function runInitialMigrations() {
     await db.query('CREATE INDEX IF NOT EXISTS idx_kyc_docs           ON kyc_documents(kyc_record_id);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_pep_kyc            ON pep_screening(kyc_id);');
     await db.query('CREATE INDEX IF NOT EXISTS idx_pep_status         ON pep_screening(status);');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_batches_enterprise ON payment_batches(enterprise_id);');
 
     logger.info('Migrations completed.');
   } catch (error) {
