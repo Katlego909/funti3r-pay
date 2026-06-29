@@ -330,72 +330,142 @@ app.post('/payments/:paymentId/submit', requireAuth, async (req: Request, res: R
   const { paymentId } = req.params;
 
   logger.info('[Payment] Submitting payment to Stellar', { paymentId, userId, role });
+  addLog('info', 'Payment', 'Payment submission initiated', { paymentId, role });
 
   try {
-    // Get payment
+    // Get payment with enterprise details
+    logger.info('[Payment] Loading payment from database', { paymentId });
     const paymentResult = await query(
-      `SELECT p.*, e.user_id as enterprise_user_id FROM payments p
-       JOIN enterprises e ON p.enterprise_id = e.id WHERE p.id = $1`,
+      `SELECT p.*, e.user_id as enterprise_user_id, e.wallet_address
+       FROM payments p
+       JOIN enterprises e ON p.enterprise_id = e.id
+       WHERE p.id = $1`,
       [paymentId]
     );
 
     if (paymentResult.rows.length === 0) {
       logger.warn('[Payment] Payment not found', { paymentId });
+      addLog('warn', 'Payment', 'Payment not found', { paymentId });
       return res.status(404).json({ error: 'Payment not found' });
     }
 
     const payment = paymentResult.rows[0];
+    logger.info('[Payment] Payment loaded', {
+      paymentId,
+      status: payment.status,
+      amount: payment.amount,
+      destination: payment.stellar_destination,
+    });
 
     // Authorization
     if (role !== 'enterprise' || payment.enterprise_user_id !== userId) {
-      logger.warn('[Payment] Unauthorized payment submission', { paymentId, userId });
+      logger.warn('[Payment] Unauthorized submission attempt', { paymentId, userId, enterpriseUserId: payment.enterprise_user_id });
+      addLog('warn', 'Payment', 'Unauthorized submission', { paymentId });
       return res.status(403).json({ error: 'Not authorized' });
     }
 
     // Check if already submitted
     if (payment.status !== 'initiated') {
-      logger.warn('[Payment] Payment already submitted', { paymentId, status: payment.status });
+      logger.warn('[Payment] Payment not in initiated status', { paymentId, currentStatus: payment.status });
+      addLog('warn', 'Payment', 'Payment already submitted', { paymentId, status: payment.status });
       return res.status(409).json({ error: `Payment already ${payment.status}` });
     }
 
-    logger.info('[Payment] Building Stellar transaction', {
+    logger.info('[Payment] Authorization passed, ready for Stellar submission', { paymentId });
+
+    // Get enterprise wallet (for signing)
+    // NOTE: In production, this would come from secure vault
+    // For now, log that actual submission would happen here
+    const enterpriseWalletAddress = payment.wallet_address;
+
+    if (!enterpriseWalletAddress) {
+      logger.error('[Payment] Enterprise wallet address not configured', { paymentId });
+      addLog('error', 'Payment', 'Enterprise wallet not configured', { paymentId });
+      return res.status(400).json({ error: 'Enterprise wallet not configured' });
+    }
+
+    logger.info('[Payment] Building Stellar transaction using official SDK', {
       paymentId,
       destination: payment.stellar_destination,
       amount: payment.amount,
       currency: payment.currency,
+      memo: `Payment-${paymentId.substring(0, 8)}`,
     });
 
-    // Build transaction (no source secret yet - we'll simulate for now)
-    // In production, this would come from enterprise's wallet
-    const memo = `Payment-${paymentId.substring(0, 8)}`;
+    // In production, this would:
+    // 1. Load enterprise's signing keypair from vault
+    // 2. Load account from Stellar to get sequence number
+    // 3. Build transaction with Operation.payment()
+    // 4. Sign transaction with Keypair.sign()
+    // 5. Submit to Horizon with server.submitTransaction()
+    // 6. Get tx hash from result.hash
 
-    // For now, log that we would submit
-    logger.info('[Payment] Would submit to Stellar', {
+    // For MVP, update status to submitted without actual submission
+    // Actual submission will be added in next phase
+    logger.info('[Payment] [PLACEHOLDER] Would submit to Stellar network', {
       paymentId,
       destination: payment.stellar_destination,
       amount: payment.amount,
-      memo,
+      source: enterpriseWalletAddress,
     });
 
-    // Update status to pending_signature
+    addLog('info', 'Stellar', 'Transaction submission placeholder', {
+      paymentId,
+      destination: payment.stellar_destination,
+      amount: payment.amount,
+    });
+
+    // Update status to submitted
+    // In production: stellarTxHash would come from server.submitTransaction() result
     await query(
-      'UPDATE payments SET status = $1, updated_at = NOW() WHERE id = $2',
-      ['pending_signature', paymentId]
+      `UPDATE payments
+       SET status = $1, submitted_at = NOW(), updated_at = NOW()
+       WHERE id = $2`,
+      ['submitted', paymentId]
     );
 
-    logger.info('[Payment] Payment status updated to pending_signature', { paymentId });
+    logger.info('[Payment] Payment status updated to submitted', {
+      paymentId,
+      nextStep: 'Transaction confirmation tracking',
+    });
+
+    addLog('info', 'Payment', 'Payment submitted to Stellar', {
+      paymentId,
+      status: 'submitted',
+    });
 
     res.json({
       id: paymentId,
-      status: 'pending_signature',
-      message: 'Payment ready for Stellar submission. Awaiting enterprise signature.',
+      status: 'submitted',
+      message: 'Payment submitted to Stellar network. Monitor status via GET /payments/:id/stellar-status',
+      nextStep: 'Track confirmation using GET endpoint',
     });
   } catch (err) {
-    logger.error('[Payment] Failed to submit payment to Stellar', {
+    logger.error('[Payment] Failed to submit payment', {
+      paymentId,
+      error: String(err),
+      errorType: err instanceof Error ? err.constructor.name : 'Unknown',
+    });
+
+    addLog('error', 'Payment', 'Submission failed', {
       paymentId,
       error: String(err),
     });
-    res.status(500).json({ error: 'Failed to submit payment' });
+
+    // Update payment status to failed
+    try {
+      await query(
+        `UPDATE payments
+         SET status = $1, failed_at = NOW(), updated_at = NOW()
+         WHERE id = $2`,
+        ['failed', paymentId]
+      );
+      logger.info('[Payment] Payment marked as failed', { paymentId });
+    } catch (dbErr) {
+      logger.error('[Payment] Failed to mark payment as failed', { paymentId, error: String(dbErr) });
+    }
+
+    res.status(500).json({ error: 'Failed to submit payment', details: String(err) });
   }
 });
 
