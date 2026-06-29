@@ -8,7 +8,7 @@ import { Networks } from '@stellar/stellar-sdk';
 // Network configuration
 export const STELLAR_NETWORK = {
   name: 'TESTNET',
-  passphrase: Networks.TESTNET_NETWORK_PASSPHRASE,
+  passphrase: Networks.TESTNET,
 } as const;
 
 // Horizon API URLs
