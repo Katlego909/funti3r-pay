@@ -4,6 +4,8 @@ import { createLogger, encryptSecret, decryptSecret, decryptFromString, Validati
 import { initPostgres, initRedis, runInitialMigrations, query, transaction, getRedis } from '@funti3r/database';
 import { PaymentStatus, PaymentMethod } from '@funti3r/shared-types';
 import * as stellar from './lib/stellar.js';
+import { getCurrency, isSupportedCurrency, PAYOUT_CURRENCIES } from './lib/currencies.js';
+import { usdToCurrencyRate, getUsdRates, amountToUsd } from './lib/fx.js';
 import { selectRail, getAllQuotes } from './rails/router.js';
 import walletLinkingRouter from './routes/wallet-linking.js';
 import axios from 'axios';
@@ -357,13 +359,11 @@ app.get('/payouts/quotes', async (req, res) => {
 
 // ── Payouts ───────────────────────────────────────────────────────────────────
 
-type PayoutAsset = 'XLM' | 'USDC';
-
 interface PayoutResult {
   paymentId?: string;
   workerId: string;
   amount: number;
-  currency: PayoutAsset;
+  currency: string;
   status: 'completed' | 'failed';
   stellarTxHash?: string;
   sourceAmountXlm?: string;
@@ -375,20 +375,28 @@ interface PayoutResult {
  * single (/payouts) and batch (/payouts/batch) endpoints. Never throws — returns
  * a structured result so a batch can continue past individual failures.
  *
- * `sourceSecret` is the DECRYPTED enterprise secret (decrypted once by the caller).
+ * `asset` is any supported currency code. XLM is paid directly; USDC and local
+ * currencies (NGN/KES/…) are delivered as an EXACT amount via a strict-receive
+ * path payment funded from the enterprise's XLM (auto-creating the worker's
+ * trustline first). `sourceSecret` is the DECRYPTED enterprise secret.
  */
 async function executePayout(opts: {
   enterpriseId: string;
   sourceSecret: string;
   workerId: string;
   amountNum: number;
-  asset: PayoutAsset;
-  usdcIssuer?: string;
+  asset: string;
   memo?: string;
   batchId?: string | null;
 }): Promise<PayoutResult> {
-  const { enterpriseId, sourceSecret, workerId, amountNum, asset, usdcIssuer, memo, batchId } = opts;
+  const { enterpriseId, sourceSecret, workerId, amountNum, asset, memo, batchId } = opts;
   const base: PayoutResult = { workerId, amount: amountNum, currency: asset, status: 'failed' };
+
+  const def = getCurrency(asset);
+  if (!def) return { ...base, error: `Unsupported currency: ${asset}` };
+  if (def.kind !== 'native' && !def.issuer) {
+    return { ...base, error: `Issuer not configured for ${asset}` };
+  }
 
   // KYC gate (auto-approves on testnet).
   try {
@@ -397,7 +405,7 @@ async function executePayout(opts: {
     return { ...base, error: err instanceof Error ? err.message : String(err) };
   }
 
-  // Worker destination (+ secret for USDC trustline setup).
+  // Worker destination (+ secret for trustline setup on issued assets).
   const wkrRes = await query(
     'SELECT stellar_public_key, stellar_secret_key FROM users WHERE id = $1',
     [workerId],
@@ -429,14 +437,17 @@ async function executePayout(opts: {
     let txHash: string;
     let feePaidXlm: string | null = null;
 
-    if (asset === 'XLM') {
+    if (def.kind === 'native') {
+      // Direct native XLM payment.
       txHash = await stellar.sendPayment(sourceSecret, destination, String(amountNum), 'XLM', undefined, memoHash);
     } else {
-      if (!workerStoredSecret) throw new Error('Worker account is not set up to receive USDC');
+      // Issued asset (USDC or local currency): ensure the worker holds it, then
+      // deliver an exact amount via a path payment funded from the enterprise's XLM.
+      if (!workerStoredSecret) throw new Error(`Worker account is not set up to receive ${asset}`);
       const workerSecret = decryptFromString(workerStoredSecret);
-      await stellar.ensureTrustline(workerSecret, 'USDC', usdcIssuer!);
+      await stellar.ensureTrustline(workerSecret, def.code, def.issuer!);
       const result = await stellar.payExactWithXlm(
-        sourceSecret, destination, 'USDC', usdcIssuer!, String(amountNum), 0.05, memoHash,
+        sourceSecret, destination, def.code, def.issuer!, String(amountNum), 0.05, memoHash,
       );
       txHash = result.hash;
       feePaidXlm = result.sourceAmountXlm;
@@ -472,41 +483,62 @@ async function resolveEnterpriseSecret(enterpriseId: string): Promise<{ secret?:
 }
 
 /**
- * POST /payouts — single payout (XLM or USDC) from enterprise to worker.
- * Body: { enterpriseId, workerId, amount, currency?, memo? }
+ * POST /payouts — single payout from enterprise to worker.
+ *
+ * Two modes:
+ *  - Exact:  { workerId, amount, currency }     → deliver exactly `amount` of `currency`.
+ *  - USD:    { workerId, amountUsd }             → employer sends USD; the worker
+ *            receives their PREFERRED currency, converted at the live FX rate.
  */
 app.post('/payouts', async (req, res) => {
-  const { enterpriseId, workerId, amount, currency = 'XLM', memo } = req.body as {
-    enterpriseId: string; workerId: string; amount: number | string; currency?: string; memo?: string;
+  const { enterpriseId, workerId, amount, amountUsd, currency, memo } = req.body as {
+    enterpriseId: string; workerId: string;
+    amount?: number | string; amountUsd?: number | string; currency?: string; memo?: string;
   };
 
   const requesterId = req.headers['x-user-id'];
   const requesterRole = req.headers['x-user-role'];
   if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
   if (requesterId !== enterpriseId) return res.status(403).json({ error: 'Not authorized to create payments for this enterprise' });
+  if (!enterpriseId || !workerId) return res.status(400).json({ error: 'enterpriseId and workerId are required' });
 
-  if (!enterpriseId || !workerId || amount == null) {
-    return res.status(400).json({ error: 'enterpriseId, workerId, and amount are required' });
+  // Resolve the destination asset + exact amount.
+  let asset: string;
+  let amountNum: number;
+  let usdAmount: number | undefined;
+
+  try {
+    if (amountUsd != null) {
+      // USD mode: derive the worker's preferred currency and convert.
+      const usd = Number(amountUsd);
+      if (!Number.isFinite(usd) || usd <= 0) return res.status(400).json({ error: 'amountUsd must be a positive number' });
+      const wkr = await query('SELECT preferred_currency FROM users WHERE id = $1', [workerId]);
+      asset = (wkr.rows[0]?.preferred_currency || 'USDC').toUpperCase();
+      if (!isSupportedCurrency(asset)) return res.status(400).json({ error: `Worker preferred currency unsupported: ${asset}` });
+      const rate = await usdToCurrencyRate(asset);          // local units per USD
+      amountNum = Math.round(usd * rate * 1e7) / 1e7;        // exact local amount (7dp)
+      usdAmount = usd;
+    } else {
+      // Exact mode.
+      if (amount == null) return res.status(400).json({ error: 'Provide amountUsd, or amount + currency' });
+      amountNum = Number(amount);
+      if (!Number.isFinite(amountNum) || amountNum <= 0) return res.status(400).json({ error: 'amount must be a positive number' });
+      asset = String(currency || 'XLM').toUpperCase();
+      if (!isSupportedCurrency(asset)) return res.status(400).json({ error: `Unsupported currency: ${asset}` });
+    }
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
-  const amountNum = Number(amount);
-  if (!Number.isFinite(amountNum) || amountNum <= 0) {
-    return res.status(400).json({ error: 'amount must be a positive number' });
-  }
-  const asset = String(currency || 'XLM').toUpperCase() as PayoutAsset;
-  if (asset !== 'XLM' && asset !== 'USDC') return res.status(400).json({ error: 'Supported currencies: XLM, USDC' });
-  const USDC_ISSUER = process.env.STELLAR_USDC_ISSUER;
-  if (asset === 'USDC' && !USDC_ISSUER) return res.status(500).json({ error: 'USDC issuer is not configured' });
 
   const { secret, error } = await resolveEnterpriseSecret(enterpriseId);
   if (error) return res.status(400).json({ error });
 
-  const result = await executePayout({
-    enterpriseId, sourceSecret: secret!, workerId, amountNum, asset, usdcIssuer: USDC_ISSUER, memo,
-  });
+  const result = await executePayout({ enterpriseId, sourceSecret: secret!, workerId, amountNum, asset, memo });
 
   if (result.status === 'completed') {
     return res.status(201).json({
-      paymentId: result.paymentId, status: 'completed', currency: result.currency,
+      paymentId: result.paymentId, status: 'completed', currency: result.currency, amount: result.amount,
+      ...(usdAmount != null ? { usdAmount } : {}),
       stellarTxHash: result.stellarTxHash, ...(result.sourceAmountXlm ? { sourceAmountXlm: result.sourceAmountXlm } : {}),
     });
   }
@@ -537,10 +569,8 @@ app.post('/payouts/batch', async (req, res) => {
   if (items.length > 100) {
     return res.status(400).json({ error: 'A batch may contain at most 100 payments' });
   }
-  const asset = String(currency || 'XLM').toUpperCase() as PayoutAsset;
-  if (asset !== 'XLM' && asset !== 'USDC') return res.status(400).json({ error: 'Supported currencies: XLM, USDC' });
-  const USDC_ISSUER = process.env.STELLAR_USDC_ISSUER;
-  if (asset === 'USDC' && !USDC_ISSUER) return res.status(500).json({ error: 'USDC issuer is not configured' });
+  const asset = String(currency || 'XLM').toUpperCase();
+  if (!isSupportedCurrency(asset)) return res.status(400).json({ error: `Unsupported currency: ${asset}` });
 
   // Validate every item up front.
   const normalized: Array<{ workerId: string; amountNum: number; memo?: string }> = [];
@@ -570,7 +600,7 @@ app.post('/payouts/batch', async (req, res) => {
   for (const item of normalized) {
     const r = await executePayout({
       enterpriseId, sourceSecret: secret!, workerId: item.workerId,
-      amountNum: item.amountNum, asset, usdcIssuer: USDC_ISSUER, memo: item.memo, batchId,
+      amountNum: item.amountNum, asset, memo: item.memo, batchId,
     });
     results.push(r);
   }
@@ -961,29 +991,40 @@ app.get('/payouts/summary', async (req, res) => {
   }
 
   try {
-    const [totals, byStatus] = await Promise.all([
-      query(`
-        SELECT
-          COUNT(*)                                        AS total_count,
-          COALESCE(SUM(amount), 0)                        AS total_volume,
-          COALESCE(SUM(CASE WHEN status='completed' THEN amount END), 0) AS completed_volume
-        FROM payments WHERE ${scope} = $1
-      `, [requesterId]),
+    const [byStatus, byCurrencyRows] = await Promise.all([
       query(`SELECT status, COUNT(*) AS count FROM payments WHERE ${scope} = $1 GROUP BY status`, [requesterId]),
+      // Completed volume per currency — different currencies cannot be summed
+      // directly, so we aggregate per currency and convert each to USD.
+      query(
+        `SELECT currency, COALESCE(SUM(amount), 0) AS vol
+           FROM payments WHERE ${scope} = $1 AND status = 'completed' GROUP BY currency`,
+        [requesterId],
+      ),
     ]);
 
-    const total = Number(totals.rows[0].total_count);
+    const total = byStatus.rows.reduce((s, r) => s + Number(r.count), 0);
     const completed = byStatus.rows.find((r) => r.status === 'completed');
     const successRate = total > 0 ? (Number(completed?.count ?? 0) / total) * 100 : 0;
 
+    // Per-currency completed totals + a single USD-normalized total.
+    const byCurrency: Record<string, number> = {};
+    let completedVolumeUsd = 0;
+    for (const row of byCurrencyRows.rows) {
+      const code = String(row.currency);
+      const vol = Number(row.vol);
+      byCurrency[code] = vol;
+      completedVolumeUsd += await amountToUsd(code, vol);
+    }
+
     res.json({
       totalCount: total,
-      totalVolume: Number(totals.rows[0].total_volume),
-      completedVolume: Number(totals.rows[0].completed_volume),
       successRate: Math.round(successRate * 10) / 10,
       byStatus: Object.fromEntries(byStatus.rows.map((r) => [r.status, Number(r.count)])),
+      byCurrency,
+      completedVolumeUsd: Math.round(completedVolumeUsd * 100) / 100,
     });
   } catch (err) {
+    logger.error('Summary failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1021,6 +1062,31 @@ app.get('/payouts/recent', async (req, res) => {
     res.json({ payments: result.rows });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /payouts/currencies — supported payout currencies (for UI selectors).
+ * Registered before /payouts/:id so it isn't captured by the :id param.
+ */
+app.get('/payouts/currencies', (_req, res) => {
+  res.json({ currencies: PAYOUT_CURRENCIES });
+});
+
+/**
+ * GET /payouts/fx — live USD→currency rates for the supported payout currencies.
+ * Lets the employer form preview the local amount a worker will receive.
+ */
+app.get('/payouts/fx', async (_req, res) => {
+  try {
+    const rates = await getUsdRates();
+    const out: Record<string, number> = { USDC: 1 };
+    for (const c of PAYOUT_CURRENCIES) {
+      if (c.kind === 'local' && rates[c.code]) out[c.code] = rates[c.code];
+    }
+    res.json({ base: 'USD', rates: out });
+  } catch (err) {
+    res.status(502).json({ error: 'Failed to fetch FX rates' });
   }
 });
 

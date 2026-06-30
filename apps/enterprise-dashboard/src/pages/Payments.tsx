@@ -1,11 +1,20 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
-import { listPayments, initiatePayment, initiateBatchPayment, type Payment, type BatchResult } from '../api/payments.js';
+import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, type Payment, type BatchResult } from '../api/payments.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
 
-interface WorkerOption { id: string; email: string }
+interface WorkerOption { id: string; email: string; preferred_currency?: string }
 interface BatchRow { workerId: string; amount: string }
+
+const CURRENCY_META: Record<string, { name: string; symbol: string }> = {
+  USDC: { name: 'USD Coin', symbol: '$' },
+  NGN: { name: 'Nigerian Naira', symbol: '₦' },
+  KES: { name: 'Kenyan Shilling', symbol: 'KSh' },
+  GHS: { name: 'Ghanaian Cedi', symbol: 'GH₵' },
+  ZAR: { name: 'South African Rand', symbol: 'R' },
+  UGX: { name: 'Ugandan Shilling', symbol: 'USh' },
+};
 
 function statusClass(s: string) {
   if (s === 'completed') return 'completed';
@@ -26,8 +35,8 @@ export default function Payments() {
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
   const [workerId, setWorkerId] = useState('');
   const [amount, setAmount] = useState('');
-  const [currency, setCurrency] = useState<'XLM' | 'USDC'>('XLM');
   const [memo, setMemo] = useState('');
+  const [fxRates, setFxRates] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
@@ -54,12 +63,20 @@ export default function Payments() {
     loadPayments();
   }, [user, offset]);
 
-  // Load the worker list once for the payment dropdown.
+  // Load the worker list + live FX rates once.
   useEffect(() => {
     api.get<{ users?: WorkerOption[] }>('/users?role=worker&limit=100')
       .then((res) => setWorkers(res.data.users ?? []))
       .catch(() => setWorkers([]));
+    getFxRates().then(setFxRates);
   }, []);
+
+  const selectedWorker = workers.find((w) => w.id === workerId);
+  const payCurrency = (selectedWorker?.preferred_currency || 'USDC').toUpperCase();
+  const fxRate = fxRates[payCurrency] ?? (payCurrency === 'USDC' ? 1 : undefined);
+  const localPreview = amount && fxRate
+    ? `${(Number(amount) * fxRate).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${payCurrency}`
+    : '';
 
   async function handleSend(e: FormEvent) {
     e.preventDefault();
@@ -70,12 +87,14 @@ export default function Payments() {
       const result = await initiatePayment({
         enterpriseId: user!.userId,
         workerId: workerId.trim(),
-        amount: Number(amount),
-        currency,
+        amountUsd: Number(amount),
         memo: memo.trim() || undefined,
       });
 
-      setFormSuccess(`Payment ${result.status} — ${result.stellarTxHash?.slice(0, 12)}…`);
+      const got = result.amount != null
+        ? `${Number(result.amount).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${result.currency}`
+        : result.currency;
+      setFormSuccess(`Sent $${Number(amount).toFixed(2)} → worker received ${got}`);
       setFormOpen(false);
       setWorkerId('');
       setAmount('');
@@ -154,31 +173,26 @@ export default function Payments() {
                 </select>
               </label>
               {workerId && (
-                <p style={{ margin: '-8px 0 4px', fontSize: '0.78rem', color: '#6b7280', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                  Worker ID: {workerId}
+                <p style={{ margin: '-8px 0 4px', fontSize: '0.78rem', color: '#6b7280' }}>
+                  Paid in <strong>{CURRENCY_META[payCurrency]?.name ?? payCurrency} ({payCurrency})</strong>
+                  <span style={{ fontFamily: 'monospace', wordBreak: 'break-all', display: 'block' }}>Worker ID: {workerId}</span>
                 </p>
               )}
-              <div className="form-row">
-                <label>Amount
-                  <input
-                    type="number"
-                    min="0.0000001"
-                    step="0.0000001"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    required
-                  />
-                </label>
-                <label>Currency
-                  <select value={currency} onChange={(e) => setCurrency(e.target.value as 'XLM' | 'USDC')}>
-                    <option value="XLM">XLM</option>
-                    <option value="USDC">USDC</option>
-                  </select>
-                </label>
-              </div>
-              {currency === 'USDC' && (
-                <p style={{ margin: '-8px 0 4px', fontSize: '0.78rem', color: '#6b7280' }}>
-                  Worker receives exactly {amount || '0'} USDC; funded from your XLM via the Stellar DEX.
+              <label>Amount (USD)
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  required
+                  placeholder="e.g. 50.00"
+                />
+              </label>
+              {workerId && localPreview && (
+                <p style={{ margin: '-8px 0 4px', fontSize: '0.85rem', color: '#065f46', fontWeight: 600 }}>
+                  Worker receives ≈ {localPreview}
+                  {payCurrency !== 'USDC' && <span style={{ color: '#6b7280', fontWeight: 400 }}> · converted from USD via the Stellar DEX</span>}
                 </p>
               )}
               <label>Memo (optional)

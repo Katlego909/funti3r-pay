@@ -17,10 +17,10 @@ export interface Payment {
 
 export interface PaymentSummary {
   totalCount: number;
-  totalVolume: number;
-  completedVolume: number;
   successRate: number;
   byStatus: Record<string, number>;
+  byCurrency: Record<string, number>;
+  completedVolumeUsd: number;
 }
 
 export interface Quote {
@@ -76,12 +76,23 @@ export async function getQuotes(params: {
 export async function initiatePayment(payload: {
   enterpriseId: string;
   workerId: string;
-  amount: number;
+  amount?: number;
+  amountUsd?: number;
   currency?: string;
   memo?: string;
-}): Promise<{ paymentId: string; status: string; stellarTxHash?: string }> {
+}): Promise<{ paymentId: string; status: string; currency?: string; amount?: number; usdAmount?: number; stellarTxHash?: string }> {
   const { data } = await api.post('/payouts', payload);
   return data;
+}
+
+/** Live USD→currency rates for the supported payout currencies (USDC = 1). */
+export async function getFxRates(): Promise<Record<string, number>> {
+  try {
+    const { data } = await api.get<{ rates: Record<string, number> }>('/payouts/fx');
+    return data.rates ?? {};
+  } catch {
+    return {};
+  }
 }
 
 export interface BatchItemResult {

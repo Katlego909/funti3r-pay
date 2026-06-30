@@ -556,7 +556,7 @@ app.get('/users', async (req, res) => {
     const limit = Math.min(Number(req.query.limit ?? 50), 500);
     const offset = Number(req.query.offset ?? 0);
 
-    let sql = 'SELECT id, email, role, status, country, created_at FROM users';
+    let sql = 'SELECT id, email, role, status, country, preferred_currency, created_at FROM users';
     const params: any[] = [];
 
     if (role) {
@@ -586,7 +586,7 @@ app.get('/users', async (req, res) => {
 app.get('/users/:id', async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, email, role, status, country, created_at FROM users WHERE id = $1',
+      'SELECT id, email, role, status, country, preferred_currency, created_at FROM users WHERE id = $1',
       [req.params.id],
     );
     if (result.rows.length === 0) throw new NotFoundError('User');
@@ -596,6 +596,33 @@ app.get('/users/:id', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+/**
+ * PUT /users/me/preferred-currency — the authenticated worker chooses the
+ * currency they are paid in. Body: { currency }.
+ */
+const ALLOWED_PAYOUT_CURRENCIES = ['USDC', 'NGN', 'KES', 'GHS', 'ZAR', 'UGX'];
+const setPreferredCurrencyHandler = async (req: express.Request, res: express.Response) => {
+  const userId = req.headers['x-user-id'] as string | undefined;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  const currency = String((req.body as any)?.currency || '').toUpperCase();
+  if (!ALLOWED_PAYOUT_CURRENCIES.includes(currency)) {
+    return res.status(400).json({ error: `Unsupported currency. Allowed: ${ALLOWED_PAYOUT_CURRENCIES.join(', ')}` });
+  }
+  try {
+    const result = await query(
+      'UPDATE users SET preferred_currency = $1, updated_at = NOW() WHERE id = $2 RETURNING preferred_currency',
+      [currency, userId],
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    res.json({ preferredCurrency: result.rows[0].preferred_currency });
+  } catch (err) {
+    logger.error('Failed to set preferred currency', { error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+app.put('/users/me/preferred-currency', setPreferredCurrencyHandler);
+app.put('/api/users/me/preferred-currency', setPreferredCurrencyHandler);
 
 // ── Wallet Deployment ────────────────────────────────────────────────────────
 

@@ -33,6 +33,9 @@ CREATE TABLE users (
   kyc_status VARCHAR(20) CHECK (kyc_status IN ('pending', 'verified', 'failed', 'rejected')) DEFAULT 'pending',
   kyc_verified_at TIMESTAMP,
 
+  -- Payout currency the worker receives (USDC or a local currency code)
+  preferred_currency VARCHAR(10) NOT NULL DEFAULT 'USDC',
+
   -- Account status
   status VARCHAR(20) CHECK (status IN ('active', 'suspended', 'closed')) DEFAULT 'active',
 

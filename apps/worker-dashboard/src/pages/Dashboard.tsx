@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { HiOutlineBanknotes, HiOutlineClock, HiOutlineCheckCircle, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
-import { getSummary, getRecentPayments, getXlmPrice, type Payment, type PaymentSummary } from '../api/payments.js';
+import { getSummary, getRecentPayments, getXlmPrice, getFxRates, listPayments, type Payment, type PaymentSummary } from '../api/payments.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
+import InsightsCharts from '../components/InsightsCharts.js';
 import '../styles/Dashboard.css';
 
 function statusClass(s: string) {
@@ -15,9 +16,11 @@ export default function Dashboard() {
   const user = useAuthStore((s) => s.user);
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
-  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
+  const [otherBalances, setOtherBalances] = useState<Array<{ code: string; balance: string }>>([]);
   const [xlmUsd, setXlmUsd] = useState(0);
+  const [fxRates, setFxRates] = useState<Record<string, number>>({});
   const [recent, setRecent] = useState<Payment[]>([]);
+  const [chartPayments, setChartPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -32,10 +35,14 @@ export default function Dashboard() {
         // returns { userId, walletType, address }; balance defaults to 0
         // until on-chain balance lookup is wired up.
         const { data } = await api.get(`/wallets/${user.userId}`);
-        const xlmBalance = data.balances?.find((b: any) => b.asset_type === 'native')?.balance;
-        const usdc = data.balances?.find((b: any) => b.asset_code === 'USDC')?.balance;
+        const all: any[] = data.balances ?? [];
+        const xlmBalance = all.find((b) => b.asset_type === 'native')?.balance;
+        // Any issued asset (USDC, NGN, KES, …) with a non-zero balance.
+        const others = all
+          .filter((b) => b.asset_code && Number(b.balance) > 0)
+          .map((b) => ({ code: b.asset_code as string, balance: b.balance as string }));
         setWalletBalance(xlmBalance ?? '0');
-        setUsdcBalance(usdc ?? null);
+        setOtherBalances(others);
       } catch (err) {
         console.error('[Dashboard] Error loading wallet:', err);
         setWalletBalance('0');
@@ -56,6 +63,11 @@ export default function Dashboard() {
 
     fetchWalletBalance();
     getXlmPrice().then(setXlmUsd);
+    getFxRates().then(setFxRates);
+    // More rows for the charts than the 8-row recent table.
+    listPayments({ workerId: user.userId, limit: 200 })
+      .then(({ payments }) => setChartPayments(payments))
+      .catch(() => setChartPayments([]));
   }, [user]);
 
   if (loading) return <div className="loading">Loading dashboard…</div>;
@@ -74,6 +86,12 @@ export default function Dashboard() {
   const unit = (label: string) => (
     <span style={{ fontSize: '0.5em', fontWeight: 600, marginLeft: '0.2em', opacity: 0.85 }}>{label}</span>
   );
+  const fmtMoney = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const byCurrencyLine = summary
+    ? Object.entries(summary.byCurrency)
+        .map(([c, a]) => `${Number(a).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${c}`)
+        .join(' · ')
+    : '';
 
   return (
     <div className="dashboard">
@@ -91,11 +109,11 @@ export default function Dashboard() {
           <div className="metric-value" style={{ color: '#3b82f6', whiteSpace: 'nowrap' }}>
             {walletBalance ? <>{fmtXlm(balanceXlm)}{unit('XLM')}</> : '—'}
           </div>
-          {usdcBalance != null && (
-            <div className="metric-value" style={{ color: '#16a34a', fontSize: '1rem', whiteSpace: 'nowrap' }}>
-              {fmtXlm(parseFloat(usdcBalance))}{unit('USDC')}
+          {otherBalances.map((b) => (
+            <div key={b.code} className="metric-value" style={{ color: '#16a34a', fontSize: '1rem', whiteSpace: 'nowrap' }}>
+              {fmtXlm(parseFloat(b.balance))}{unit(b.code)}
             </div>
-          )}
+          ))}
           {walletBalance && xlmUsd > 0 && (
             <div className="metric-change neutral">{fmtUsd(balanceXlm)}</div>
           )}
@@ -107,11 +125,12 @@ export default function Dashboard() {
             <h3>Total Payments Received</h3>
           </div>
           <div className="metric-value" style={{ whiteSpace: 'nowrap' }}>
-            {summary ? <>{fmtXlm(summary.completedVolume)}{unit('XLM')}</> : '—'}
+            {summary ? `$${fmtMoney(summary.completedVolumeUsd)}` : '—'}
           </div>
-          <div className="metric-change neutral">
-            {summary?.totalCount ?? 0} transactions{summary && xlmUsd > 0 ? ` · ${fmtUsd(summary.completedVolume)}` : ''}
-          </div>
+          <div className="metric-change neutral">{summary?.totalCount ?? 0} transactions</div>
+          {byCurrencyLine && (
+            <div className="metric-change neutral" style={{ fontSize: '0.72rem', opacity: 0.8 }}>{byCurrencyLine}</div>
+          )}
         </div>
 
         <div className="metric-card">
@@ -132,6 +151,8 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      <InsightsCharts payments={chartPayments} xlmUsd={xlmUsd} fx={fxRates} />
 
       <div className="content-grid">
         <section className="section">

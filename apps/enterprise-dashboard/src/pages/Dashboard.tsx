@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { HiOutlineUsers, HiOutlineBanknotes, HiOutlineClock, HiOutlineCheckCircle, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
-import { getSummary, getRecentPayments, getXlmPrice, type Payment, type PaymentSummary } from '../api/payments.js';
+import { getSummary, getRecentPayments, getXlmPrice, getFxRates, listPayments, type Payment, type PaymentSummary } from '../api/payments.js';
 import { getUserSummary } from '../api/workers.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
+import InsightsCharts from '../components/InsightsCharts.js';
 import '../styles/Dashboard.css';
 
 function statusClass(s: string) {
@@ -18,7 +19,9 @@ export default function Dashboard() {
   const [userCount, setUserCount] = useState<number | null>(null);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [xlmUsd, setXlmUsd] = useState(0);
+  const [fxRates, setFxRates] = useState<Record<string, number>>({});
   const [recent, setRecent] = useState<Payment[]>([]);
+  const [chartPayments, setChartPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -54,6 +57,11 @@ export default function Dashboard() {
 
     fetchWalletBalance();
     getXlmPrice().then(setXlmUsd);
+    getFxRates().then(setFxRates);
+    // Recent rows for the charts (more than the 8-row table needs).
+    listPayments({ enterpriseId: user.userId, limit: 200 })
+      .then(({ payments }) => setChartPayments(payments))
+      .catch(() => setChartPayments([]));
   }, [user]);
 
   if (loading) return <div className="loading">Loading dashboard…</div>;
@@ -72,6 +80,12 @@ export default function Dashboard() {
   const unit = (label: string) => (
     <span style={{ fontSize: '0.5em', fontWeight: 600, marginLeft: '0.2em', opacity: 0.85 }}>{label}</span>
   );
+  const fmtMoney = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const byCurrencyLine = summary
+    ? Object.entries(summary.byCurrency)
+        .map(([c, a]) => `${Number(a).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${c}`)
+        .join(' · ')
+    : '';
 
   return (
     <div className="dashboard">
@@ -100,11 +114,12 @@ export default function Dashboard() {
             <h3>Total Payments</h3>
           </div>
           <div className="metric-value" style={{ whiteSpace: 'nowrap' }}>
-            {summary ? <>{fmtXlm(summary.completedVolume)}{unit('XLM')}</> : '—'}
+            {summary ? `$${fmtMoney(summary.completedVolumeUsd)}` : '—'}
           </div>
-          <div className="metric-change neutral">
-            {summary?.totalCount ?? 0} transactions{summary && xlmUsd > 0 ? ` · ${fmtUsd(summary.completedVolume)}` : ''}
-          </div>
+          <div className="metric-change neutral">{summary?.totalCount ?? 0} transactions</div>
+          {byCurrencyLine && (
+            <div className="metric-change neutral" style={{ fontSize: '0.72rem', opacity: 0.8 }}>{byCurrencyLine}</div>
+          )}
         </div>
 
         <div className="metric-card">
@@ -125,6 +140,8 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      <InsightsCharts payments={chartPayments} xlmUsd={xlmUsd} fx={fxRates} byStatus={summary?.byStatus ?? {}} />
 
       <div className="content-grid">
         <section className="section">

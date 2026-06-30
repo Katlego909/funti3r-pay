@@ -17,10 +17,10 @@ export interface Payment {
 
 export interface PaymentSummary {
   totalCount: number;
-  totalVolume: number;
-  completedVolume: number;
   successRate: number;
   byStatus: Record<string, number>;
+  byCurrency: Record<string, number>;
+  completedVolumeUsd: number;
 }
 
 export interface Quote {
@@ -39,6 +39,16 @@ export async function getXlmPrice(): Promise<number> {
     return data.usd || 0;
   } catch {
     return 0;
+  }
+}
+
+/** Live USD→currency rates (units of currency per 1 USD; USDC = 1). */
+export async function getFxRates(): Promise<Record<string, number>> {
+  try {
+    const { data } = await api.get<{ rates: Record<string, number> }>('/payouts/fx');
+    return data.rates ?? {};
+  } catch {
+    return {};
   }
 }
 
@@ -92,4 +102,29 @@ export async function initiatePayment(payload: {
 export async function getPayment(id: string): Promise<Payment> {
   const { data } = await api.get<Payment>(`/payouts/${id}`);
   return data;
+}
+
+export interface PayoutCurrency { code: string; name: string; symbol: string; kind: string }
+
+export async function getPayoutCurrencies(): Promise<PayoutCurrency[]> {
+  try {
+    const { data } = await api.get<{ currencies: PayoutCurrency[] }>('/payouts/currencies');
+    return data.currencies ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getPreferredCurrency(userId: string): Promise<string> {
+  try {
+    const { data } = await api.get<{ preferred_currency?: string }>(`/users/${userId}`);
+    return (data.preferred_currency || 'USDC').toUpperCase();
+  } catch {
+    return 'USDC';
+  }
+}
+
+export async function setPreferredCurrency(currency: string): Promise<string> {
+  const { data } = await api.put<{ preferredCurrency: string }>('/users/me/preferred-currency', { currency });
+  return data.preferredCurrency;
 }

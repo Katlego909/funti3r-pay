@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { HiOutlineBanknotes } from 'react-icons/hi2';
 import { useAuthStore } from '../store/authStore';
 import { api } from '../api/client.js';
+import { getPayoutCurrencies, getPreferredCurrency, setPreferredCurrency, type PayoutCurrency } from '../api/payments.js';
 
 interface WalletBalance {
   asset_type: string;
@@ -24,13 +25,36 @@ export default function Wallet() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Payout-currency preference
+  const [currencies, setCurrencies] = useState<PayoutCurrency[]>([]);
+  const [preferred, setPreferred] = useState('USDC');
+  const [savingPref, setSavingPref] = useState(false);
+  const [prefSaved, setPrefSaved] = useState(false);
+
   useEffect(() => {
     if (!userId) {
       setLoading(false);
       return;
     }
     fetchWallet();
+    getPayoutCurrencies().then(setCurrencies);
+    getPreferredCurrency(userId).then(setPreferred);
   }, [userId]);
+
+  async function changePreferred(code: string) {
+    setSavingPref(true);
+    setPrefSaved(false);
+    try {
+      const saved = await setPreferredCurrency(code);
+      setPreferred(saved);
+      setPrefSaved(true);
+      setTimeout(() => setPrefSaved(false), 2500);
+    } catch (err: any) {
+      setError(err?.response?.data?.error ?? 'Failed to update payout currency');
+    } finally {
+      setSavingPref(false);
+    }
+  }
 
   const fetchWallet = async () => {
     try {
@@ -59,6 +83,35 @@ export default function Wallet() {
       {error && <div className="error-banner" style={{ marginBottom: '20px' }}>{error}</div>}
 
       <div style={{ display: 'grid', gap: '20px', marginTop: '20px' }}>
+        {/* Payout currency preference */}
+        <div>
+          <h3>Get Paid In</h3>
+          <div style={{
+            padding: '16px',
+            backgroundColor: '#f9fafb',
+            borderRadius: '8px',
+            border: '1px solid #e5e7eb',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            flexWrap: 'wrap',
+          }}>
+            <select
+              value={preferred}
+              disabled={savingPref}
+              onChange={(e) => changePreferred(e.target.value)}
+              style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '14px', minWidth: '220px' }}
+            >
+              {currencies.map((c) => (
+                <option key={c.code} value={c.code}>{c.symbol} {c.name} ({c.code})</option>
+              ))}
+            </select>
+            <span style={{ fontSize: '13px', color: prefSaved ? '#16a34a' : '#6b7280' }}>
+              {savingPref ? 'Saving…' : prefSaved ? '✓ Saved' : 'Employers send USD — you receive this currency.'}
+            </span>
+          </div>
+        </div>
+
         {/* Stellar Account */}
         <div>
           <h3>Stellar Account</h3>
