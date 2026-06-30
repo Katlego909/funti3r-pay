@@ -33,6 +33,15 @@ export interface Quote {
   quoteId?: string;
 }
 
+export async function getXlmPrice(): Promise<number> {
+  try {
+    const { data } = await api.get<{ usd: number }>('/payouts/xlm-price');
+    return data.usd || 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function getSummary(): Promise<PaymentSummary> {
   const { data } = await api.get<PaymentSummary>('/payouts/summary');
   return data;
@@ -68,14 +77,9 @@ export async function initiatePayment(payload: {
   enterpriseId: string;
   workerId: string;
   amount: number;
-  currency: string;
-  destinationCountry: string;
-  idempotencyKey?: string;
-  preferFiat?: boolean;
-  quoteId?: string;
-  recipientName?: string;
-  recipientAccount?: string;
-}) {
+  currency?: string;
+  memo?: string;
+}): Promise<{ paymentId: string; status: string; stellarTxHash?: string }> {
   const { data } = await api.post('/payouts', payload);
   return data;
 }

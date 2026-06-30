@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { HiOutlineUsers, HiOutlineBanknotes, HiOutlineClock, HiOutlineCheckCircle, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
-import { getSummary, getRecentPayments, type Payment, type PaymentSummary } from '../api/payments.js';
+import { getSummary, getRecentPayments, getXlmPrice, type Payment, type PaymentSummary } from '../api/payments.js';
 import { getUserSummary } from '../api/workers.js';
+import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
 import '../styles/Dashboard.css';
 
@@ -16,6 +17,7 @@ export default function Dashboard() {
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [userCount, setUserCount] = useState<number | null>(null);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
+  const [xlmUsd, setXlmUsd] = useState(0);
   const [recent, setRecent] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -27,14 +29,13 @@ export default function Dashboard() {
 
     async function fetchWalletBalance() {
       try {
-        const response = await fetch(`/api/wallets/${user.userId}`);
-        if (response.ok) {
-          const data = await response.json();
-          const xlmBalance = data.balances?.find((b: any) => b.asset_type === 'native')?.balance;
-          setWalletBalance(xlmBalance || '0');
-        }
-      } catch (err) {
-        console.error('[Dashboard] Error loading wallet:', err);
+        // Use the gateway api client (adds auth token). Enterprises don't hold a
+        // worker Stellar wallet, so this may 400 — default to 0 in that case.
+        const { data } = await api.get(`/wallets/${user.userId}`);
+        const xlmBalance = data.balances?.find((b: any) => b.asset_type === 'native')?.balance;
+        setWalletBalance(xlmBalance ?? '0');
+      } catch {
+        setWalletBalance('0');
       }
     }
 
@@ -52,6 +53,7 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
 
     fetchWalletBalance();
+    getXlmPrice().then(setXlmUsd);
   }, [user]);
 
   if (loading) return <div className="loading">Loading dashboard…</div>;
@@ -59,6 +61,12 @@ export default function Dashboard() {
 
   const pending = summary?.byStatus['pending'] ?? 0;
   const processing = summary?.byStatus['processing'] ?? 0;
+
+  const fmtXlm = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtUsd = (xlm: number) => xlmUsd > 0
+    ? `≈ $${(xlm * xlmUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : '';
+  const balanceXlm = walletBalance ? parseFloat(walletBalance) : 0;
 
   return (
     <div className="dashboard">
@@ -73,9 +81,12 @@ export default function Dashboard() {
             <HiOutlineBanknotes size={20} className="metric-icon" />
             <h3>Wallet Balance</h3>
           </div>
-          <div className="metric-value" style={{ color: '#3b82f6' }}>
-            {walletBalance ? `${parseFloat(walletBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 7 })} XLM` : '—'}
+          <div className="metric-value" style={{ color: '#3b82f6', whiteSpace: 'nowrap' }}>
+            {walletBalance ? `${fmtXlm(balanceXlm)} XLM` : '—'}
           </div>
+          {walletBalance && xlmUsd > 0 && (
+            <div className="metric-change neutral">{fmtUsd(balanceXlm)}</div>
+          )}
         </div>
 
         <div className="metric-card">
@@ -83,10 +94,12 @@ export default function Dashboard() {
             <HiOutlineBanknotes size={20} className="metric-icon" />
             <h3>Total Payments</h3>
           </div>
-          <div className="metric-value">
-            {summary ? `$${summary.completedVolume.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
+          <div className="metric-value" style={{ whiteSpace: 'nowrap' }}>
+            {summary ? `${fmtXlm(summary.completedVolume)} XLM` : '—'}
           </div>
-          <div className="metric-change neutral">{summary?.totalCount ?? 0} transactions</div>
+          <div className="metric-change neutral">
+            {summary?.totalCount ?? 0} transactions{summary && xlmUsd > 0 ? ` · ${fmtUsd(summary.completedVolume)}` : ''}
+          </div>
         </div>
 
         <div className="metric-card">

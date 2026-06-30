@@ -62,10 +62,21 @@ export default function Landing() {
           <h2>Pay your global workforce instantly</h2>
           <p>Send payments to workers across borders with no middlemen, low fees, and real-time settlement.</p>
           <div className="hero-cta">
-            <Link to="/register" className="btn-hero btn-hero-primary">Start for Free</Link>
-            <Link to="/login" className="btn-hero btn-hero-secondary">Sign In</Link>
+            {userType === 'enterprise' ? (
+              <>
+                <a href="mailto:sales@funti3rpay.com?subject=Enterprise%20Dashboard%20Access" className="btn-hero btn-hero-primary">Contact Sales</a>
+                <Link to="/login" className="btn-hero btn-hero-secondary">Sign In</Link>
+              </>
+            ) : (
+              <>
+                <Link to="/register" className="btn-hero btn-hero-primary">Start for Free</Link>
+                <Link to="/login" className="btn-hero btn-hero-secondary">Sign In</Link>
+              </>
+            )}
           </div>
-          <p className="hero-note">Instant setup. Connect your wallet. Start paying workers today.</p>
+          <p className="hero-note">
+            {userType === 'enterprise' ? 'Talk to our sales team to get started.' : 'Instant setup. Create your wallet. Start receiving payments today.'}
+          </p>
         </div>
         <div className="hero-graphic">
           <div className="crypto-payment-visual">
@@ -307,50 +318,54 @@ export default function Landing() {
       <section className="pricing">
         <div className="section-header">
           <h3>Simple, Transparent Pricing</h3>
-          <p>No hidden fees. Scale as you grow.</p>
+          <p>{userType === 'enterprise' ? 'Custom pricing for enterprise needs.' : 'No hidden fees. Scale as you grow.'}</p>
         </div>
         <div className="pricing-grid">
-          <div className="pricing-card">
-            <div className="pricing-header">
-              <h4>Starter</h4>
-              <p className="pricing-desc">Perfect for small teams</p>
-            </div>
-            <div className="pricing-amount">
-              <span className="amount">1.5%</span>
-              <span className="per">per transaction</span>
-            </div>
-            <ul className="pricing-features">
-              <li>✓ Up to 100 workers</li>
-              <li>✓ Multi-currency support</li>
-              <li>✓ Basic analytics</li>
-              <li>✓ Email support</li>
-            </ul>
-            <button className="pricing-cta">Get Started</button>
-          </div>
+          {userType === 'worker' && (
+            <>
+              <div className="pricing-card">
+                <div className="pricing-header">
+                  <h4>Starter</h4>
+                  <p className="pricing-desc">Perfect for small teams</p>
+                </div>
+                <div className="pricing-amount">
+                  <span className="amount">1.5%</span>
+                  <span className="per">per transaction</span>
+                </div>
+                <ul className="pricing-features">
+                  <li>✓ Up to 100 workers</li>
+                  <li>✓ Multi-currency support</li>
+                  <li>✓ Basic analytics</li>
+                  <li>✓ Email support</li>
+                </ul>
+                <button className="pricing-cta">Get Started</button>
+              </div>
 
-          <div className="pricing-card featured">
-            <div className="featured-badge">Popular</div>
-            <div className="pricing-header">
-              <h4>Growth</h4>
-              <p className="pricing-desc">For scaling companies</p>
-            </div>
-            <div className="pricing-amount">
-              <span className="amount">1.2%</span>
-              <span className="per">per transaction</span>
-            </div>
-            <ul className="pricing-features">
-              <li>✓ Unlimited workers</li>
-              <li>✓ Advanced analytics</li>
-              <li>✓ API access</li>
-              <li>✓ Priority support</li>
-            </ul>
-            <button className="pricing-cta">Get Started</button>
-          </div>
+              <div className="pricing-card featured">
+                <div className="featured-badge">Popular</div>
+                <div className="pricing-header">
+                  <h4>Growth</h4>
+                  <p className="pricing-desc">For scaling companies</p>
+                </div>
+                <div className="pricing-amount">
+                  <span className="amount">1.2%</span>
+                  <span className="per">per transaction</span>
+                </div>
+                <ul className="pricing-features">
+                  <li>✓ Unlimited workers</li>
+                  <li>✓ Advanced analytics</li>
+                  <li>✓ API access</li>
+                  <li>✓ Priority support</li>
+                </ul>
+                <button className="pricing-cta">Get Started</button>
+              </div>
+            </>
+          )}
 
-          <div className="pricing-card">
+          <div className={`pricing-card ${userType === 'enterprise' ? '' : ''}`}>
             <div className="pricing-header">
-              <h4>Enterprise</h4>
-              <p className="pricing-desc">Custom solutions</p>
+              <h4>{userType === 'enterprise' ? 'Custom Enterprise' : 'Enterprise'}</h4>
+              <p className="pricing-desc">{userType === 'enterprise' ? 'Tailored solutions for your business' : 'Custom solutions'}</p>
             </div>
             <div className="pricing-amount">
               <span className="amount">Custom</span>
@@ -360,9 +375,10 @@ export default function Landing() {
               <li>✓ Custom rates</li>
               <li>✓ Dedicated support</li>
               <li>✓ SLA guarantee</li>
-              <li>✓ White-label options</li>
+              {userType === 'enterprise' && <li>✓ API integration</li>}
+              {userType === 'enterprise' && <li>✓ White-label options</li>}
             </ul>
-            <button className="pricing-cta">Contact Sales</button>
+            <a href="mailto:sales@funti3rpay.com?subject=Enterprise%20Pricing%20Inquiry" className="pricing-cta" style={{ textDecoration: 'none', display: 'inline-block', width: '100%', textAlign: 'center' }}>Contact Sales</a>
           </div>
         </div>
       </section>
@@ -400,11 +416,20 @@ export default function Landing() {
       {/* CTA Section */}
       <section className="cta-final">
         <div className="cta-content">
-          <h3>Ready to pay your team smarter?</h3>
-          <p>Join hundreds of companies simplifying global payments</p>
+          <h3>{userType === 'enterprise' ? 'Ready to simplify global workforce payments?' : 'Ready to receive instant payments?'}</h3>
+          <p>{userType === 'enterprise' ? 'Join hundreds of companies managing payments across borders' : 'Join workers worldwide receiving instant payouts'}</p>
           <div className="cta-buttons">
-            <Link to="/register" className="btn-final btn-final-primary">Start Free Today</Link>
-            <a href="mailto:support@funti3rpay.com" className="btn-final btn-final-secondary">Contact Sales</a>
+            {userType === 'enterprise' ? (
+              <>
+                <a href="mailto:sales@funti3rpay.com?subject=Enterprise%20Dashboard%20Access&body=I'm%20interested%20in%20learning%20more%20about%20Funti3rPay%20for%20my%20business." className="btn-final btn-final-primary">Schedule a Demo</a>
+                <a href="mailto:support@funti3rpay.com" className="btn-final btn-final-secondary">Questions?</a>
+              </>
+            ) : (
+              <>
+                <Link to="/register" className="btn-final btn-final-primary">Create Wallet Free</Link>
+                <a href="mailto:support@funti3rpay.com" className="btn-final btn-final-secondary">Need Help?</a>
+              </>
+            )}
           </div>
         </div>
       </section>

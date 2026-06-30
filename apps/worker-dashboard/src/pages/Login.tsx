@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { loginPasskey } from '../api/auth.js';
+import { loginPasskey, devLogin } from '../api/auth.js';
 import { useAuthStore } from '../store/authStore.js';
 
 export default function Login() {
@@ -21,6 +21,24 @@ export default function Login() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Login failed';
       setError(msg.includes('cancelled') ? 'Passkey prompt cancelled.' : msg);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDevLogin() {
+    setError('');
+    setLoading(true);
+    try {
+      const data = await devLogin(email);
+      if (data.role !== 'worker') {
+        useAuthStore.getState().clearSession();
+        setError('That account is not a worker. Use the enterprise dashboard instead.');
+        return;
+      }
+      navigate('/');
+    } catch (err: any) {
+      setError(err?.response?.data?.error ?? 'Dev login failed');
     } finally {
       setLoading(false);
     }
@@ -49,6 +67,16 @@ export default function Login() {
 
           <button type="submit" className="btn-primary" disabled={loading || !email}>
             {loading ? 'Authenticating…' : 'Sign in with Passkey'}
+          </button>
+
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={handleDevLogin}
+            disabled={loading || !email}
+            style={{ marginTop: '8px' }}
+          >
+            Dev sign in (no passkey)
           </button>
         </form>
 

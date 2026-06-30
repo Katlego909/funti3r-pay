@@ -9,6 +9,7 @@ import {
   verifyAuthenticationResponse,
 } from '@simplewebauthn/server';
 import { decode as cborDecode } from 'cbor-x';
+import { Keypair } from '@stellar/stellar-sdk';
 import {
   createLogger,
   generateToken,
@@ -75,6 +76,25 @@ function extractP256UncompressedKey(coseKey: Uint8Array): Buffer {
 
 function hashRefreshToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+/**
+ * Fund a freshly-created account on the Stellar testnet via Friendbot so it
+ * exists on-chain (a keypair alone does not — the account is created by its
+ * first funding payment). Best-effort: never throws.
+ */
+async function fundTestnetAccount(publicKey: string): Promise<void> {
+  if ((process.env.STELLAR_NETWORK || 'TESTNET').toUpperCase() !== 'TESTNET') return;
+  try {
+    const res = await fetch(`https://friendbot.stellar.org/?addr=${publicKey}`);
+    if (res.ok) {
+      logger.info('Funded testnet account via Friendbot', { publicKey });
+    } else {
+      logger.warn('Friendbot funding non-OK', { publicKey, status: res.status });
+    }
+  } catch (err) {
+    logger.warn('Friendbot funding failed (account still usable once funded)', { publicKey, error: String(err) });
+  }
 }
 
 function setRefreshCookie(res: express.Response, token: string): void {
@@ -192,9 +212,6 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
 
     console.log('[registerFinish] Credential transports:', transports);
 
-    // Extract raw P-256 public key for Soroban contract init
-    const passkeyPkBuffer = extractP256UncompressedKey(credentialPublicKey);
-
     // Check if user already exists
     const existingUserRow = await query(
       `SELECT id FROM users WHERE email = $1`,
@@ -213,12 +230,18 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
         return res.status(409).json({ error: 'You already have a credential registered for this browser/origin' });
       }
     } else {
-      // New user, create them
+      // New user, create them with a classic Stellar ed25519 account.
+      // Workers receive payments to this address; enterprises get one too (harmless).
       userId = randomUUID();
+      const stellarKeypair = Keypair.random();
       await query(
-        `INSERT INTO users (id, email, role) VALUES ($1, $2, $3)`,
-        [userId, email, session.role],
+        `INSERT INTO users (id, email, role, stellar_public_key, stellar_secret_key)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, email, session.role, stellarKeypair.publicKey(), stellarKeypair.secret()],
       );
+      // Create the account on-chain (testnet) so it exists and has a balance.
+      // Best-effort and awaited so the balance is ready on first dashboard load.
+      await fundTestnetAccount(stellarKeypair.publicKey());
     }
 
     // Create credential
@@ -239,32 +262,8 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
       ],
     );
 
-    // Deploy SmartWallet asynchronously (non-blocking)
-    // Worker wallet deploys in background; polling endpoint checks status
-    if (session.role === 'worker') {
-      setImmediate(async () => {
-        try {
-          const credIdBase64 = credentialID.replace(/-/g, '+').replace(/_/g, '/') + '==';
-          const credIdHex = Buffer.from(credIdBase64, 'base64').toString('hex');
-
-          const deployRes = await axios.post(`${PAYMENT_SERVICE_URL}/wallets/worker`, {
-            userId,
-            passkeyPkHex: passkeyPkBuffer.toString('hex'),
-            credentialIdHex: credIdHex,
-          }, { timeout: 300000 }); // 5 minute timeout
-
-          const contractAddress = deployRes.data.contractAddress;
-          await query(
-            `INSERT INTO wallets (user_id, wallet_type, contract_address, status, deployed_at, updated_at)
-             VALUES ($1, 'worker', $2, 'active', NOW(), NOW())`,
-            [userId, contractAddress],
-          );
-          logger.info('SmartWallet deployed async', { userId, contractAddress });
-        } catch (err) {
-          logger.error('SmartWallet deployment failed (async)', { userId, error: String(err) });
-        }
-      });
-    }
+    // Note: workers use their classic Stellar account (created above) for payments.
+    // No Soroban SmartWallet deployment — that path was removed.
 
     await deleteKey(`reg:${email}`);
 
@@ -431,6 +430,51 @@ const loginFinishHandler = async (req: express.Request, res: express.Response) =
 app.post('/auth/login/finish', loginFinishHandler);
 app.post('/login/finish', loginFinishHandler);
 app.post('/api/auth/login/finish', loginFinishHandler);
+
+/**
+ * POST /auth/dev-login  (DEVELOPMENT ONLY)
+ * Body: { email }
+ * Signs a user in by email with no passkey. Disabled when NODE_ENV=production.
+ * Exists so local testing doesn't require re-registering a passkey every time
+ * (passkeys are device/browser/origin-scoped and wiped on DB resets).
+ */
+const devLoginHandler = async (req: express.Request, res: express.Response) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  try {
+    const { email } = req.body as { email: string };
+    if (!email) throw new ValidationError('email is required');
+
+    const result = await query(
+      'SELECT id, email, role FROM users WHERE email = $1',
+      [email],
+    );
+    if (result.rows.length === 0) throw new NotFoundError('User');
+
+    const { id: userId, role } = result.rows[0];
+    const accessToken = generateToken(userId, email, role);
+    const refreshToken = randomBytes(64).toString('hex');
+    await setJSON(
+      `refresh:${hashRefreshToken(refreshToken)}`,
+      { userId, email, role },
+      REFRESH_TOKEN_TTL_SEC,
+    );
+    setRefreshCookie(res, refreshToken);
+
+    logger.info('[DevLogin] Signed in without passkey', { userId, email, role });
+    res.json({ accessToken, userId, email, role });
+  } catch (err) {
+    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
+    if (err instanceof NotFoundError) return res.status(404).json({ error: 'No account with that email' });
+    logger.error('dev-login failed', { error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+app.post('/auth/dev-login', devLoginHandler);
+app.post('/login/dev-login', devLoginHandler);
+app.post('/api/auth/dev-login', devLoginHandler);
 
 /**
  * POST /auth/refresh

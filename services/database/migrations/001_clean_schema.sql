@@ -16,7 +16,7 @@ DROP TABLE IF EXISTS users CASCADE;
 CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email VARCHAR(255) UNIQUE NOT NULL,
-  password_hash VARCHAR(255) NOT NULL,
+  password_hash VARCHAR(255), -- nullable: passkey (WebAuthn) users have no password
   role VARCHAR(20) NOT NULL CHECK (role IN ('enterprise', 'worker', 'admin')),
 
   -- Worker-specific: Classic Stellar ed25519 account
@@ -45,6 +45,23 @@ CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_stellar_public_key ON users(stellar_public_key);
 CREATE INDEX idx_users_status ON users(status);
+
+-- WebAuthn Credentials (passkeys). One credential per (user, origin).
+CREATE TABLE user_credentials (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  credential_id   TEXT        NOT NULL UNIQUE,
+  public_key      TEXT        NOT NULL,
+  counter         BIGINT      NOT NULL DEFAULT 0,
+  transports      TEXT[]      NOT NULL DEFAULT '{}',
+  aaguid          VARCHAR(100),
+  origin          VARCHAR(255),
+  created_at      TIMESTAMP   NOT NULL DEFAULT NOW(),
+  UNIQUE(user_id, origin)
+);
+
+CREATE INDEX idx_user_credentials_user_id ON user_credentials(user_id);
+CREATE INDEX idx_user_credentials_credential_id ON user_credentials(credential_id);
 
 -- Enterprise Profile
 CREATE TABLE enterprises (
@@ -78,9 +95,11 @@ CREATE INDEX idx_enterprise_workers_enterprise_id ON enterprise_workers(enterpri
 CREATE INDEX idx_enterprise_workers_worker_id ON enterprise_workers(worker_id);
 
 -- Payment Records
+-- enterprise_id and worker_id both reference the users table (the enterprise
+-- user and the worker user). Each holds a classic Stellar account.
 CREATE TABLE payments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  enterprise_id UUID NOT NULL REFERENCES enterprises(id) ON DELETE RESTRICT,
+  enterprise_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   worker_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
 
   -- Amount
@@ -99,8 +118,11 @@ CREATE TABLE payments (
 
   -- Stellar blockchain data
   stellar_tx_hash VARCHAR(255),
-  stellar_destination VARCHAR(60) NOT NULL, -- worker's Stellar account
+  stellar_destination VARCHAR(60), -- worker's Stellar account
   stellar_source_secret TEXT, -- encrypted, for signing transactions
+
+  -- Failure reason (set when a payment fails)
+  failure_reason TEXT,
 
   -- Metadata
   description VARCHAR(500),

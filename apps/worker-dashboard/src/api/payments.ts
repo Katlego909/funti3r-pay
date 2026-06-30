@@ -33,6 +33,15 @@ export interface Quote {
   quoteId?: string;
 }
 
+export async function getXlmPrice(): Promise<number> {
+  try {
+    const { data } = await api.get<{ usd: number }>('/payouts/xlm-price');
+    return data.usd || 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function getSummary(): Promise<PaymentSummary> {
   const { data } = await api.get<PaymentSummary>('/payouts/summary');
   return data;

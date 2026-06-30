@@ -74,6 +74,22 @@ export async function loginPasskey(email: string) {
   }
 }
 
+// DEV ONLY: sign in by email without a passkey (backend disables in production).
+export async function devLogin(email: string) {
+  const { data } = await api.post<{
+    accessToken: string;
+    userId: string;
+    email: string;
+    role: string;
+  }>(`${base}/dev-login`, { email });
+
+  useAuthStore.getState().setSession(
+    { userId: data.userId, email: data.email, role: data.role },
+    data.accessToken,
+  );
+  return data;
+}
+
 export async function logout() {
   try {
     await api.post(`${base}/logout`, {});

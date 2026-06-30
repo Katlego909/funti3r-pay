@@ -293,7 +293,11 @@ export async function getAccountBalance(publicKey: string): Promise<Array<{
 
     return account.balances;
   } catch (err: any) {
-    if (err.status === 404) {
+    // Horizon returns 404 for accounts that exist as keypairs but aren't funded
+    // yet. The status can surface as err.status or err.response.status depending
+    // on the SDK path, and unfunded accounts are normal — treat as zero balance.
+    const status = err?.status ?? err?.response?.status;
+    if (status === 404 || /not found/i.test(String(err?.message ?? err))) {
       logger.warn('[Stellar] Account not found on network (not yet funded)', { publicKey });
       return [];
     }

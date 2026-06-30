@@ -1,24 +1,24 @@
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { api } from '../api/client.js';
 
 interface KYCStatusData {
-  id: string;
-  tier: string;
+  id?: string;
   status: 'pending' | 'verified' | 'rejected';
   verified_at?: string;
   rejection_reason?: string;
-  submitted_at?: string;
+  submitted_at?: string | null;
   updated_at?: string;
 }
 
 export function KYCStatus() {
-  const { user, accessToken } = useAuthStore();
+  const { user } = useAuthStore();
   const [status, setStatus] = useState<KYCStatusData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!user?.userId || !accessToken) {
+    if (!user?.userId) {
       setLoading(false);
       return;
     }
@@ -26,33 +26,23 @@ export function KYCStatus() {
     fetchKYCStatus();
     const interval = setInterval(fetchKYCStatus, 5000);
     return () => clearInterval(interval);
-  }, [user?.userId, accessToken]);
+  }, [user?.userId]);
 
   const fetchKYCStatus = async () => {
     try {
-      if (!user?.userId || !accessToken) return;
+      if (!user?.userId) return;
 
-      const response = await fetch(`/api/compliance/${user.userId}/status`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-
-      if (response.status === 404) {
-        setStatus(null);
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch KYC status: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      const { data } = await api.get<KYCStatusData>(`/compliance/${user.userId}/status`);
       setStatus(data);
       setError('');
-    } catch (err) {
-      console.error('Failed to fetch KYC status:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load KYC status');
+    } catch (err: any) {
+      // 404 simply means no submission yet (when auto-approve is off).
+      if (err?.response?.status === 404) {
+        setStatus(null);
+      } else {
+        console.error('Failed to fetch KYC status:', err);
+        setError(err?.response?.data?.error ?? 'Failed to load KYC status');
+      }
     } finally {
       setLoading(false);
     }
@@ -109,9 +99,6 @@ export function KYCStatus() {
           <h4 style={{ margin: 0, color: colors.text, textTransform: 'capitalize' }}>
             KYC {status.status}
           </h4>
-          <p style={{ margin: '4px 0 0', color: colors.text, fontSize: '14px' }}>
-            Tier {status.tier === 'tier1' ? '1 - Individual' : '2 - Enhanced'}
-          </p>
         </div>
       </div>
 

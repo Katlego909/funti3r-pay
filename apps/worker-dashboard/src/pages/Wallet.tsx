@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { HiOutlineBanknotes, HiXMark } from 'react-icons/hi2';
+import { HiOutlineBanknotes } from 'react-icons/hi2';
 import { useAuthStore } from '../store/authStore';
-import { WalletDeploymentStatus } from '../components/WalletDeploymentStatus';
-import WalletLinking from '../components/WalletLinking';
+import { api } from '../api/client.js';
 
 interface WalletBalance {
   asset_type: string;
@@ -11,94 +10,38 @@ interface WalletBalance {
 }
 
 interface WalletInfo {
-  id: string;
-  contract_address?: string;
-  contractAddress?: string;
-  status?: string;
+  userId: string;
+  walletType: string;
+  address?: string | null;
   balances?: WalletBalance[];
 }
 
 export default function Wallet() {
-  const { user, accessToken } = useAuthStore();
+  const { user } = useAuthStore();
   const userId = user?.userId;
   const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(null);
   const [balances, setBalances] = useState<WalletBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [externalWallets, setExternalWallets] = useState<any[]>([]);
-  const [loadingWallets, setLoadingWallets] = useState(false);
 
   useEffect(() => {
-    if (!userId || !accessToken) {
+    if (!userId) {
       setLoading(false);
       return;
     }
-
     fetchWallet();
-    loadExternalWallets();
-  }, [userId, accessToken]);
-
-  const loadExternalWallets = async () => {
-    try {
-      setLoadingWallets(true);
-      const response = await fetch(`/api/wallets/${userId}/external`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setExternalWallets(Array.isArray(data) ? data : []);
-      }
-    } catch (err) {
-      console.error('Failed to load external wallets:', err);
-    } finally {
-      setLoadingWallets(false);
-    }
-  };
-
-  const handleDisconnectWallet = async (walletId: string) => {
-    if (!confirm('Disconnect this wallet?')) return;
-    try {
-      const response = await fetch(`/api/wallets/external/disconnect/${walletId}`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
-      if (response.ok) {
-        loadExternalWallets();
-      }
-    } catch (err) {
-      console.error('Failed to disconnect wallet:', err);
-    }
-  };
+  }, [userId]);
 
   const fetchWallet = async () => {
     try {
-      if (!userId || !accessToken) return;
-
-      const response = await fetch(`/api/wallets/${userId}`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
-      });
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          setWalletInfo(null);
-          setBalances([]);
-          setLoading(false);
-          return;
-        }
-        throw new Error(`Failed to fetch wallet: ${response.statusText}`);
-      }
-
-      const data: WalletInfo = await response.json();
+      if (!userId) return;
+      setError('');
+      const { data } = await api.get<WalletInfo>(`/wallets/${userId}`);
       setWalletInfo(data);
-
-      if (data.balances && Array.isArray(data.balances)) {
-        setBalances(data.balances);
-      }
-    } catch (err) {
+      setBalances(Array.isArray(data.balances) ? data.balances : []);
+    } catch (err: any) {
       console.error('Failed to fetch wallet:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load wallet');
+      setError(err?.response?.data?.error ?? 'Failed to load wallet');
     } finally {
       setLoading(false);
     }
@@ -106,7 +49,7 @@ export default function Wallet() {
 
   if (loading) return <div className="loading">Loading wallet...</div>;
 
-  const contractAddress = walletInfo?.contract_address || walletInfo?.contractAddress;
+  const address = walletInfo?.address;
 
   return (
     <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto' }}>
@@ -115,67 +58,29 @@ export default function Wallet() {
 
       {error && <div className="error-banner" style={{ marginBottom: '20px' }}>{error}</div>}
 
-      <WalletDeploymentStatus />
-
       <div style={{ display: 'grid', gap: '20px', marginTop: '20px' }}>
-        {/* External Wallets Section */}
+        {/* Stellar Account */}
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-            <h3 style={{ margin: 0 }}>External Wallets</h3>
-            <span style={{ fontSize: '12px', color: '#6b7280' }}>Freighter, Albedo, Rabet, etc.</span>
+          <h3>Stellar Account</h3>
+          <div style={{
+            padding: '16px',
+            backgroundColor: '#f9fafb',
+            borderRadius: '8px',
+            border: '1px solid #e5e7eb',
+          }}>
+            {address ? (
+              <a
+                href={`https://stellar.expert/explorer/testnet/account/${address}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontFamily: 'monospace', fontSize: '14px', wordBreak: 'break-all' }}
+              >
+                {address}
+              </a>
+            ) : (
+              <p style={{ color: '#6b7280', margin: 0 }}>No Stellar account yet.</p>
+            )}
           </div>
-
-          {externalWallets.length > 0 ? (
-            <div style={{ display: 'grid', gap: '12px', marginBottom: '16px' }}>
-              {externalWallets.map((wallet: any) => (
-                <div key={wallet.id} style={{
-                  padding: '16px',
-                  backgroundColor: '#f0f7ff',
-                  borderRadius: '8px',
-                  border: '1px solid #bfdbfe',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
-                }}>
-                  <div>
-                    <p style={{ fontWeight: 600, margin: 0 }}>{wallet.public_key?.slice(0, 10)}...{wallet.public_key?.slice(-10)}</p>
-                    <p style={{ color: '#6b7280', fontSize: '12px', margin: '4px 0 0 0' }}>{wallet.wallet_provider}</p>
-                  </div>
-                  <button
-                    onClick={() => handleDisconnectWallet(wallet.id)}
-                    style={{
-                      padding: '6px 12px',
-                      backgroundColor: '#fecaca',
-                      color: '#991b1b',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      fontWeight: 500,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}
-                  >
-                    <HiXMark size={14} />
-                    Disconnect
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{
-              padding: '16px',
-              backgroundColor: '#f9fafb',
-              borderRadius: '8px',
-              border: '1px solid #e5e7eb',
-              marginBottom: '16px'
-            }}>
-              <p style={{ color: '#6b7280', margin: 0 }}>No external wallets linked yet.</p>
-            </div>
-          )}
-
-          <WalletLinking userId={userId!} onLinked={loadExternalWallets} />
         </div>
 
         {/* Balances Section */}
@@ -205,7 +110,7 @@ export default function Wallet() {
                   alignItems: 'center'
                 }}>
                   <div>
-                    <p style={{ fontWeight: 600, margin: 0 }}>{balance.asset_code || balance.asset_type}</p>
+                    <p style={{ fontWeight: 600, margin: 0 }}>{balance.asset_code || (balance.asset_type === 'native' ? 'XLM' : balance.asset_type)}</p>
                     <p style={{ color: '#6b7280', fontSize: '12px', margin: '4px 0 0 0' }}>{balance.asset_type}</p>
                   </div>
                   <div style={{ textAlign: 'right' }}>

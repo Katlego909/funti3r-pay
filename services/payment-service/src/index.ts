@@ -124,43 +124,42 @@ app.post('/wallets/enterprise', async (req, res) => {
 
 app.get('/wallets/:userId', async (req, res) => {
   const requesterId = req.headers['x-user-id'];
+  const requesterRole = req.headers['x-user-role'];
 
-  // Authorization: users can only view their own wallet
-  if (requesterId !== req.params.userId) {
+  // The owner can view their own wallet; enterprises/admins can view any
+  // worker's wallet (the Workers page lists each worker's Stellar address).
+  const isOwner = requesterId === req.params.userId;
+  const isPrivileged = requesterRole === 'enterprise' || requesterRole === 'admin';
+  if (!isOwner && !isPrivileged) {
     return res.status(403).json({ error: 'Not authorized to view this wallet' });
   }
 
   try {
+    // Workers use their classic Stellar account stored on the users table.
     const result = await query(
-      'SELECT wallet_type, public_key, contract_address FROM wallets WHERE user_id = $1',
+      'SELECT stellar_public_key, role FROM users WHERE id = $1',
       [req.params.userId],
     );
-    if (result.rows.length === 0) throw new NotFoundError('Wallet');
+    if (result.rows.length === 0) throw new NotFoundError('User');
 
-    const wallet = result.rows[0];
-    const address = wallet.wallet_type === 'worker'
-      ? wallet.contract_address
-      : wallet.public_key;
-
+    const address = result.rows[0].stellar_public_key;
     if (!address) {
-      return res.json({ userId: req.params.userId, walletType: wallet.wallet_type, status: 'deploying' });
+      // No Stellar account yet (e.g. enterprise users) — report zero balance.
+      return res.json({ userId: req.params.userId, walletType: 'worker', address: null, balances: [] });
     }
 
-    // Smart contracts don't have balances like regular accounts
-    if (wallet.wallet_type === 'worker') {
-      return res.json({
-        userId: req.params.userId,
-        walletType: wallet.wallet_type,
-        contract_address: address,
-        contractAddress: address,
-        status: 'active'
-      });
+    // Balance lookup is best-effort: an unfunded account (Horizon 404) or any
+    // Horizon hiccup must not fail the endpoint — just report an empty balance.
+    let balances: any[] = [];
+    try {
+      balances = await stellar.getAccountBalance(address);
+    } catch (balErr) {
+      logger.warn('Balance lookup failed; returning empty', { address, error: String(balErr) });
     }
-
-    const balances = await stellar.getAccountBalance(address);
-    res.json({ userId: req.params.userId, walletType: wallet.wallet_type, address, balances });
+    res.json({ userId: req.params.userId, walletType: 'worker', address, balances });
   } catch (err) {
     if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
+    logger.error('Wallet lookup failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -360,223 +359,109 @@ app.get('/payouts/quotes', async (req, res) => {
 
 /**
  * POST /payouts
- * Initiates a cross-border worker payment.
+ * Sends a classic Stellar XLM payment from the enterprise's account to the
+ * worker's account. Both accounts are ed25519 keypairs stored on the users
+ * table (created + funded at registration on testnet).
  *
- * Required: enterpriseId, workerId, amount, currency, destinationCountry
- * Optional: idempotencyKey, preferFiat, quoteId, recipientAccount, recipientName, signerWalletId
- *
- * If signerWalletId is an external wallet, returns HTTP 202 with unsigned XDR for client to sign.
- * Otherwise, returns HTTP 201 with completed payment.
+ * Body: { enterpriseId, workerId, amount, currency?, memo? }
  */
 app.post('/payouts', async (req, res) => {
-  const {
-    enterpriseId,
-    workerId,
-    amount,
-    currency,
-    destinationCountry,
-    idempotencyKey,
-    preferFiat = false,
-    quoteId,
-    recipientAccount,
-    recipientName,
-    signerWalletId,
-  } = req.body as {
+  const { enterpriseId, workerId, amount, currency = 'XLM', memo } = req.body as {
     enterpriseId: string;
     workerId: string;
-    amount: number;
-    currency: string;
-    destinationCountry: string;
-    idempotencyKey?: string;
-    preferFiat?: boolean;
-    quoteId?: string;
-    recipientAccount?: string;
-    recipientName?: string;
-    signerWalletId?: string;
+    amount: number | string;
+    currency?: string;
+    memo?: string;
   };
 
-  // Authorization: verify user owns the enterprise account
+  // Authorization: only the enterprise that owns the account can pay.
   const requesterId = req.headers['x-user-id'];
   const requesterRole = req.headers['x-user-role'];
-  if (requesterId !== enterpriseId) {
-    return res.status(403).json({ error: 'Not authorized to create payments for this enterprise' });
-  }
   if (requesterRole !== 'enterprise') {
     return res.status(403).json({ error: 'Enterprise role required' });
   }
-
-  if (!enterpriseId || !workerId || !amount || !currency || !destinationCountry) {
-    return res.status(400).json({
-      error: 'enterpriseId, workerId, amount, currency, and destinationCountry are required',
-    });
-  }
-  if (amount <= 0) return res.status(400).json({ error: 'amount must be positive' });
-
-  // Idempotency guard
-  if (idempotencyKey) {
-    const existing = await query(
-      'SELECT id, status, stellar_tx_hash FROM payments WHERE idempotency_key = $1',
-      [idempotencyKey],
-    );
-    if (existing.rows.length > 0) {
-      return res.status(200).json(existing.rows[0]);
-    }
+  if (requesterId !== enterpriseId) {
+    return res.status(403).json({ error: 'Not authorized to create payments for this enterprise' });
   }
 
-  // KYC compliance check
+  // Validation
+  if (!enterpriseId || !workerId || amount == null) {
+    return res.status(400).json({ error: 'enterpriseId, workerId, and amount are required' });
+  }
+  const amountNum = Number(amount);
+  if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    return res.status(400).json({ error: 'amount must be a positive number' });
+  }
+  const asset = String(currency || 'XLM').toUpperCase();
+  if (asset !== 'XLM') {
+    return res.status(400).json({ error: 'Only XLM payments are supported right now' });
+  }
+
+  // KYC gate (auto-approves on testnet).
   try {
     await requireCompliance(workerId);
   } catch (err) {
-    return res.status(403).json({ error: String(err) });
+    return res.status(403).json({ error: err instanceof Error ? err.message : String(err) });
   }
 
-  let paymentId: string | undefined;
+  // Fetch the enterprise's signing secret and the worker's destination address.
+  const [entRes, wkrRes] = await Promise.all([
+    query('SELECT stellar_secret_key FROM users WHERE id = $1', [enterpriseId]),
+    query('SELECT stellar_public_key FROM users WHERE id = $1', [workerId]),
+  ]);
+  const sourceSecret: string | undefined = entRes.rows[0]?.stellar_secret_key;
+  const destination: string | undefined = wkrRes.rows[0]?.stellar_public_key;
+  if (!sourceSecret) {
+    return res.status(400).json({ error: 'Enterprise Stellar account is not set up' });
+  }
+  if (!destination) {
+    return res.status(404).json({ error: 'Worker Stellar account not found' });
+  }
 
+  // Record the payment as initiated.
+  let paymentId: string;
   try {
-    // Fetch wallets
-    const [entWalletResult, workerWalletResult, signerWalletResult] = await Promise.all([
-      query(
-        'SELECT id, public_key, encrypted_secret, encryption_iv, encryption_tag, encryption_salt, is_external FROM wallets WHERE user_id = $1 AND wallet_type = $2',
-        [enterpriseId, 'enterprise'],
-      ),
-      query(
-        'SELECT contract_address FROM wallets WHERE user_id = $1 AND wallet_type = $2',
-        [workerId, 'worker'],
-      ),
-      signerWalletId ? query(
-        'SELECT id, public_key, is_external, wallet_provider FROM wallets WHERE id = $1',
-        [signerWalletId],
-      ) : Promise.resolve({ rows: [] }),
-    ]);
-
-    if (entWalletResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Enterprise wallet not found' });
-    }
-    if (workerWalletResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Worker wallet not found' });
-    }
-
-    const entWallet = entWalletResult.rows[0];
-    const workerContractAddress = workerWalletResult.rows[0].contract_address;
-
-    if (!workerContractAddress) {
-      return res.status(409).json({ error: 'Worker SmartWallet is still being deployed' });
-    }
-
-    // Determine signer wallet
-    const signerWallet = signerWalletResult.rows.length > 0 ? signerWalletResult.rows[0] : entWallet;
-    const isExternalSigner = signerWallet.is_external === true;
-
-    // Decrypt enterprise secret key in-memory only (only needed for platform signers)
-    let sourceSecret: string | undefined;
-    if (!isExternalSigner) {
-      sourceSecret = decryptSecret({
-        ciphertext: entWallet.encrypted_secret,
-        iv: entWallet.encryption_iv,
-        tag: entWallet.encryption_tag,
-        salt: entWallet.encryption_salt,
-      });
-    }
-
-    // Select payment rail
-    const rail = selectRail(destinationCountry, preferFiat);
-    logger.info('Payment rail selected', { rail: rail.name, workerId, destinationCountry });
-
-    // Create payment record in transaction
-    const insertResult = await transaction(async (client) => {
-      return client.query(
-        `INSERT INTO payments
-           (idempotency_key, enterprise_id, worker_id, amount, currency, status, payment_method, rail, signer_wallet_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         RETURNING id`,
-        [
-          idempotencyKey ?? null,
-          enterpriseId,
-          workerId,
-          amount,
-          currency,
-          isExternalSigner ? PaymentStatus.PENDING : PaymentStatus.PROCESSING,
-          PaymentMethod.STELLAR,
-          rail.name,
-          signerWallet.id,
-        ],
-      );
-    });
-
-    paymentId = insertResult.rows[0].id as string;
-
-    // If signer is external wallet, return unsigned XDR for client to sign
-    if (isExternalSigner) {
-      logger.info('Preparing unsigned payment for external wallet', { paymentId, walletProvider: signerWallet.wallet_provider });
-
-      const memoHash = crypto.createHash('sha256').update(paymentId).digest();
-      const unsignedXDR = await stellar.prepareUnsignedPayment(
-        signerWallet.public_key,
-        workerContractAddress,
-        String(amount),
-        currency === 'XLM' ? 'XLM' : currency,
-        currency !== 'XLM' ? process.env.STELLAR_USDC_ISSUER : undefined,
-        memoHash,
-      );
-
-      return res.status(202).json({
-        paymentId,
-        status: 'pending_signature',
-        walletProvider: signerWallet.wallet_provider,
-        unsignedXDR,
-        message: 'Sign the transaction with your wallet and submit it to /payouts/submit-signature',
-      });
-    }
-
-    // Platform wallet: execute normally
-    // Note: sourceSecret is guaranteed to be defined here because we only reach this code
-    // when isExternalSigner is false (external signer paths return early above)
-    const railResult = await rail.sendPayment({
-      paymentId,
-      amount,
-      sourceCurrency: currency,
-      destinationCurrency: currency,
-      destinationCountry,
-      recipientName: recipientName ?? '',
-      recipientAccount,
-      stellarContractAddress: workerContractAddress,
-      quoteId,
-      metadata: { sourceSecret: sourceSecret! },
-    });
-
-    const memoHashHex = paymentId ? crypto.createHash('sha256').update(paymentId).digest('hex') : undefined;
-    if (memoHashHex && paymentId) {
-      await query(
-        `UPDATE payments
-            SET status = $1, stellar_tx_hash = $2, memo_hash = $3, updated_at = NOW()
-          WHERE id = $4`,
-        [
-          railResult.status === 'completed' ? PaymentStatus.COMPLETED : PaymentStatus.PENDING,
-          railResult.stellarTxHash ?? railResult.providerReference,
-          memoHashHex,
-          paymentId,
-        ],
-      );
-    }
-
-    res.status(201).json({
-      paymentId,
-      status: railResult.status,
-      rail: rail.name,
-      providerReference: railResult.providerReference,
-      stellarTxHash: railResult.stellarTxHash,
-    });
+    const ins = await query(
+      `INSERT INTO payments (enterprise_id, worker_id, amount, currency, status, stellar_destination, description)
+         VALUES ($1, $2, $3, $4, 'initiated', $5, $6)
+       RETURNING id`,
+      [enterpriseId, workerId, amountNum, asset, destination, memo ?? null],
+    );
+    paymentId = ins.rows[0].id;
   } catch (err) {
-    logger.error('Payout failed', { error: String(err) });
+    logger.error('Failed to record payment', { error: String(err) });
+    return res.status(500).json({ error: 'Failed to record payment' });
+  }
 
-    if (paymentId!) {
-      await query(
-        `UPDATE payments SET status = $1, failure_reason = $2, updated_at = NOW() WHERE id = $3`,
-        [PaymentStatus.FAILED, String(err), paymentId],
-      );
-    }
+  // Submit the payment to the Stellar network.
+  try {
+    const memoHash = crypto.createHash('sha256').update(paymentId).digest();
+    const txHash = await stellar.sendPayment(sourceSecret, destination, String(amountNum), 'XLM', undefined, memoHash);
 
-    res.status(502).json({ error: 'Payment failed', detail: String(err) });
+    await query(
+      `UPDATE payments
+          SET status = 'completed', stellar_tx_hash = $1, memo_hash = $2,
+              completed_at = NOW(), updated_at = NOW()
+        WHERE id = $3`,
+      [txHash, memoHash.toString('hex'), paymentId],
+    );
+
+    logger.info('Payment completed', { paymentId, txHash, amount: amountNum, workerId });
+    return res.status(201).json({ paymentId, status: 'completed', stellarTxHash: txHash });
+  } catch (err: any) {
+    // Surface Horizon's result codes when available — they explain the failure.
+    const resultCodes = err?.response?.data?.extras?.result_codes;
+    const detail = resultCodes ? JSON.stringify(resultCodes) : (err instanceof Error ? err.message : String(err));
+
+    await query(
+      `UPDATE payments
+          SET status = 'failed', failure_reason = $1, failed_at = NOW(), updated_at = NOW()
+        WHERE id = $2`,
+      [detail, paymentId],
+    );
+
+    logger.error('Stellar payment failed', { paymentId, detail });
+    return res.status(502).json({ paymentId, status: 'failed', error: detail });
   }
 });
 
@@ -906,7 +791,7 @@ app.get('/payouts', async (req, res) => {
     params.push(Number(limit), Number(offset));
 
     const result = await query(
-      `SELECT id, enterprise_id, worker_id, amount, currency, status, rail,
+      `SELECT id, enterprise_id, worker_id, amount, currency, status, 'stellar' AS rail,
               stellar_tx_hash, failure_reason, created_at, updated_at
          FROM payments
          ${where}
@@ -934,9 +819,14 @@ app.get('/payouts/summary', async (req, res) => {
   const requesterId = req.headers['x-user-id'];
   const requesterRole = req.headers['x-user-role'];
 
-  // Only enterprises can view global summary
-  if (requesterRole !== 'enterprise') {
-    return res.status(403).json({ error: 'Enterprise role required to view summary' });
+  // Enterprises see their enterprise's payments; workers see their own.
+  let scope: string;
+  if (requesterRole === 'enterprise') {
+    scope = 'enterprise_id';
+  } else if (requesterRole === 'worker') {
+    scope = 'worker_id';
+  } else {
+    return res.status(403).json({ error: 'Not authorized' });
   }
 
   try {
@@ -946,9 +836,9 @@ app.get('/payouts/summary', async (req, res) => {
           COUNT(*)                                        AS total_count,
           COALESCE(SUM(amount), 0)                        AS total_volume,
           COALESCE(SUM(CASE WHEN status='completed' THEN amount END), 0) AS completed_volume
-        FROM payments WHERE enterprise_id = $1
+        FROM payments WHERE ${scope} = $1
       `, [requesterId]),
-      query(`SELECT status, COUNT(*) AS count FROM payments WHERE enterprise_id = $1 GROUP BY status`, [requesterId]),
+      query(`SELECT status, COUNT(*) AS count FROM payments WHERE ${scope} = $1 GROUP BY status`, [requesterId]),
     ]);
 
     const total = Number(totals.rows[0].total_count);
@@ -975,18 +865,24 @@ app.get('/payouts/recent', async (req, res) => {
   const requesterRole = req.headers['x-user-role'];
   const limit = Math.min(Number(req.query.limit ?? 10), 50);
 
-  // Only enterprises can view recent dashboard payments
-  if (requesterRole !== 'enterprise') {
-    return res.status(403).json({ error: 'Enterprise role required' });
+  // Enterprises see their enterprise's payments; workers see their own.
+  let scopeColumn: string;
+  if (requesterRole === 'enterprise') {
+    scopeColumn = 'p.enterprise_id';
+  } else if (requesterRole === 'worker') {
+    scopeColumn = 'p.worker_id';
+  } else {
+    return res.status(403).json({ error: 'Not authorized' });
   }
 
   try {
     const result = await query(
       `SELECT p.id, p.enterprise_id, p.worker_id, u.email AS worker_email,
-              p.amount, p.currency, p.status, p.rail, p.stellar_tx_hash, p.created_at
+              p.amount, p.currency, p.status, 'stellar' AS rail, p.stellar_tx_hash,
+              p.created_at, p.updated_at
          FROM payments p
          LEFT JOIN users u ON u.id = p.worker_id
-         WHERE p.enterprise_id = $1
+         WHERE ${scopeColumn} = $1
          ORDER BY p.created_at DESC
          LIMIT $2`,
       [requesterId, limit],
@@ -994,6 +890,31 @@ app.get('/payouts/recent', async (req, res) => {
     res.json({ payments: result.rows });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /payouts/xlm-price — current XLM→USD price (CoinGecko), cached 5 min.
+ * Registered before /payouts/:id so it isn't captured by the :id param.
+ */
+let xlmPriceCache: { usd: number; ts: number } = { usd: 0, ts: 0 };
+app.get('/payouts/xlm-price', async (_req, res) => {
+  const FIVE_MIN = 5 * 60 * 1000;
+  const now = Date.now();
+  if (xlmPriceCache.usd && now - xlmPriceCache.ts < FIVE_MIN) {
+    return res.json({ usd: xlmPriceCache.usd, cached: true });
+  }
+  try {
+    const r = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
+      params: { ids: 'stellar', vs_currencies: 'usd' },
+      timeout: 5000,
+    });
+    const usd = Number(r.data?.stellar?.usd) || 0;
+    if (usd > 0) xlmPriceCache = { usd, ts: now };
+    res.json({ usd });
+  } catch (err) {
+    logger.warn('XLM price fetch failed; returning last known', { error: String(err) });
+    res.json({ usd: xlmPriceCache.usd || 0, stale: true });
   }
 });
 

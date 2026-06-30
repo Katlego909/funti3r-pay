@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { KYCTier } from '@funti3r/shared-types';
+import { api } from '../api/client.js';
 
 const COUNTRY_MAP: Record<string, string> = {
   'US': 'United States', 'GB': 'United Kingdom', 'CA': 'Canada', 'AU': 'Australia', 'NZ': 'New Zealand',
@@ -71,7 +71,7 @@ interface KYCFormProps {
 }
 
 export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
-  const { user, accessToken } = useAuthStore();
+  const { user } = useAuthStore();
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -128,7 +128,7 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
   };
 
   const handleSubmit = async () => {
-    if (!user?.userId || !accessToken) {
+    if (!user?.userId) {
       setError('You must be logged in to submit KYC');
       return;
     }
@@ -137,27 +137,15 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
     setError('');
 
     try {
-      const response = await fetch('/api/compliance/submit', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          userId: user.userId,
-          ...formData,
-        }),
+      await api.post('/compliance/submit', {
+        userId: user.userId,
+        ...formData,
       });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to submit KYC');
-      }
 
       setSuccess(true);
       if (onSubmitSuccess) onSubmitSuccess();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to submit KYC');
+    } catch (err: any) {
+      setError(err?.response?.data?.error ?? 'Failed to submit KYC');
     } finally {
       setLoading(false);
     }
@@ -174,7 +162,8 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
       }}>
         <h3 style={{ color: '#166534', marginTop: 0 }}>✓ KYC Submitted</h3>
         <p style={{ color: '#4b5563' }}>
-          Your KYC information has been submitted and is under review.
+          Your KYC information has been submitted. Your verification status will
+          update shortly.
         </p>
         <button
           onClick={() => {
