@@ -33,8 +33,26 @@ Other services available:
 - `@funti3r/compliance-service` (port 3003)
 - `@funti3r/analytics-service` (port 3004)
 - `@funti3r/enterprise-dashboard` (port 3100)
+- `@funti3r/worker-dashboard` (port 3101)
 
 Verify: `curl http://localhost:3000/status`
+
+> **Tip:** run the dashboards independently (`pnpm --filter=@funti3r/enterprise-dashboard dev`,
+> `pnpm --filter=@funti3r/worker-dashboard dev`) rather than a single root `pnpm dev`, so one
+> backend service crashing doesn't tear down the whole group.
+
+### Testnet currency liquidity (for local-currency payouts)
+
+The local African currencies (NGN/KES/GHS/ZAR/UGX) are self-hosted on testnet: an issuer
+account issues them and a distributor seeds DEX liquidity at live FX rates so path payments
+can route. Run once (and re-run to refresh rates):
+
+```bash
+cd services/payment-service
+node --env-file=../../.env.local --import tsx scripts/setup-africa-liquidity.ts
+```
+
+On mainnet, point the registry at real anchors (e.g. Cowrie for NGN) — no code change.
 
 ## Project Structure
 
@@ -55,6 +73,41 @@ docs/             - Product requirements and briefs
 - **Multi-Currency Support** - African currencies and USD
 - **Worker Mobile App** - Payment tracking and method selection
 - **Enterprise Dashboard** - Payment management and analytics
+
+## What It Does
+
+Funti3r-Pay lets enterprises pay a global workforce on Stellar — fast, low-cost, and in the
+currency each worker actually wants:
+
+**Payments**
+- **Classic Stellar XLM payouts** — enterprise → worker, signed + submitted on-chain.
+- **USDC stablecoin payouts** — exact USDC delivered via strict-receive path payment, funded
+  from the enterprise's XLM through the Stellar DEX; worker trustline auto-created.
+- **Multi-currency payouts (USD → local)** — the employer sends a **USD** amount and the worker
+  receives their **preferred local currency** (NGN, KES, GHS, ZAR, UGX), converted at **live FX
+  rates** via Stellar path payments. (e.g. `$10 → 13,766 NGN` settled on-chain.)
+- **Batch payouts** — pay many workers in one request, executed sequentially; recorded in
+  `payment_batches` with per-payment linkage; returns partial-success (HTTP 207) when some fail.
+- **Worker payout-currency preference** — workers choose what they get paid in ("Get Paid In").
+
+**Auth & accounts**
+- **WebAuthn / passkey** registration & login (`@simplewebauthn`), plus a **dev login**
+  (email-only, non-production) so local testing doesn't require a passkey.
+- Each user gets a **classic Stellar ed25519 account** at registration, auto-funded on testnet
+  via Friendbot. **Secret keys are encrypted at rest** (AES-256-GCM).
+
+**Compliance**
+- KYC submit/status/approve/reject endpoints with an **auto-approve mode** for testnet
+  (`COMPLIANCE_AUTO_APPROVE=true`).
+
+**Dashboards (React + Vite)**
+- **Enterprise** (port 3100): send single/batch payments, worker directory + KYC view, wallet
+  balances, payment list, and **insights charts** (volume over time, payments by status).
+- **Worker** (port 3101): balances (XLM + USDC + any local currency), payment history, KYC,
+  payout-currency selector, and **insights charts** (earnings over time, income by asset).
+- **Correct multi-currency valuation** — totals and charts convert each currency to USD with
+  live rates (no naive cross-currency summing).
+- **Live pricing** — XLM/USD (CoinGecko) and USD→fiat (open.er-api.com) feeds.
 
 ## Architecture
 
@@ -144,6 +197,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for team guidelines.
 
 ---
 
-**Status**: Phase 1 - Development  
+**Status**: Active development  
 **Version**: 0.1.0  
-**Last Updated**: June 2025
+**Last Updated**: June 2026
