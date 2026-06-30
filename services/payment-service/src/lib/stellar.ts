@@ -215,6 +215,74 @@ export async function ensureTrustline(
   }
 }
 
+/**
+ * Cross-asset payout: the source spends native XLM and the destination receives
+ * an EXACT amount of `destAsset` (e.g. USDC), routed through the Stellar DEX via
+ * a strict-receive path payment. Returns the tx hash and how much XLM was spent.
+ *
+ * The destination must already hold a trustline to destAsset.
+ */
+export async function payExactWithXlm(
+  sourceSecret: string,
+  destinationPublic: string,
+  destAssetCode: string,
+  destAssetIssuer: string,
+  destAmount: string,
+  slippage = 0.05,
+  memoHash?: Buffer,
+): Promise<{ hash: string; sourceAmountXlm: string }> {
+  const sourceKeypair = Keypair.fromSecret(sourceSecret);
+  const destAsset = new Asset(destAssetCode, destAssetIssuer);
+
+  // Find the cheapest path that delivers `destAmount` of destAsset.
+  const paths = await horizon
+    .strictReceivePaths(sourceKeypair.publicKey(), destAsset, destAmount)
+    .call();
+  if (!paths.records || paths.records.length === 0) {
+    throw new Error(`No DEX path to deliver ${destAmount} ${destAssetCode}`);
+  }
+  const best = paths.records.reduce((a, b) =>
+    Number(a.source_amount) <= Number(b.source_amount) ? a : b,
+  );
+  const sendMax = (Number(best.source_amount) * (1 + slippage)).toFixed(7);
+
+  const account = await horizon.loadAccount(sourceKeypair.publicKey());
+  const fee = await horizon.fetchBaseFee();
+  const builder = new TransactionBuilder(account, {
+    fee: String(Math.max(fee * 10, 100)),
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+  if (memoHash) builder.addMemo(Memo.hash(memoHash));
+
+  const path = (best.path || []).map((p: any) =>
+    p.asset_type === 'native' ? Asset.native() : new Asset(p.asset_code, p.asset_issuer),
+  );
+
+  const tx = builder
+    .addOperation(
+      Operation.pathPaymentStrictReceive({
+        sendAsset: Asset.native(),
+        sendMax,
+        destination: destinationPublic,
+        destAsset,
+        destAmount,
+        path,
+      }),
+    )
+    .setTimeout(60)
+    .build();
+
+  tx.sign(sourceKeypair);
+  const result = await horizon.submitTransaction(tx);
+  logger.info('Cross-asset payout submitted', {
+    hash: result.hash,
+    destAmount,
+    destAssetCode,
+    sourceAmountXlm: best.source_amount,
+  });
+  return { hash: result.hash, sourceAmountXlm: best.source_amount };
+}
+
 // ── Soroban SmartWallet deployment ────────────────────────────────────────────
 
 async function pollSorobanTx(txHash: string): Promise<rpc.Api.GetTransactionResponse> {

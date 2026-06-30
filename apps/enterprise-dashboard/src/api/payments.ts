@@ -84,6 +84,37 @@ export async function initiatePayment(payload: {
   return data;
 }
 
+export interface BatchItemResult {
+  workerId: string;
+  amount: number;
+  currency: string;
+  status: 'completed' | 'failed';
+  stellarTxHash?: string;
+  error?: string;
+}
+
+export interface BatchResult {
+  batchId: string;
+  status: 'completed' | 'partial' | 'failed';
+  currency: string;
+  totalRequested: number;
+  completedCount: number;
+  failedCount: number;
+  results: BatchItemResult[];
+}
+
+export async function initiateBatchPayment(payload: {
+  enterpriseId: string;
+  currency?: string;
+  items: Array<{ workerId: string; amount: number; memo?: string }>;
+}): Promise<BatchResult> {
+  // 207 (partial) is a non-2xx the axios client would reject; accept it.
+  const { data } = await api.post('/payouts/batch', payload, {
+    validateStatus: (s) => s === 201 || s === 207,
+  });
+  return data;
+}
+
 export async function getPayment(id: string): Promise<Payment> {
   const { data } = await api.get<Payment>(`/payouts/${id}`);
   return data;

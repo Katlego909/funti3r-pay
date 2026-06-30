@@ -1,73 +1,99 @@
 import { useEffect, useState } from 'react';
-import { HiOutlineArrowDownOnSquare } from 'react-icons/hi2';
+import { HiOutlineArrowDownOnSquare, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
+import { listPayments, type Payment } from '../api/payments.js';
+import { useAuthStore } from '../store/authStore.js';
+import '../styles/Dashboard.css';
 
-interface Payment {
-  id: string;
-  amount: number;
-  currency: string;
-  status: string;
-  created_at: string;
-  stellar_tx_hash?: string;
+function statusClass(s: string) {
+  if (s === 'completed') return 'completed';
+  if (s === 'failed') return 'failed';
+  return 'pending';
 }
 
 export default function PaymentHistory() {
+  const user = useAuthStore((s) => s.user);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    // TODO: Fetch worker's payment history from /api/payouts/worker/{workerId}
-    setLoading(false);
-  }, []);
+  const PAGE = 20;
 
-  if (loading) return <div className="loading">Loading payment history...</div>;
+  useEffect(() => {
+    if (!user?.userId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    listPayments({ workerId: user.userId, limit: PAGE, offset })
+      .then(({ payments: p, total: t }) => { setPayments(p); setTotal(t); setError(''); })
+      .catch((err: any) => setError(err?.response?.data?.error ?? 'Failed to load payment history'))
+      .finally(() => setLoading(false));
+  }, [user, offset]);
+
+  if (loading) return <div className="loading">Loading payment history…</div>;
   if (error) return <div className="error-banner">{error}</div>;
 
   return (
-    <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto' }}>
-      <h2>Payment History</h2>
-      <p style={{ color: '#666', marginBottom: '20px' }}>View all payments received</p>
-
-      {payments.length === 0 ? (
-        <div style={{
-          padding: '40px',
-          textAlign: 'center',
-          backgroundColor: '#f9fafb',
-          borderRadius: '8px',
-          border: '1px solid #e5e7eb'
-        }}>
-          <HiOutlineArrowDownOnSquare size={48} style={{ color: '#d1d5db', margin: '0 auto 16px' }} />
-          <p style={{ color: '#6b7280' }}>No payments yet</p>
+    <div className="dashboard">
+      <div className="dashboard-header">
+        <div>
+          <h2>Payment History</h2>
+          <p className="subtitle">View all payments received</p>
         </div>
-      ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600 }}>Amount</th>
-              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600 }}>Status</th>
-              <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600 }}>Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {payments.map((p) => (
-              <tr key={p.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                <td style={{ padding: '12px' }}>{p.amount} {p.currency}</td>
-                <td style={{ padding: '12px' }}>
-                  <span style={{
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    backgroundColor: p.status === 'completed' ? '#d1fae5' : '#fef3c7',
-                    color: p.status === 'completed' ? '#065f46' : '#92400e'
-                  }}>
-                    {p.status}
-                  </span>
-                </td>
-                <td style={{ padding: '12px' }}>{new Date(p.created_at).toLocaleDateString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      </div>
+
+      <section className="section">
+        {payments.length === 0 ? (
+          <div className="empty-state" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+            <HiOutlineArrowDownOnSquare size={48} style={{ color: '#d1d5db', margin: '0 auto 1rem' }} />
+            <p>No payments yet.</p>
+          </div>
+        ) : (
+          <>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th>Date</th>
+                  <th>Transaction</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map((p) => (
+                  <tr key={p.id}>
+                    <td style={{ fontWeight: 600 }}>{p.amount} {p.currency}</td>
+                    <td><span className={`status ${statusClass(p.status)}`}>{p.status}</span></td>
+                    <td>{new Date(p.created_at).toLocaleString()}</td>
+                    <td>
+                      {p.stellar_tx_hash ? (
+                        <a
+                          href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontFamily: 'monospace', fontSize: '0.8rem' }}
+                        >
+                          {p.stellar_tx_hash.slice(0, 8)}… <HiOutlineArrowTopRightOnSquare size={13} />
+                        </a>
+                      ) : (
+                        <span style={{ color: '#9ca3af' }}>—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="pagination">
+              <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>← Prev</button>
+              <span>{offset + 1}–{Math.min(offset + PAGE, total)} of {total}</span>
+              <button disabled={offset + PAGE >= total} onClick={() => setOffset(offset + PAGE)}>Next →</button>
+            </div>
+          </>
+        )}
+      </section>
     </div>
   );
 }

@@ -13,6 +13,7 @@ import { Keypair } from '@stellar/stellar-sdk';
 import {
   createLogger,
   generateToken,
+  encryptToString,
   ValidationError,
   AuthenticationError,
   NotFoundError,
@@ -234,10 +235,12 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
       // Workers receive payments to this address; enterprises get one too (harmless).
       userId = randomUUID();
       const stellarKeypair = Keypair.random();
+      // Encrypt the secret key at rest (AES-256-GCM via MASTER_ENCRYPTION_KEY).
+      const encryptedSecret = encryptToString(stellarKeypair.secret());
       await query(
         `INSERT INTO users (id, email, role, stellar_public_key, stellar_secret_key)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, email, session.role, stellarKeypair.publicKey(), stellarKeypair.secret()],
+        [userId, email, session.role, stellarKeypair.publicKey(), encryptedSecret],
       );
       // Create the account on-chain (testnet) so it exists and has a balance.
       // Best-effort and awaited so the balance is ready on first dashboard load.

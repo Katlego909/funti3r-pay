@@ -60,3 +60,34 @@ export function decryptSecret(encrypted: EncryptedSecret, masterKey?: Buffer): s
   ]);
   return decrypted.toString('utf8');
 }
+
+// ── Single-column string format ───────────────────────────────────────────────
+// Stores an EncryptedSecret as one string so it fits an existing TEXT column.
+// Format: "enc:v1:<salt>:<iv>:<tag>:<ciphertext>" (each part base64; base64 has
+// no ':' so it is a safe delimiter). decryptFromString tolerates legacy
+// plaintext values (no "enc:" prefix) so a migration can run safely.
+
+const ENC_PREFIX = 'enc:v1:';
+
+export function isEncryptedString(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.startsWith(ENC_PREFIX);
+}
+
+export function encryptToString(plaintext: string, masterKey?: Buffer): string {
+  const e = encryptSecret(plaintext, masterKey);
+  return `${ENC_PREFIX}${e.salt}:${e.iv}:${e.tag}:${e.ciphertext}`;
+}
+
+export function decryptFromString(value: string, masterKey?: Buffer): string {
+  if (!isEncryptedString(value)) {
+    // Legacy plaintext (pre-encryption) — return as-is.
+    return value;
+  }
+  const body = value.slice(ENC_PREFIX.length);
+  const [salt, iv, tag, ...rest] = body.split(':');
+  const ciphertext = rest.join(':'); // defensive; ciphertext base64 has no ':'
+  if (!salt || !iv || !tag || !ciphertext) {
+    throw new Error('Malformed encrypted secret string');
+  }
+  return decryptSecret({ salt, iv, tag, ciphertext }, masterKey);
+}

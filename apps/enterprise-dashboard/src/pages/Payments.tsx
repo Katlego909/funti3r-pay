@@ -1,10 +1,11 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
-import { listPayments, initiatePayment, type Payment } from '../api/payments.js';
+import { listPayments, initiatePayment, initiateBatchPayment, type Payment, type BatchResult } from '../api/payments.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
 
 interface WorkerOption { id: string; email: string }
+interface BatchRow { workerId: string; amount: string }
 
 function statusClass(s: string) {
   if (s === 'completed') return 'completed';
@@ -25,10 +26,18 @@ export default function Payments() {
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
   const [workerId, setWorkerId] = useState('');
   const [amount, setAmount] = useState('');
+  const [currency, setCurrency] = useState<'XLM' | 'USDC'>('XLM');
   const [memo, setMemo] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+
+  // Batch payment form state
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchCurrency, setBatchCurrency] = useState<'XLM' | 'USDC'>('XLM');
+  const [batchRows, setBatchRows] = useState<BatchRow[]>([{ workerId: '', amount: '' }]);
+  const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
+  const [batchError, setBatchError] = useState('');
 
   const PAGE = 15;
 
@@ -62,7 +71,7 @@ export default function Payments() {
         enterpriseId: user!.userId,
         workerId: workerId.trim(),
         amount: Number(amount),
-        currency: 'XLM',
+        currency,
         memo: memo.trim() || undefined,
       });
 
@@ -79,16 +88,54 @@ export default function Payments() {
     }
   }
 
+  function updateBatchRow(i: number, patch: Partial<BatchRow>) {
+    setBatchRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+
+  async function handleSendBatch(e: FormEvent) {
+    e.preventDefault();
+    setBatchError('');
+    setBatchResult(null);
+    const items = batchRows
+      .filter((r) => r.workerId && r.amount && Number(r.amount) > 0)
+      .map((r) => ({ workerId: r.workerId, amount: Number(r.amount) }));
+    if (items.length === 0) {
+      setBatchError('Add at least one worker with a positive amount.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await initiateBatchPayment({
+        enterpriseId: user!.userId,
+        currency: batchCurrency,
+        items,
+      });
+      setBatchResult(result);
+      loadPayments();
+    } catch (err: any) {
+      setBatchError(err?.response?.data?.error ?? err?.message ?? 'Batch failed');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const workerEmail = (id: string) => workers.find((w) => w.id === id)?.email ?? id.slice(0, 8);
+
   return (
     <div className="dashboard">
       <div className="dashboard-header">
         <div>
           <h2>Payments</h2>
-          <p className="subtitle">Send XLM payouts to your workers on Stellar</p>
+          <p className="subtitle">Send XLM or USDC payouts to your workers on Stellar</p>
         </div>
-        <button className="btn-primary" onClick={() => { setFormOpen(true); setFormSuccess(''); setFormError(''); }}>
-          + New Payment
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button className="btn-secondary" onClick={() => { setBatchOpen(true); setBatchResult(null); setBatchError(''); setBatchRows([{ workerId: '', amount: '' }]); }}>
+            Batch Payout
+          </button>
+          <button className="btn-primary" onClick={() => { setFormOpen(true); setFormSuccess(''); setFormError(''); }}>
+            + New Payment
+          </button>
+        </div>
       </div>
 
       {formSuccess && <div className="success-banner">{formSuccess}</div>}
@@ -112,7 +159,7 @@ export default function Payments() {
                 </p>
               )}
               <div className="form-row">
-                <label>Amount (XLM)
+                <label>Amount
                   <input
                     type="number"
                     min="0.0000001"
@@ -122,7 +169,18 @@ export default function Payments() {
                     required
                   />
                 </label>
+                <label>Currency
+                  <select value={currency} onChange={(e) => setCurrency(e.target.value as 'XLM' | 'USDC')}>
+                    <option value="XLM">XLM</option>
+                    <option value="USDC">USDC</option>
+                  </select>
+                </label>
               </div>
+              {currency === 'USDC' && (
+                <p style={{ margin: '-8px 0 4px', fontSize: '0.78rem', color: '#6b7280' }}>
+                  Worker receives exactly {amount || '0'} USDC; funded from your XLM via the Stellar DEX.
+                </p>
+              )}
               <label>Memo (optional)
                 <input
                   value={memo}
@@ -140,6 +198,99 @@ export default function Payments() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {batchOpen && (
+        <div className="modal-overlay" onClick={() => setBatchOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+            <h3>Batch Payout</h3>
+            {!batchResult ? (
+              <form onSubmit={handleSendBatch} className="payment-form">
+                <label>Currency
+                  <select value={batchCurrency} onChange={(e) => setBatchCurrency(e.target.value as 'XLM' | 'USDC')}>
+                    <option value="XLM">XLM</option>
+                    <option value="USDC">USDC</option>
+                  </select>
+                </label>
+
+                {/* Column headers (shown once) */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '0.78rem', fontWeight: 600, color: '#6b7280' }}>
+                  <span style={{ flex: 2, minWidth: 0 }}>Worker</span>
+                  <span style={{ width: '120px' }}>Amount</span>
+                  <span style={{ width: '32px' }} />
+                </div>
+
+                {batchRows.map((row, i) => (
+                  <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <select
+                      style={{ flex: 2, minWidth: 0, boxSizing: 'border-box' }}
+                      value={row.workerId}
+                      onChange={(e) => updateBatchRow(i, { workerId: e.target.value })}
+                    >
+                      <option value="">Select a worker…</option>
+                      {workers.map((w) => (
+                        <option key={w.id} value={w.id}>{w.email} — {w.id.slice(0, 8)}…</option>
+                      ))}
+                    </select>
+                    <input
+                      type="number" min="0.0000001" step="0.0000001" placeholder="0.00"
+                      style={{ width: '120px', boxSizing: 'border-box' }}
+                      value={row.amount}
+                      onChange={(e) => updateBatchRow(i, { amount: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      title="Remove"
+                      style={{ width: '32px', height: '32px', flexShrink: 0, border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', color: '#ef4444', cursor: batchRows.length > 1 ? 'pointer' : 'not-allowed', opacity: batchRows.length > 1 ? 1 : 0.4 }}
+                      disabled={batchRows.length <= 1}
+                      onClick={() => setBatchRows((rows) => rows.filter((_, idx) => idx !== i))}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+
+                <button type="button" className="btn-secondary" style={{ alignSelf: 'flex-start' }}
+                  onClick={() => setBatchRows((rows) => [...rows, { workerId: '', amount: '' }])}>
+                  + Add worker
+                </button>
+
+                {batchError && <p className="auth-error">{batchError}</p>}
+                <div className="form-actions">
+                  <button type="button" className="btn-secondary" onClick={() => setBatchOpen(false)}>Cancel</button>
+                  <button type="submit" className="btn-primary" disabled={submitting}>
+                    {submitting ? 'Sending…' : `Send ${batchRows.filter(r => r.workerId && r.amount).length} payment(s)`}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div>
+                <p style={{ fontWeight: 600 }}>
+                  Batch {batchResult.status} — {batchResult.completedCount} sent, {batchResult.failedCount} failed
+                </p>
+                <table className="data-table" style={{ marginTop: '0.5rem' }}>
+                  <thead><tr><th>Worker</th><th>Amount</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {batchResult.results.map((r, i) => (
+                      <tr key={i}>
+                        <td>{workerEmail(r.workerId)}</td>
+                        <td>{r.amount} {r.currency}</td>
+                        <td>
+                          {r.status === 'completed'
+                            ? <a href={`https://stellar.expert/explorer/testnet/tx/${r.stellarTxHash}`} target="_blank" rel="noopener noreferrer"><span className="status completed">completed</span></a>
+                            : <span className="status failed" title={r.error}>failed</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="form-actions">
+                  <button type="button" className="btn-primary" onClick={() => setBatchOpen(false)}>Done</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

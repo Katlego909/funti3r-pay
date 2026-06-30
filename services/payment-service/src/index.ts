@@ -1,6 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
-import { createLogger, encryptSecret, decryptSecret, ValidationError, NotFoundError } from '@funti3r/shared-utils';
+import { createLogger, encryptSecret, decryptSecret, decryptFromString, ValidationError, NotFoundError } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, runInitialMigrations, query, transaction, getRedis } from '@funti3r/database';
 import { PaymentStatus, PaymentMethod } from '@funti3r/shared-types';
 import * as stellar from './lib/stellar.js';
@@ -357,34 +357,134 @@ app.get('/payouts/quotes', async (req, res) => {
 
 // ── Payouts ───────────────────────────────────────────────────────────────────
 
+type PayoutAsset = 'XLM' | 'USDC';
+
+interface PayoutResult {
+  paymentId?: string;
+  workerId: string;
+  amount: number;
+  currency: PayoutAsset;
+  status: 'completed' | 'failed';
+  stellarTxHash?: string;
+  sourceAmountXlm?: string;
+  error?: string;
+}
+
 /**
- * POST /payouts
- * Sends a classic Stellar XLM payment from the enterprise's account to the
- * worker's account. Both accounts are ed25519 keypairs stored on the users
- * table (created + funded at registration on testnet).
+ * Execute a single payout from an enterprise to a worker. Used by both the
+ * single (/payouts) and batch (/payouts/batch) endpoints. Never throws — returns
+ * a structured result so a batch can continue past individual failures.
  *
+ * `sourceSecret` is the DECRYPTED enterprise secret (decrypted once by the caller).
+ */
+async function executePayout(opts: {
+  enterpriseId: string;
+  sourceSecret: string;
+  workerId: string;
+  amountNum: number;
+  asset: PayoutAsset;
+  usdcIssuer?: string;
+  memo?: string;
+  batchId?: string | null;
+}): Promise<PayoutResult> {
+  const { enterpriseId, sourceSecret, workerId, amountNum, asset, usdcIssuer, memo, batchId } = opts;
+  const base: PayoutResult = { workerId, amount: amountNum, currency: asset, status: 'failed' };
+
+  // KYC gate (auto-approves on testnet).
+  try {
+    await requireCompliance(workerId);
+  } catch (err) {
+    return { ...base, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // Worker destination (+ secret for USDC trustline setup).
+  const wkrRes = await query(
+    'SELECT stellar_public_key, stellar_secret_key FROM users WHERE id = $1',
+    [workerId],
+  );
+  const destination: string | undefined = wkrRes.rows[0]?.stellar_public_key;
+  const workerStoredSecret: string | undefined = wkrRes.rows[0]?.stellar_secret_key;
+  if (!destination) {
+    return { ...base, error: 'Worker Stellar account not found' };
+  }
+
+  // Record as initiated (linked to the batch when present).
+  let paymentId: string;
+  try {
+    const ins = await query(
+      `INSERT INTO payments (enterprise_id, worker_id, amount, currency, status, stellar_destination, description, batch_id)
+         VALUES ($1, $2, $3, $4, 'initiated', $5, $6, $7)
+       RETURNING id`,
+      [enterpriseId, workerId, amountNum, asset, destination, memo ?? null, batchId ?? null],
+    );
+    paymentId = ins.rows[0].id;
+  } catch (err) {
+    logger.error('Failed to record payment', { error: String(err) });
+    return { ...base, error: 'Failed to record payment' };
+  }
+
+  // Submit to Stellar.
+  try {
+    const memoHash = crypto.createHash('sha256').update(paymentId).digest();
+    let txHash: string;
+    let feePaidXlm: string | null = null;
+
+    if (asset === 'XLM') {
+      txHash = await stellar.sendPayment(sourceSecret, destination, String(amountNum), 'XLM', undefined, memoHash);
+    } else {
+      if (!workerStoredSecret) throw new Error('Worker account is not set up to receive USDC');
+      const workerSecret = decryptFromString(workerStoredSecret);
+      await stellar.ensureTrustline(workerSecret, 'USDC', usdcIssuer!);
+      const result = await stellar.payExactWithXlm(
+        sourceSecret, destination, 'USDC', usdcIssuer!, String(amountNum), 0.05, memoHash,
+      );
+      txHash = result.hash;
+      feePaidXlm = result.sourceAmountXlm;
+    }
+
+    await query(
+      `UPDATE payments
+          SET status = 'completed', stellar_tx_hash = $1, memo_hash = $2, fee_paid_xlm = $3,
+              completed_at = NOW(), updated_at = NOW()
+        WHERE id = $4`,
+      [txHash, memoHash.toString('hex'), feePaidXlm, paymentId],
+    );
+    logger.info('Payment completed', { paymentId, txHash, amount: amountNum, currency: asset, workerId });
+    return { ...base, paymentId, status: 'completed', stellarTxHash: txHash, ...(feePaidXlm ? { sourceAmountXlm: feePaidXlm } : {}) };
+  } catch (err: any) {
+    const resultCodes = err?.response?.data?.extras?.result_codes;
+    const detail = resultCodes ? JSON.stringify(resultCodes) : (err instanceof Error ? err.message : String(err));
+    await query(
+      `UPDATE payments SET status = 'failed', failure_reason = $1, failed_at = NOW(), updated_at = NOW() WHERE id = $2`,
+      [detail, paymentId],
+    );
+    logger.error('Stellar payment failed', { paymentId, detail });
+    return { ...base, paymentId, error: detail };
+  }
+}
+
+/** Validate currency + load/decrypt the enterprise secret. Returns an error string or the secret. */
+async function resolveEnterpriseSecret(enterpriseId: string): Promise<{ secret?: string; error?: string }> {
+  const entRes = await query('SELECT stellar_secret_key FROM users WHERE id = $1', [enterpriseId]);
+  const stored: string | undefined = entRes.rows[0]?.stellar_secret_key;
+  if (!stored) return { error: 'Enterprise Stellar account is not set up' };
+  return { secret: decryptFromString(stored) };
+}
+
+/**
+ * POST /payouts — single payout (XLM or USDC) from enterprise to worker.
  * Body: { enterpriseId, workerId, amount, currency?, memo? }
  */
 app.post('/payouts', async (req, res) => {
   const { enterpriseId, workerId, amount, currency = 'XLM', memo } = req.body as {
-    enterpriseId: string;
-    workerId: string;
-    amount: number | string;
-    currency?: string;
-    memo?: string;
+    enterpriseId: string; workerId: string; amount: number | string; currency?: string; memo?: string;
   };
 
-  // Authorization: only the enterprise that owns the account can pay.
   const requesterId = req.headers['x-user-id'];
   const requesterRole = req.headers['x-user-role'];
-  if (requesterRole !== 'enterprise') {
-    return res.status(403).json({ error: 'Enterprise role required' });
-  }
-  if (requesterId !== enterpriseId) {
-    return res.status(403).json({ error: 'Not authorized to create payments for this enterprise' });
-  }
+  if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
+  if (requesterId !== enterpriseId) return res.status(403).json({ error: 'Not authorized to create payments for this enterprise' });
 
-  // Validation
   if (!enterpriseId || !workerId || amount == null) {
     return res.status(400).json({ error: 'enterpriseId, workerId, and amount are required' });
   }
@@ -392,77 +492,108 @@ app.post('/payouts', async (req, res) => {
   if (!Number.isFinite(amountNum) || amountNum <= 0) {
     return res.status(400).json({ error: 'amount must be a positive number' });
   }
-  const asset = String(currency || 'XLM').toUpperCase();
-  if (asset !== 'XLM') {
-    return res.status(400).json({ error: 'Only XLM payments are supported right now' });
+  const asset = String(currency || 'XLM').toUpperCase() as PayoutAsset;
+  if (asset !== 'XLM' && asset !== 'USDC') return res.status(400).json({ error: 'Supported currencies: XLM, USDC' });
+  const USDC_ISSUER = process.env.STELLAR_USDC_ISSUER;
+  if (asset === 'USDC' && !USDC_ISSUER) return res.status(500).json({ error: 'USDC issuer is not configured' });
+
+  const { secret, error } = await resolveEnterpriseSecret(enterpriseId);
+  if (error) return res.status(400).json({ error });
+
+  const result = await executePayout({
+    enterpriseId, sourceSecret: secret!, workerId, amountNum, asset, usdcIssuer: USDC_ISSUER, memo,
+  });
+
+  if (result.status === 'completed') {
+    return res.status(201).json({
+      paymentId: result.paymentId, status: 'completed', currency: result.currency,
+      stellarTxHash: result.stellarTxHash, ...(result.sourceAmountXlm ? { sourceAmountXlm: result.sourceAmountXlm } : {}),
+    });
+  }
+  const code = /not found/i.test(result.error ?? '') ? 404 : /kyc/i.test(result.error ?? '') ? 403 : 502;
+  return res.status(code).json({ paymentId: result.paymentId, status: 'failed', error: result.error });
+});
+
+/**
+ * POST /payouts/batch — pay many workers in one request.
+ * Body: { enterpriseId, currency?, items: [{ workerId, amount, memo? }] }
+ * Payments execute sequentially (one Stellar source account → one sequence).
+ */
+app.post('/payouts/batch', async (req, res) => {
+  const { enterpriseId, currency = 'XLM', items } = req.body as {
+    enterpriseId: string;
+    currency?: string;
+    items: Array<{ workerId: string; amount: number | string; memo?: string }>;
+  };
+
+  const requesterId = req.headers['x-user-id'];
+  const requesterRole = req.headers['x-user-role'];
+  if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
+  if (requesterId !== enterpriseId) return res.status(403).json({ error: 'Not authorized to create payments for this enterprise' });
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'items must be a non-empty array' });
+  }
+  if (items.length > 100) {
+    return res.status(400).json({ error: 'A batch may contain at most 100 payments' });
+  }
+  const asset = String(currency || 'XLM').toUpperCase() as PayoutAsset;
+  if (asset !== 'XLM' && asset !== 'USDC') return res.status(400).json({ error: 'Supported currencies: XLM, USDC' });
+  const USDC_ISSUER = process.env.STELLAR_USDC_ISSUER;
+  if (asset === 'USDC' && !USDC_ISSUER) return res.status(500).json({ error: 'USDC issuer is not configured' });
+
+  // Validate every item up front.
+  const normalized: Array<{ workerId: string; amountNum: number; memo?: string }> = [];
+  for (const it of items) {
+    const amountNum = Number(it.amount);
+    if (!it.workerId || !Number.isFinite(amountNum) || amountNum <= 0) {
+      return res.status(400).json({ error: 'Each item needs a workerId and a positive amount' });
+    }
+    normalized.push({ workerId: it.workerId, amountNum, memo: it.memo });
   }
 
-  // KYC gate (auto-approves on testnet).
-  try {
-    await requireCompliance(workerId);
-  } catch (err) {
-    return res.status(403).json({ error: err instanceof Error ? err.message : String(err) });
+  const { secret, error } = await resolveEnterpriseSecret(enterpriseId);
+  if (error) return res.status(400).json({ error });
+
+  const totalRequested = normalized.reduce((s, i) => s + i.amountNum, 0);
+
+  // Create the batch record.
+  const batchRes = await query(
+    `INSERT INTO payment_batches (enterprise_id, total_amount, payment_count, status)
+       VALUES ($1, $2, $3, 'processing') RETURNING id`,
+    [enterpriseId, totalRequested, normalized.length],
+  );
+  const batchId = batchRes.rows[0].id as string;
+
+  // Execute sequentially (shared source account → strictly ordered sequence numbers).
+  const results: PayoutResult[] = [];
+  for (const item of normalized) {
+    const r = await executePayout({
+      enterpriseId, sourceSecret: secret!, workerId: item.workerId,
+      amountNum: item.amountNum, asset, usdcIssuer: USDC_ISSUER, memo: item.memo, batchId,
+    });
+    results.push(r);
   }
 
-  // Fetch the enterprise's signing secret and the worker's destination address.
-  const [entRes, wkrRes] = await Promise.all([
-    query('SELECT stellar_secret_key FROM users WHERE id = $1', [enterpriseId]),
-    query('SELECT stellar_public_key FROM users WHERE id = $1', [workerId]),
-  ]);
-  const sourceSecret: string | undefined = entRes.rows[0]?.stellar_secret_key;
-  const destination: string | undefined = wkrRes.rows[0]?.stellar_public_key;
-  if (!sourceSecret) {
-    return res.status(400).json({ error: 'Enterprise Stellar account is not set up' });
-  }
-  if (!destination) {
-    return res.status(404).json({ error: 'Worker Stellar account not found' });
-  }
+  const completed = results.filter((r) => r.status === 'completed');
+  const failed = results.filter((r) => r.status === 'failed');
+  const batchStatus = failed.length === 0 ? 'completed' : completed.length === 0 ? 'failed' : 'partial';
 
-  // Record the payment as initiated.
-  let paymentId: string;
-  try {
-    const ins = await query(
-      `INSERT INTO payments (enterprise_id, worker_id, amount, currency, status, stellar_destination, description)
-         VALUES ($1, $2, $3, $4, 'initiated', $5, $6)
-       RETURNING id`,
-      [enterpriseId, workerId, amountNum, asset, destination, memo ?? null],
-    );
-    paymentId = ins.rows[0].id;
-  } catch (err) {
-    logger.error('Failed to record payment', { error: String(err) });
-    return res.status(500).json({ error: 'Failed to record payment' });
-  }
+  await query(
+    `UPDATE payment_batches SET status = $1, total_amount = $2, updated_at = NOW() WHERE id = $3`,
+    [batchStatus, completed.reduce((s, r) => s + r.amount, 0), batchId],
+  );
 
-  // Submit the payment to the Stellar network.
-  try {
-    const memoHash = crypto.createHash('sha256').update(paymentId).digest();
-    const txHash = await stellar.sendPayment(sourceSecret, destination, String(amountNum), 'XLM', undefined, memoHash);
-
-    await query(
-      `UPDATE payments
-          SET status = 'completed', stellar_tx_hash = $1, memo_hash = $2,
-              completed_at = NOW(), updated_at = NOW()
-        WHERE id = $3`,
-      [txHash, memoHash.toString('hex'), paymentId],
-    );
-
-    logger.info('Payment completed', { paymentId, txHash, amount: amountNum, workerId });
-    return res.status(201).json({ paymentId, status: 'completed', stellarTxHash: txHash });
-  } catch (err: any) {
-    // Surface Horizon's result codes when available — they explain the failure.
-    const resultCodes = err?.response?.data?.extras?.result_codes;
-    const detail = resultCodes ? JSON.stringify(resultCodes) : (err instanceof Error ? err.message : String(err));
-
-    await query(
-      `UPDATE payments
-          SET status = 'failed', failure_reason = $1, failed_at = NOW(), updated_at = NOW()
-        WHERE id = $2`,
-      [detail, paymentId],
-    );
-
-    logger.error('Stellar payment failed', { paymentId, detail });
-    return res.status(502).json({ paymentId, status: 'failed', error: detail });
-  }
+  logger.info('Batch payout finished', { batchId, status: batchStatus, completed: completed.length, failed: failed.length });
+  return res.status(failed.length === 0 ? 201 : 207).json({
+    batchId,
+    status: batchStatus,
+    currency: asset,
+    totalRequested,
+    completedCount: completed.length,
+    failedCount: failed.length,
+    results,
+  });
 });
 
 /**

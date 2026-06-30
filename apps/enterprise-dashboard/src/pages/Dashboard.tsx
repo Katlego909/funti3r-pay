@@ -67,6 +67,11 @@ export default function Dashboard() {
     ? `≈ $${(xlm * xlmUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     : '';
   const balanceXlm = walletBalance ? parseFloat(walletBalance) : 0;
+  // Currency unit / percent rendered smaller than the number so large amounts
+  // don't get clipped (em scales with the metric font size).
+  const unit = (label: string) => (
+    <span style={{ fontSize: '0.5em', fontWeight: 600, marginLeft: '0.2em', opacity: 0.85 }}>{label}</span>
+  );
 
   return (
     <div className="dashboard">
@@ -82,7 +87,7 @@ export default function Dashboard() {
             <h3>Wallet Balance</h3>
           </div>
           <div className="metric-value" style={{ color: '#3b82f6', whiteSpace: 'nowrap' }}>
-            {walletBalance ? `${fmtXlm(balanceXlm)} XLM` : '—'}
+            {walletBalance ? <>{fmtXlm(balanceXlm)}{unit('XLM')}</> : '—'}
           </div>
           {walletBalance && xlmUsd > 0 && (
             <div className="metric-change neutral">{fmtUsd(balanceXlm)}</div>
@@ -95,7 +100,7 @@ export default function Dashboard() {
             <h3>Total Payments</h3>
           </div>
           <div className="metric-value" style={{ whiteSpace: 'nowrap' }}>
-            {summary ? `${fmtXlm(summary.completedVolume)} XLM` : '—'}
+            {summary ? <>{fmtXlm(summary.completedVolume)}{unit('XLM')}</> : '—'}
           </div>
           <div className="metric-change neutral">
             {summary?.totalCount ?? 0} transactions{summary && xlmUsd > 0 ? ` · ${fmtUsd(summary.completedVolume)}` : ''}
@@ -116,7 +121,7 @@ export default function Dashboard() {
             <h3>Success Rate</h3>
           </div>
           <div className="metric-value">
-            {summary ? `${summary.successRate}%` : '—'}
+            {summary ? <>{summary.successRate}{unit('%')}</> : '—'}
           </div>
         </div>
       </div>
