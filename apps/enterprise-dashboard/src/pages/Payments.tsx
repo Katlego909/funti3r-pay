@@ -3,6 +3,7 @@ import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, type Payment, type BatchResult } from '../api/payments.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
+import PaymentDetailModal from '../components/PaymentDetailModal.js';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string }
 interface BatchRow { workerId: string; amount: string }
@@ -47,6 +48,9 @@ export default function Payments() {
   const [batchRows, setBatchRows] = useState<BatchRow[]>([{ workerId: '', amount: '' }]);
   const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
   const [batchError, setBatchError] = useState('');
+
+  // Payment detail modal
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const PAGE = 15;
 
@@ -325,7 +329,7 @@ export default function Payments() {
               {payments.length === 0 ? (
                 <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>No payments found.</td></tr>
               ) : payments.map((p) => (
-                <tr key={p.id}>
+                <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
                   <td>#{p.id.slice(0, 8)}</td>
                   <td>{p.worker_email ?? p.worker_id.slice(0, 8)}</td>
                   <td>{p.amount} {p.currency}</td>
@@ -333,7 +337,7 @@ export default function Payments() {
                   <td>{new Date(p.created_at).toLocaleDateString()}</td>
                   <td>
                     {p.stellar_tx_hash && (
-                      <a href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`} target="_blank" rel="noopener noreferrer">
+                      <a href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
                         <HiOutlineArrowTopRightOnSquare size={14} />
                       </a>
                     )}
@@ -349,6 +353,8 @@ export default function Payments() {
           </div>
         </section>
       )}
+
+      <PaymentDetailModal paymentId={detailId} onClose={() => setDetailId(null)} />
     </div>
   );
 }

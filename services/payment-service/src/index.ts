@@ -920,23 +920,10 @@ app.get('/payouts', async (req, res) => {
   const requesterId = req.headers['x-user-id'];
   const requesterRole = req.headers['x-user-role'];
 
-  console.log('[PAYOUTS_GET_DEBUG]', { enterpriseId, requesterId, requesterRole, allHeaders: req.headers });
-
-  // Authorization: can only list payments for own enterprise or self as worker
-  if (enterpriseId && enterpriseId !== requesterId) {
-    console.log('[PAYOUTS_GET_BLOCKED]', { enterpriseId, requesterId, reason: 'enterprise mismatch' });
-    return res.status(403).json({ error: 'Not authorized to view payments for this enterprise' });
-  }
-  if (workerId && workerId !== requesterId) {
-    return res.status(403).json({ error: 'Not authorized to view payments for this worker' });
-  }
-  if (!enterpriseId && !workerId) {
-    // If neither is specified, default to the requester's own account
-    if (requesterRole === 'enterprise') {
-      // Don't add a filter; let them query all their enterprise payments
-    } else if (requesterRole === 'worker') {
-      // Workers can only view their own payments
-    }
+  // Scope strictly to the requester: an enterprise sees its own payments
+  // (optionally filtered by a specific worker); a worker sees only their own.
+  if (requesterRole !== 'enterprise' && requesterRole !== 'worker') {
+    return res.status(403).json({ error: 'Not authorized' });
   }
 
   try {
@@ -944,9 +931,13 @@ app.get('/payouts', async (req, res) => {
     const params: unknown[] = [];
     let idx = 1;
 
-    if (enterpriseId) { conditions.push(`enterprise_id = $${idx++}`); params.push(enterpriseId); }
-    if (workerId)     { conditions.push(`worker_id = $${idx++}`);     params.push(workerId); }
-    if (status)       { conditions.push(`status = $${idx++}`);        params.push(status); }
+    if (requesterRole === 'enterprise') {
+      conditions.push(`enterprise_id = $${idx++}`); params.push(requesterId);
+      if (workerId) { conditions.push(`worker_id = $${idx++}`); params.push(workerId); }
+    } else {
+      conditions.push(`worker_id = $${idx++}`); params.push(requesterId);
+    }
+    if (status) { conditions.push(`status = $${idx++}`); params.push(status); }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     params.push(Number(limit), Number(offset));
@@ -1116,28 +1107,48 @@ app.get('/payouts/xlm-price', async (_req, res) => {
 });
 
 /**
- * GET /payouts/:id — single payment status.
+ * GET /payouts/:id — full detail for a single payment (for the detail modal).
  */
 app.get('/payouts/:id', async (req, res) => {
   const requesterId = req.headers['x-user-id'];
 
   try {
     const result = await query(
-      `SELECT id, enterprise_id, worker_id, amount, currency, status, rail,
-              stellar_tx_hash, failure_reason, created_at, updated_at
-         FROM payments WHERE id = $1`,
+      `SELECT p.id, p.enterprise_id, p.worker_id, p.amount, p.currency, p.status,
+              p.stellar_tx_hash, p.stellar_destination, p.description AS memo,
+              p.failure_reason, p.fee_paid_xlm, p.batch_id,
+              p.created_at, p.completed_at, p.failed_at, p.updated_at,
+              w.email AS worker_email, e.email AS enterprise_email
+         FROM payments p
+         LEFT JOIN users w ON w.id = p.worker_id
+         LEFT JOIN users e ON e.id = p.enterprise_id
+        WHERE p.id = $1`,
       [req.params.id],
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Payment not found' });
 
     const payment = result.rows[0];
-    // Only the enterprise or worker involved can view this payment
+    // Only the enterprise or worker involved can view this payment.
     if (requesterId !== payment.enterprise_id && requesterId !== payment.worker_id) {
       return res.status(403).json({ error: 'Not authorized to view this payment' });
     }
 
-    res.json(payment);
+    // Enrich with USD value and (for issued currencies) the FX rate used.
+    const usd = await amountToUsd(payment.currency, Number(payment.amount)).catch(() => 0);
+    let fxRate: number | null = null;
+    if (payment.currency !== 'XLM' && payment.currency !== 'USDC') {
+      const rates = await getUsdRates().catch(() => ({} as Record<string, number>));
+      fxRate = Number(rates[payment.currency]) || null;
+    }
+
+    res.json({
+      ...payment,
+      rail: 'stellar',
+      usd_value: Math.round(usd * 100) / 100,
+      fx_rate: fxRate, // units of `currency` per 1 USD (USDC = 1, XLM = null)
+    });
   } catch (err) {
+    logger.error('Payment detail failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
   }
 });

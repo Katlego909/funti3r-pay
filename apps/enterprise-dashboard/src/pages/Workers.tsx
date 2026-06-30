@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getWorkerWallet, getKYCStatus, type Worker, type WorkerWallet, type KYCStatus } from '../api/workers.js';
 import { api } from '../api/client.js';
+import WorkerDetailDrawer from '../components/WorkerDetailDrawer.js';
 
 interface WorkerRow extends Worker {
   wallet?: WorkerWallet;
@@ -31,6 +32,7 @@ export default function Workers() {
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedWorker, setSelectedWorker] = useState<string | null>(null);
   const [selectedKYC, setSelectedKYC] = useState<KYCDetail | null>(null);
   const [kycModalOpen, setKycModalOpen] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -141,13 +143,13 @@ export default function Workers() {
             {workers.length === 0 ? (
               <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>No workers registered yet.</td></tr>
             ) : workers.map((w) => (
-              <tr key={w.id}>
+              <tr key={w.id} onClick={() => setSelectedWorker(w.id)} style={{ cursor: 'pointer' }}>
                 <td>{w.email}</td>
                 <td><span className={`status ${w.status === 'active' ? 'completed' : 'pending'}`}>{w.status}</span></td>
                 <td>{kycBadge(w.kyc?.status)}</td>
                 <td>
                   {w.wallet?.address
-                    ? <a href={`https://stellar.expert/explorer/testnet/account/${w.wallet.address}`} target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                    ? <a href={`https://stellar.expert/explorer/testnet/account/${w.wallet.address}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
                         {w.wallet.address.slice(0, 8)}…
                       </a>
                     : <span className="status pending">{w.wallet?.status ?? 'None'}</span>}
@@ -158,7 +160,7 @@ export default function Workers() {
                     <button
                       className="btn-secondary"
                       style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
-                      onClick={() => viewKYC(w.id)}
+                      onClick={(e) => { e.stopPropagation(); viewKYC(w.id); }}
                     >
                       View KYC
                     </button>
@@ -242,6 +244,8 @@ export default function Workers() {
           </div>
         </div>
       )}
+
+      <WorkerDetailDrawer workerId={selectedWorker} onClose={() => setSelectedWorker(null)} />
     </div>
   );
 }

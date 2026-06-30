@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { HiOutlineArrowDownOnSquare, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { listPayments, type Payment } from '../api/payments.js';
 import { useAuthStore } from '../store/authStore.js';
+import PaymentDetailModal from '../components/PaymentDetailModal.js';
 import '../styles/Dashboard.css';
 
 function statusClass(s: string) {
@@ -17,6 +18,7 @@ export default function PaymentHistory() {
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const PAGE = 20;
 
@@ -63,7 +65,7 @@ export default function PaymentHistory() {
               </thead>
               <tbody>
                 {payments.map((p) => (
-                  <tr key={p.id}>
+                  <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
                     <td style={{ fontWeight: 600 }}>{p.amount} {p.currency}</td>
                     <td><span className={`status ${statusClass(p.status)}`}>{p.status}</span></td>
                     <td>{new Date(p.created_at).toLocaleString()}</td>
@@ -73,6 +75,7 @@ export default function PaymentHistory() {
                           href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontFamily: 'monospace', fontSize: '0.8rem' }}
                         >
                           {p.stellar_tx_hash.slice(0, 8)}… <HiOutlineArrowTopRightOnSquare size={13} />
@@ -94,6 +97,8 @@ export default function PaymentHistory() {
           </>
         )}
       </section>
+
+      <PaymentDetailModal paymentId={detailId} onClose={() => setDetailId(null)} />
     </div>
   );
 }

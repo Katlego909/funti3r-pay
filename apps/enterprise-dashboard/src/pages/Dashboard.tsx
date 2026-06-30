@@ -5,12 +5,41 @@ import { getUserSummary } from '../api/workers.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
 import InsightsCharts from '../components/InsightsCharts.js';
+import PaymentDetailModal from '../components/PaymentDetailModal.js';
 import '../styles/Dashboard.css';
 
 function statusClass(s: string) {
   if (s === 'completed') return 'completed';
   if (s === 'failed') return 'failed';
   return 'pending';
+}
+
+const CURRENCY_COLORS: Record<string, string> = {
+  XLM: '#3b82f6', USDC: '#16a34a', NGN: '#f59e0b', KES: '#8b5cf6',
+  GHS: '#ec4899', ZAR: '#06b6d4', UGX: '#ef4444',
+};
+
+function CurrencyBadges({ byCurrency }: { byCurrency: Record<string, number> }) {
+  const entries = Object.entries(byCurrency).filter(([, a]) => Number(a) > 0);
+  if (entries.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px' }}>
+      {entries.map(([code, amt]) => {
+        const color = CURRENCY_COLORS[code] ?? '#6b7280';
+        return (
+          <span key={code} style={{
+            display: 'inline-flex', alignItems: 'center', gap: '6px',
+            padding: '4px 10px', borderRadius: '999px',
+            background: `${color}14`, border: `1px solid ${color}40`,
+            color, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap',
+          }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: color }} />
+            {Number(amt).toLocaleString(undefined, { maximumFractionDigits: 2 })} {code}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function Dashboard() {
@@ -22,6 +51,7 @@ export default function Dashboard() {
   const [fxRates, setFxRates] = useState<Record<string, number>>({});
   const [recent, setRecent] = useState<Payment[]>([]);
   const [chartPayments, setChartPayments] = useState<Payment[]>([]);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -81,11 +111,6 @@ export default function Dashboard() {
     <span style={{ fontSize: '0.5em', fontWeight: 600, marginLeft: '0.2em', opacity: 0.85 }}>{label}</span>
   );
   const fmtMoney = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const byCurrencyLine = summary
-    ? Object.entries(summary.byCurrency)
-        .map(([c, a]) => `${Number(a).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${c}`)
-        .join(' · ')
-    : '';
 
   return (
     <div className="dashboard">
@@ -117,9 +142,7 @@ export default function Dashboard() {
             {summary ? `$${fmtMoney(summary.completedVolumeUsd)}` : '—'}
           </div>
           <div className="metric-change neutral">{summary?.totalCount ?? 0} transactions</div>
-          {byCurrencyLine && (
-            <div className="metric-change neutral" style={{ fontSize: '0.72rem', opacity: 0.8 }}>{byCurrencyLine}</div>
-          )}
+          {summary && <CurrencyBadges byCurrency={summary.byCurrency} />}
         </div>
 
         <div className="metric-card">
@@ -163,7 +186,7 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {recent.map((p) => (
-                  <tr key={p.id}>
+                  <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
                     <td>#{p.id.slice(0, 8)}</td>
                     <td>{p.worker_email ?? p.worker_id.slice(0, 8)}</td>
                     <td>{p.amount} {p.currency}</td>
@@ -179,6 +202,7 @@ export default function Dashboard() {
                           target="_blank"
                           rel="noopener noreferrer"
                           title="View on Stellar Explorer"
+                          onClick={(e) => e.stopPropagation()}
                         >
                           <HiOutlineArrowTopRightOnSquare size={14} />
                         </a>
@@ -209,6 +233,8 @@ export default function Dashboard() {
           )}
         </section>
       </div>
+
+      <PaymentDetailModal paymentId={detailId} onClose={() => setDetailId(null)} />
     </div>
   );
 }
