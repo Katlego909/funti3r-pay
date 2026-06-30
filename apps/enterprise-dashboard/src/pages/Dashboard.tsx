@@ -1,6 +1,20 @@
 import { useEffect, useState } from 'react';
-import { HiOutlineUsers, HiOutlineBanknotes, HiOutlineClock, HiOutlineCheckCircle, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
-import { getSummary, getRecentPayments, getXlmPrice, getFxRates, listPayments, type Payment, type PaymentSummary } from '../api/payments.js';
+import {
+  HiOutlineUsers,
+  HiOutlineBanknotes,
+  HiOutlineClock,
+  HiOutlineCheckCircle,
+  HiOutlineArrowTopRightOnSquare,
+} from 'react-icons/hi2';
+import {
+  getSummary,
+  getRecentPayments,
+  getXlmPrice,
+  getFxRates,
+  listPayments,
+  type Payment,
+  type PaymentSummary,
+} from '../api/payments.js';
 import { getUserSummary } from '../api/workers.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
@@ -15,8 +29,13 @@ function statusClass(s: string) {
 }
 
 const CURRENCY_COLORS: Record<string, string> = {
-  XLM: '#3b82f6', USDC: '#16a34a', NGN: '#f59e0b', KES: '#8b5cf6',
-  GHS: '#ec4899', ZAR: '#06b6d4', UGX: '#ef4444',
+  XLM: '#3b82f6',
+  USDC: '#16a34a',
+  NGN: '#f59e0b',
+  KES: '#8b5cf6',
+  GHS: '#ec4899',
+  ZAR: '#06b6d4',
+  UGX: '#ef4444',
 };
 
 function CurrencyBadges({ byCurrency }: { byCurrency: Record<string, number> }) {
@@ -27,12 +46,22 @@ function CurrencyBadges({ byCurrency }: { byCurrency: Record<string, number> }) 
       {entries.map(([code, amt]) => {
         const color = CURRENCY_COLORS[code] ?? '#6b7280';
         return (
-          <span key={code} style={{
-            display: 'inline-flex', alignItems: 'center', gap: '6px',
-            padding: '4px 10px', borderRadius: '999px',
-            background: `${color}14`, border: `1px solid ${color}40`,
-            color, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap',
-          }}>
+          <span
+            key={code}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 10px',
+              borderRadius: '999px',
+              background: `${color}14`,
+              border: `1px solid ${color}40`,
+              color,
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+            }}
+          >
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: color }} />
             {Number(amt).toLocaleString(undefined, { maximumFractionDigits: 2 })} {code}
           </span>
@@ -100,22 +129,31 @@ export default function Dashboard() {
   const pending = summary?.byStatus['pending'] ?? 0;
   const processing = summary?.byStatus['processing'] ?? 0;
 
-  const fmtXlm = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const fmtUsd = (xlm: number) => xlmUsd > 0
-    ? `≈ $${(xlm * xlmUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : '';
+  const fmtXlm = (n: number) =>
+    n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtUsd = (xlm: number) =>
+    xlmUsd > 0
+      ? `≈ $${(xlm * xlmUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : '';
   const balanceXlm = walletBalance ? parseFloat(walletBalance) : 0;
   // Currency unit / percent rendered smaller than the number so large amounts
   // don't get clipped (em scales with the metric font size).
   const unit = (label: string) => (
-    <span style={{ fontSize: '0.5em', fontWeight: 600, marginLeft: '0.2em', opacity: 0.85 }}>{label}</span>
+    <span style={{ fontSize: '0.5em', fontWeight: 600, marginLeft: '0.2em', opacity: 0.85 }}>
+      {label}
+    </span>
   );
-  const fmtMoney = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtMoney = (n: number) =>
+    n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
     <div className="dashboard">
       <div className="dashboard-header">
-        <h2>Dashboard</h2>
+        <div className="dashboard-title">
+          <h2>Dashboard</h2>
+          <p>Hello, {user.email.split('@')[0]}</p>
+        </div>
+
         <p className="subtitle">Overview of your payment operations</p>
       </div>
 
@@ -126,7 +164,14 @@ export default function Dashboard() {
             <h3>Wallet Balance</h3>
           </div>
           <div className="metric-value" style={{ color: '#3b82f6', whiteSpace: 'nowrap' }}>
-            {walletBalance ? <>{fmtXlm(balanceXlm)}{unit('XLM')}</> : '—'}
+            {walletBalance ? (
+              <>
+                {fmtXlm(balanceXlm)}
+                {unit('XLM')}
+              </>
+            ) : (
+              '—'
+            )}
           </div>
           {walletBalance && xlmUsd > 0 && (
             <div className="metric-change neutral">{fmtUsd(balanceXlm)}</div>
@@ -159,12 +204,24 @@ export default function Dashboard() {
             <h3>Success Rate</h3>
           </div>
           <div className="metric-value">
-            {summary ? <>{summary.successRate}{unit('%')}</> : '—'}
+            {summary ? (
+              <>
+                {summary.successRate}
+                {unit('%')}
+              </>
+            ) : (
+              '—'
+            )}
           </div>
         </div>
       </div>
 
-      <InsightsCharts payments={chartPayments} xlmUsd={xlmUsd} fx={fxRates} byStatus={summary?.byStatus ?? {}} />
+      <InsightsCharts
+        payments={chartPayments}
+        xlmUsd={xlmUsd}
+        fx={fxRates}
+        byStatus={summary?.byStatus ?? {}}
+      />
 
       <div className="content-grid">
         <section className="section">
@@ -189,7 +246,9 @@ export default function Dashboard() {
                   <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
                     <td>#{p.id.slice(0, 8)}</td>
                     <td>{p.worker_email ?? p.worker_id.slice(0, 8)}</td>
-                    <td>{p.amount} {p.currency}</td>
+                    <td>
+                      {p.amount} {p.currency}
+                    </td>
                     <td>{p.rail ?? 'stellar'}</td>
                     <td>
                       <span className={`status ${statusClass(p.status)}`}>{p.status}</span>
@@ -223,8 +282,12 @@ export default function Dashboard() {
                 <div className="status-item" key={status}>
                   <div className={`status-dot ${statusClass(status)}`} />
                   <div>
-                    <div className="status-name" style={{ textTransform: 'capitalize' }}>{status}</div>
-                    <div className="status-detail">{count} transaction{count !== 1 ? 's' : ''}</div>
+                    <div className="status-name" style={{ textTransform: 'capitalize' }}>
+                      {status}
+                    </div>
+                    <div className="status-detail">
+                      {count} transaction{count !== 1 ? 's' : ''}
+                    </div>
                   </div>
                   <div className="status-badge">{count}</div>
                 </div>

@@ -32,14 +32,14 @@ Other services available:
 - `@funti3r/payment-service` (port 3002)
 - `@funti3r/compliance-service` (port 3003)
 - `@funti3r/analytics-service` (port 3004)
-- `@funti3r/enterprise-dashboard` (port 3100)
-- `@funti3r/worker-dashboard` (port 3101)
+- `@funti3r/enterprise-dashboard` (port 3100) — unified web app for both enterprises and workers,
+  role-based routing after login
 
 Verify: `curl http://localhost:3000/status`
 
-> **Tip:** run the dashboards independently (`pnpm --filter=@funti3r/enterprise-dashboard dev`,
-> `pnpm --filter=@funti3r/worker-dashboard dev`) rather than a single root `pnpm dev`, so one
-> backend service crashing doesn't tear down the whole group.
+> **Tip:** run the dashboard independently (`pnpm --filter=@funti3r/enterprise-dashboard dev`)
+> rather than a single root `pnpm dev`, so one backend service crashing doesn't tear down the
+> whole group.
 
 ### Testnet currency liquidity (for local-currency payouts)
 
@@ -58,7 +58,7 @@ On mainnet, point the registry at real anchors (e.g. Cowrie for NGN) — no code
 
 ```
 services/          - 5 microservices
-apps/             - Enterprise dashboard (React) + Worker app (React Native)
+apps/             - Unified web dashboard (React) + Worker mobile app (React Native)
 packages/         - Shared types, utilities, database clients
 contracts/        - Soroban smart contracts (Rust)
 infrastructure/   - Docker, Terraform configurations
@@ -100,10 +100,11 @@ currency each worker actually wants:
 - KYC submit/status/approve/reject endpoints with an **auto-approve mode** for testnet
   (`COMPLIANCE_AUTO_APPROVE=true`).
 
-**Dashboards (React + Vite)**
-- **Enterprise** (port 3100): send single/batch payments, worker directory + KYC view, wallet
+**Dashboard (React + Vite, port 3100)**
+- One landing page, one login/register flow, role-based routing after auth — no separate apps.
+- **Enterprise** view: send single/batch payments, worker directory + KYC view, wallet
   balances, payment list, and **insights charts** (volume over time, payments by status).
-- **Worker** (port 3101): balances (XLM + USDC + any local currency), payment history, KYC,
+- **Worker** view: balances (XLM + USDC + any local currency), payment history, KYC,
   payout-currency selector, and **insights charts** (earnings over time, income by asset).
 - **Correct multi-currency valuation** — totals and charts convert each currency to USD with
   live rates (no naive cross-currency summing).

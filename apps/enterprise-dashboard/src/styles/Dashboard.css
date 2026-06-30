@@ -26,6 +26,13 @@
   letter-spacing: -1.5px;
 }
 
+.dashboard-title p {
+  font-size: 24px;
+  color: var(--gray-600);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
 .subtitle {
   font-size: 16px;
   color: var(--gray-600);
@@ -109,7 +116,7 @@
 }
 
 .metric-value {
-  font-size: 48px;
+  font-size: 40px;
   font-weight: 900;
   color: var(--gray-900);
   margin-bottom: 16px;
@@ -281,7 +288,8 @@
 }
 
 @keyframes pulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 12px rgba(5, 150, 105, 0.6);
   }
   50% {
@@ -332,6 +340,12 @@
 
   .metrics-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
   }
 
   .dashboard-header h2 {

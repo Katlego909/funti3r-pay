@@ -138,3 +138,30 @@ export async function submitSignature(payload: {
   const { data } = await api.post('/payouts/submit-signature', payload);
   return data;
 }
+
+// --- Worker payout-currency preference (used by worker Wallet page) ---
+
+export interface PayoutCurrency { code: string; name: string; symbol: string; kind: string }
+
+export async function getPayoutCurrencies(): Promise<PayoutCurrency[]> {
+  try {
+    const { data } = await api.get<{ currencies: PayoutCurrency[] }>('/payouts/currencies');
+    return data.currencies ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getPreferredCurrency(userId: string): Promise<string> {
+  try {
+    const { data } = await api.get<{ preferred_currency?: string }>(`/users/${userId}`);
+    return (data.preferred_currency || 'USDC').toUpperCase();
+  } catch {
+    return 'USDC';
+  }
+}
+
+export async function setPreferredCurrency(currency: string): Promise<string> {
+  const { data } = await api.put<{ preferredCurrency: string }>('/users/me/preferred-currency', { currency });
+  return data.preferredCurrency;
+}

@@ -1740,3 +1740,557 @@ h1, h2, h3, h4, h5, h6 {
     padding: 24px;
   }
 }
+
+/* ============================================================
+   Professional refinements (hero badge, product mockup, strip)
+   ============================================================ */
+
+/* Modern heading type — reserve the display font for brand only */
+.landing h2, .landing h3, .landing h4, .landing h5 {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* Nav text links */
+.nav-link {
+  color: #475569;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 6px;
+  transition: color 0.2s;
+}
+.nav-link:hover { color: #1e40af; }
+
+/* Hero eyebrow badge */
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e40af;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  padding: 6px 14px;
+  border-radius: 999px;
+  margin-bottom: 22px;
+}
+
+.hero-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+}
+.hero-note svg { color: #16a34a; flex-shrink: 0; }
+
+/* Hero product mockup card */
+.hero-card {
+  width: 100%;
+  max-width: 400px;
+  background: #fff;
+  border: 1px solid #e8edf3;
+  border-radius: 18px;
+  box-shadow: 0 30px 60px -22px rgba(30, 64, 175, 0.28), 0 6px 20px rgba(15, 23, 42, 0.05);
+  padding: 22px;
+  box-sizing: border-box;
+}
+.hero-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.hc-title {
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: #94a3b8;
+}
+.hc-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #16a34a;
+  background: #f0fdf4;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.hc-dot { width: 7px; height: 7px; border-radius: 50%; background: #16a34a; }
+.hc-row { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0; }
+.hc-label { font-size: 13px; color: #64748b; }
+.hc-amount { font-weight: 800; font-size: 24px; color: #0f172a; }
+.hc-amount small { font-size: 12px; font-weight: 700; color: #94a3b8; margin-left: 3px; }
+.hc-amount-green { color: #16a34a; }
+.hc-convert {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #94a3b8;
+  padding: 9px 0;
+  border-top: 1px dashed #e8edf3;
+  border-bottom: 1px dashed #e8edf3;
+  margin: 6px 0;
+}
+.hc-row-accent { background: #f0fdf4; margin: 4px -22px 0; padding: 14px 22px; }
+.hc-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #64748b;
+  margin-top: 16px;
+}
+.hc-foot svg { color: #3b82f6; }
+.hc-link { margin-left: auto; color: #3b82f6; text-decoration: none; font-weight: 600; }
+
+/* Currency strip */
+.strip {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 4px 48px 56px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.strip-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  margin: 0;
+}
+.currency-strip { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.currency-chip {
+  font-weight: 700;
+  font-size: 13px;
+  color: #334155;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 7px 15px;
+  border-radius: 999px;
+}
+.currency-chip-more { color: #3b82f6; background: #eff6ff; border-color: #dbeafe; }
+
+/* Step number watermark */
+.step-num {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  font-weight: 800;
+  font-size: 13px;
+  color: #e2e8f0;
+}
+
+/* Pricing feature rows with icons */
+.pricing-features li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pricing-features li svg { color: #16a34a; flex-shrink: 0; }
+
+/* Security badge icons (now real icons, not emoji) */
+.security-badge .badge-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%);
+  color: #3b82f6;
+  font-size: 0;
+}
+
+/* Footer "built on Stellar" */
+.footer-powered {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 12.5px;
+  color: #9ca3af;
+}
+.footer-powered svg { color: #3b82f6; }
+
+@media (max-width: 768px) {
+  .nav-link { display: none; }
+  .nav-actions.open .nav-link { display: block; }
+  .hero-card { max-width: 100%; }
+  .strip { padding: 4px 24px 40px; }
+}
+
+/* ============================================================
+   Real icons / logos + richer component styling
+   ============================================================ */
+
+/* Soft depth behind the hero */
+.hero {
+  position: relative;
+  background:
+    radial-gradient(55% 50% at 85% -10%, rgba(59, 130, 246, 0.10), transparent 70%),
+    radial-gradient(40% 45% at -5% 15%, rgba(16, 185, 129, 0.07), transparent 70%);
+}
+
+/* Circular flag icons */
+.flag-icon {
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12);
+  display: block;
+  flex-shrink: 0;
+}
+
+/* Currency chips now carry an icon */
+.currency-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Hero mockup — leading badges + avatar */
+.hc-line { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
+.hc-usd {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: linear-gradient(135deg, #22c55e, #15803d);
+  color: #fff; font-weight: 800; font-size: 17px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(21, 128, 61, 0.25);
+}
+.hc-avatar-wrap { position: relative; width: 40px; height: 40px; flex-shrink: 0; }
+.hc-avatar {
+  width: 40px; height: 40px; border-radius: 50%; object-fit: cover;
+  border: 2px solid #fff; box-shadow: 0 3px 8px rgba(15, 23, 42, 0.18);
+}
+.hc-avatar-flag {
+  position: absolute; bottom: -2px; right: -3px;
+  width: 17px; height: 17px; border-radius: 50%; object-fit: cover;
+  border: 2px solid #fff;
+}
+.hc-row-accent.hc-line { margin: 4px -22px 0; padding: 14px 22px; }
+
+/* Distinct, modern icon tints per feature (less monotone) */
+.features-grid .feature-card:nth-child(1) .feature-icon { background: linear-gradient(135deg, #eff6ff, #dbeafe); color: #2563eb; }
+.features-grid .feature-card:nth-child(2) .feature-icon { background: linear-gradient(135deg, #ecfdf5, #d1fae5); color: #059669; }
+.features-grid .feature-card:nth-child(3) .feature-icon { background: linear-gradient(135deg, #eef2ff, #e0e7ff); color: #4f46e5; }
+.features-grid .feature-card:nth-child(4) .feature-icon { background: linear-gradient(135deg, #fff7ed, #ffedd5); color: #ea580c; }
+.features-grid .feature-card:nth-child(5) .feature-icon { background: linear-gradient(135deg, #faf5ff, #f3e8ff); color: #9333ea; }
+.features-grid .feature-card:nth-child(6) .feature-icon { background: linear-gradient(135deg, #f0fdfa, #ccfbf1); color: #0d9488; }
+
+/* Refined card surfaces */
+.feature-card, .use-case-card, .pricing-card, .security-badge, .step {
+  border-color: #eef1f5;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.feature-card:hover {
+  border-color: #dbeafe;
+  box-shadow: 0 16px 32px -12px rgba(37, 99, 235, 0.20);
+}
+
+/* Stats band — darker, premium */
+.trust {
+  background: linear-gradient(135deg, #0b1220 0%, #111c33 55%, #0f2a3f 100%);
+}
+.trust .stat-icon { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255,255,255,0.08); }
+.trust .stat-value { background: linear-gradient(180deg, #fff, #cbd5e1); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+
+/* ============================================================
+   Hero balance + full-bleed background
+   ============================================================ */
+
+/* Full-width tinted background layer (gradient was previously clipped to 1200px) */
+.hero { background: none; }
+.hero-bg {
+  width: 100%;
+  position: relative;
+  background:
+    radial-gradient(50% 60% at 78% -5%, rgba(59, 130, 246, 0.12), transparent 70%),
+    radial-gradient(45% 55% at 8% 10%, rgba(16, 185, 129, 0.08), transparent 70%),
+    linear-gradient(180deg, #fbfdff 0%, #ffffff 100%);
+  border-bottom: 1px solid #f1f5f9;
+  overflow: hidden;
+}
+
+/* Rebalance the two columns + tighten the headline */
+.hero {
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 56px;
+  padding-top: 72px;
+  padding-bottom: 88px;
+  align-items: center;
+}
+.hero-content h2 { font-size: 52px; line-height: 1.08; }
+.hero-content > p { max-width: 480px; }
+
+/* Ground the mockup with a soft glow so the right column has weight */
+.hero-graphic { position: relative; }
+.hero-graphic::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 360px;
+  height: 360px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.18), rgba(16, 185, 129, 0.10) 45%, transparent 72%);
+  filter: blur(8px);
+  z-index: 0;
+}
+.hero-card {
+  position: relative;
+  z-index: 1;
+  max-width: 430px;
+}
+
+@media (max-width: 768px) {
+  .hero-content h2 { font-size: 34px; }
+  .hero-graphic::before { width: 260px; height: 260px; }
+}
+
+/* ============================================================
+   Archivo Black as the main display font
+   ============================================================ */
+.landing h2, .landing h3, .landing h4, .landing h5 {
+  font-family: 'Archivo Black', sans-serif;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+}
+.hc-amount, .stat-value, .amount, .hc-title {
+  font-family: 'Archivo Black', sans-serif;
+  letter-spacing: -0.01em;
+}
+.hc-amount small { font-family: 'DM Sans', sans-serif; font-weight: 700; }
+
+/* Tighter hero headline so the columns balance against the mockup */
+.hero { align-items: center; }
+.hero-content h2 { font-size: 46px; line-height: 1.06; margin-bottom: 20px; }
+@media (max-width: 768px) {
+  .hero-content h2 { font-size: 32px; }
+}
+
+/* Breathing room between the hero divider and the currency strip */
+.strip { padding-top: 48px; }
+@media (max-width: 768px) {
+  .strip { padding-top: 32px; }
+}
+
+/* ============================================================
+   Timeless flat look — no gradients, no shadows
+   ============================================================ */
+
+/* Solid backgrounds (were gradients) */
+.hero-bg { background: #ffffff; }
+.hero-graphic::before { display: none; }
+.hc-usd { background: #16a34a; }
+.feature-icon, .step-icon, .security-badge .badge-icon { background: #eff6ff; }
+.features-grid .feature-card:nth-child(1) .feature-icon { background: #eff6ff; color: #2563eb; }
+.features-grid .feature-card:nth-child(2) .feature-icon { background: #ecfdf5; color: #059669; }
+.features-grid .feature-card:nth-child(3) .feature-icon { background: #eef2ff; color: #4f46e5; }
+.features-grid .feature-card:nth-child(4) .feature-icon { background: #fff7ed; color: #ea580c; }
+.features-grid .feature-card:nth-child(5) .feature-icon { background: #faf5ff; color: #9333ea; }
+.features-grid .feature-card:nth-child(6) .feature-icon { background: #f0fdfa; color: #0d9488; }
+
+/* Trust band — solid color, flat text */
+.trust { background: #0e1726; }
+.trust .stat-value { background: none; -webkit-text-fill-color: #ffffff; color: #ffffff; }
+.trust .stat-icon { background: rgba(255, 255, 255, 0.08); border: none; }
+
+/* No shadows anywhere on the page */
+.landing *,
+.landing *::before,
+.landing *::after { box-shadow: none !important; }
+
+/* Borders (not shadows) carry elevation; calm, flat hovers */
+.hero-card { border: 1px solid #e8edf3; }
+.flag-icon { border: 1px solid rgba(15, 23, 42, 0.10); }
+.feature-card, .use-case-card, .pricing-card, .security-badge, .step, .faq-item { border: 1px solid #e8edf3; }
+.feature-card:hover, .use-case-card:hover, .pricing-card:hover, .security-badge:hover, .step:hover, .faq-item:hover {
+  border-color: #cbd5e1;
+  transform: none;
+}
+.btn-hero-primary:hover, .btn-final-primary:hover, .pricing-cta:hover { transform: none; }
+.pricing-card.featured { transform: none; border-color: #cbd5e1; }
+
+/* ============================================================
+   "How it works" — connected horizontal timeline
+   ============================================================ */
+.timeline {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 48px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  box-sizing: border-box;
+}
+.tl-step { position: relative; text-align: center; padding: 0 14px; }
+/* connector line from this node's centre to the next */
+.tl-step::after {
+  content: '';
+  position: absolute;
+  top: 27px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: #dbeafe;
+  z-index: 0;
+}
+.tl-step:last-child::after { display: none; }
+.tl-node {
+  position: relative;
+  z-index: 1;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #3b82f6;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 24px;
+}
+.tl-num { font-family: 'Archivo Black', sans-serif; font-size: 18px; line-height: 1; }
+.tl-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #3b82f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 14px;
+}
+.tl-step h4 { font-size: 17px; margin-bottom: 8px; color: #0f172a; }
+.tl-step p { font-size: 14px; color: #64748b; line-height: 1.6; max-width: 215px; margin: 0 auto; }
+
+@media (max-width: 768px) {
+  .timeline { grid-template-columns: 1fr; gap: 36px; max-width: 360px; padding: 0 24px; }
+  .tl-step::after { display: none; }
+}
+
+/* ============================================================
+   "How it works" — editorial numbered columns (clean rebuild)
+   ============================================================ */
+.hsteps {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 48px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  box-sizing: border-box;
+}
+.hstep {
+  padding: 6px 32px;
+  border-left: 1px solid #e8edf3;
+}
+.hstep:first-child { border-left: none; padding-left: 0; }
+.hstep-num {
+  display: block;
+  font-family: 'Archivo Black', sans-serif;
+  font-size: 38px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: #cdd6e3;
+  margin-bottom: 20px;
+}
+.hstep h4 {
+  font-size: 17px;
+  color: #0f172a;
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+}
+.hstep p {
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.65;
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .hsteps { grid-template-columns: 1fr 1fr; gap: 36px 0; padding: 0 24px; }
+  .hstep { padding: 0 24px; }
+  .hstep:nth-child(odd) { border-left: none; padding-left: 0; }
+}
+@media (max-width: 480px) {
+  .hsteps { grid-template-columns: 1fr; gap: 28px; }
+  .hstep, .hstep:nth-child(odd) { border-left: none; padding: 0; }
+}
+
+/* ============================================================
+   "How it works" — structured product panel (fintech)
+   ============================================================ */
+.flow {
+  max-width: 1080px;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid #e6eaf0;
+  border-radius: 16px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  overflow: hidden;
+}
+.flow-step {
+  padding: 28px 26px;
+  border-left: 1px solid #f1f4f8;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.flow-step:first-child { border-left: none; }
+.flow-badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #fff;
+  font-family: 'Archivo Black', sans-serif;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+.flow-step h4 { font-size: 15.5px; color: #0f172a; margin-bottom: 8px; letter-spacing: -0.01em; }
+.flow-step p { font-size: 13.5px; color: #64748b; line-height: 1.6; margin: 0 0 16px; flex: 1; }
+.flow-tag {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  padding: 3px 9px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .flow { grid-template-columns: 1fr 1fr; }
+  .flow-step:nth-child(odd) { border-left: none; }
+  .flow-step:nth-child(n+3) { border-top: 1px solid #f1f4f8; }
+}
+@media (max-width: 480px) {
+  .flow { grid-template-columns: 1fr; }
+  .flow-step { border-left: none; }
+  .flow-step:not(:first-child) { border-top: 1px solid #f1f4f8; }
+}
+
+/* Vibrant icon pills (colour set inline per step) */
+.flow-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.flow-tag svg { flex-shrink: 0; }

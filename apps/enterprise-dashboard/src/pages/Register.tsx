@@ -1,12 +1,16 @@
 import { useState, FormEvent } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { registerPasskey } from '../api/auth.js';
 import { useAuthStore } from '../store/authStore.js';
-import { api } from '../api/client.js';
+
+type Role = 'enterprise' | 'worker';
 
 export default function Register() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const setSession = useAuthStore((s) => s.setSession);
+  const initialRole: Role = searchParams.get('role') === 'worker' ? 'worker' : 'enterprise';
+  const [role, setRole] = useState<Role>(initialRole);
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -19,8 +23,8 @@ export default function Register() {
     setStep('passkey');
 
     try {
-      console.log('[Register] Starting passkey registration for:', email);
-      const session = await registerPasskey(email, 'enterprise');
+      console.log('[Register] Starting passkey registration for:', email, 'as', role);
+      const session = await registerPasskey(email, role);
       console.log('[Register] Passkey registration succeeded:', session.userId);
       setSession({ userId: session.userId, email: session.email, role: session.role }, session.accessToken);
 
@@ -61,14 +65,33 @@ export default function Register() {
           A passkey will be created on your device. No passwords required.
         </p>
 
+        <div className="role-toggle" role="group" aria-label="Account type">
+          <button
+            type="button"
+            className={`role-toggle-btn ${role === 'enterprise' ? 'active' : ''}`}
+            onClick={() => setRole('enterprise')}
+            disabled={loading}
+          >
+            Enterprise
+          </button>
+          <button
+            type="button"
+            className={`role-toggle-btn ${role === 'worker' ? 'active' : ''}`}
+            onClick={() => setRole('worker')}
+            disabled={loading}
+          >
+            Worker
+          </button>
+        </div>
+
         <form onSubmit={handleSubmit} className="auth-form">
           <label>
-            Work Email
+            {role === 'worker' ? 'Email' : 'Work Email'}
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
+              placeholder={role === 'worker' ? 'you@email.com' : 'you@company.com'}
               required
               autoComplete="email"
               disabled={loading}

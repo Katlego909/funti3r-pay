@@ -30,12 +30,9 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      const data = await devLogin(email);
-      if (data.role !== 'enterprise') {
-        useAuthStore.getState().clearSession();
-        setError('That account is not an enterprise. Use the worker dashboard instead.');
-        return;
-      }
+      // Role-agnostic: the app routes to the enterprise or worker shell based
+      // on the role returned by the backend.
+      await devLogin(email);
       navigate('/');
     } catch (err: any) {
       setError(err?.response?.data?.error ?? 'Dev login failed');

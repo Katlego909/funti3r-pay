@@ -53,11 +53,11 @@ function dailyUsd(payments: Payment[], xlmUsd: number, fx: Record<string, number
 const fmtUsd = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
 export default function InsightsCharts({
-  payments, xlmUsd, byStatus, fx = {},
+  payments, xlmUsd, byStatus = {}, fx = {},
 }: {
   payments: Payment[];
   xlmUsd: number;
-  byStatus: Record<string, number>;
+  byStatus?: Record<string, number>;
   fx?: Record<string, number>;
 }) {
   const series = dailyUsd(payments, xlmUsd, fx);
