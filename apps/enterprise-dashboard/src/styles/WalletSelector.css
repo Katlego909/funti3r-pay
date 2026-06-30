@@ -54,14 +54,14 @@
 }
 
 .wallet-item:hover {
-  border-color: #3b82f6;
-  background: #eff6ff;
+  border-color: var(--primary);
+  background: var(--primary-light);
 }
 
 .wallet-item.selected {
-  border-color: #3b82f6;
-  background: #dbeafe;
-  color: #1e40af;
+  border-color: var(--primary);
+  background: var(--primary-border);
+  color: var(--primary-dark);
   font-weight: 500;
 }
 

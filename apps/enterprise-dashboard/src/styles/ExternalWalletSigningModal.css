@@ -143,7 +143,7 @@
 .external-wallet-signing .signing-steps ol {
   margin: 0;
   padding-left: 24px;
-  color: #1e40af;
+  color: var(--primary-dark);
   font-size: 13px;
 }
 
@@ -165,7 +165,7 @@
   height: 40px;
   margin: 0 auto 16px;
   border: 3px solid #e5e7eb;
-  border-top-color: #3b82f6;
+  border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
