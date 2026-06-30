@@ -21,6 +21,7 @@ import {
 import '../styles/Landing.css';
 
 const logoImg = '../public/images/logo.png';
+const logoWhtImg = '../public/images/logo-wht.png';
 
 /** Supported payout currencies — coin mark for USDC, real flags for fiat. */
 const CURRENCIES: Array<{ code: string; cc?: string; coin?: boolean }> = [
@@ -102,6 +103,80 @@ function StellarMark({ size = 16, light = false }: { size?: number; light?: bool
       <circle cx="23" cy="10.5" r="1.7" fill={fg} />
       <circle cx="9" cy="21.5" r="1.7" fill={fg} />
     </svg>
+  );
+}
+
+interface PayoutCardProps {
+  sendAmount?: string;
+  rateNote?: string;
+  recipientName?: string;
+  receiveAmount?: string;
+  receiveCurrency?: string;
+  flagCc?: string;
+}
+
+/** Payout product mockup — reused in the hero and final CTA, with swappable example figures. */
+function PayoutCard({
+  sendAmount = '500.00',
+  rateNote = '1 USD = 16.42 ZAR',
+  recipientName = 'Thandi',
+  receiveAmount = 'R8,210.75',
+  receiveCurrency = 'ZAR',
+  flagCc = 'za',
+}: PayoutCardProps) {
+  return (
+    <div className="hero-card">
+      <div className="hero-card-head">
+        <span className="hc-title">Payout</span>
+        <span className="hc-status">
+          <span className="hc-dot" /> Settled · 4s
+        </span>
+      </div>
+
+      <div className="hc-line">
+        <span className="hc-usd">$</span>
+        <div>
+          <div className="hc-label">You send</div>
+          <div className="hc-amount">
+            ${sendAmount} <small>USD</small>
+          </div>
+        </div>
+      </div>
+
+      <div className="hc-convert">
+        <HiOutlineArrowsRightLeft size={14} /> Converted at live rate · {rateNote}
+      </div>
+
+      <div className="hc-line hc-row-accent">
+        <span className="hc-avatar-wrap">
+          <img
+            className="hc-avatar"
+            src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=160&h=160&fit=crop&crop=faces&q=80"
+            alt=""
+            loading="lazy"
+          />
+          <img
+            className="hc-avatar-flag"
+            src={`https://flagcdn.com/${flagCc}.svg`}
+            alt=""
+            loading="lazy"
+          />
+        </span>
+        <div>
+          <div className="hc-label">{recipientName} · receives</div>
+          <div className="hc-amount hc-amount-green">
+            {receiveAmount} <small>{receiveCurrency}</small>
+          </div>
+        </div>
+      </div>
+
+      <div className="hc-foot">
+        <StellarMark size={15} /> Settled on Stellar
+        <a href="#how" className="hc-link">
+          view on explorer →
+        </a>
+      </div>
+    </div>
   );
 }
 
@@ -231,58 +306,7 @@ export default function Landing() {
 
           {/* Product mockup */}
           <div className="hero-graphic">
-            <div className="hero-card">
-              <div className="hero-card-head">
-                <span className="hc-title">Payout</span>
-                <span className="hc-status">
-                  <span className="hc-dot" /> Settled · 4s
-                </span>
-              </div>
-
-              <div className="hc-line">
-                <span className="hc-usd">$</span>
-                <div>
-                  <div className="hc-label">You send</div>
-                  <div className="hc-amount">
-                    $500.00 <small>USD</small>
-                  </div>
-                </div>
-              </div>
-
-              <div className="hc-convert">
-                <HiOutlineArrowsRightLeft size={14} /> Converted at live rate · 1 USD = 16.42 ZAR
-              </div>
-
-              <div className="hc-line hc-row-accent">
-                <span className="hc-avatar-wrap">
-                  <img
-                    className="hc-avatar"
-                    src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=160&h=160&fit=crop&crop=faces&q=80"
-                    alt=""
-                    loading="lazy"
-                  />
-                  <img
-                    className="hc-avatar-flag"
-                    src="https://flagcdn.com/za.svg"
-                    alt=""
-                    loading="lazy"
-                  />
-                </span>
-                <div>
-                  <div className="hc-label">Thandi · receives</div>
-                  <div className="hc-amount hc-amount-green">
-                    R8,210.75 <small>ZAR</small>
-                  </div>
-                </div>
-              </div>
-
-              <div className="hc-foot">
-                <StellarMark size={15} /> Settled on Stellar
-                <a href="#how" className="hc-link">
-                  view on explorer →
-                </a>
-              </div>
-            </div>
+            <PayoutCard />
           </div>
         </section>
       </div>
@@ -676,40 +700,51 @@ export default function Landing() {
 
       {/* Final CTA */}
       <section className="cta-final">
-        <div className="cta-content">
-          <h3>
-            {userType === 'enterprise'
-              ? 'Ready to pay your team, anywhere?'
-              : 'Ready to get paid instantly?'}
-          </h3>
-          <p>
-            {userType === 'enterprise'
-              ? 'Start sending cross-border payouts in minutes.'
-              : 'Create your wallet and receive payments today.'}
-          </p>
-          <div className="cta-buttons">
-            {userType === 'enterprise' ? (
-              <>
-                <Link to="/register" className="btn-final btn-final-primary">
-                  Get Started <HiOutlineArrowRight size={18} />
-                </Link>
-                <a
-                  href="mailto:sales@funti3rpay.com?subject=Enterprise%20Demo"
-                  className="btn-final btn-final-secondary"
-                >
-                  Schedule a Demo
-                </a>
-              </>
-            ) : (
-              <>
-                <Link to="/register?role=worker" className="btn-final btn-final-primary">
-                  Create Wallet Free
-                </Link>
-                <a href="mailto:support@funti3rpay.com" className="btn-final btn-final-secondary">
-                  Need Help?
-                </a>
-              </>
-            )}
+        <div className="cta-final-card">
+          <div className="cta-final-content">
+            <h3>
+              {userType === 'enterprise'
+                ? 'Ready to pay your team, anywhere?'
+                : 'Ready to get paid instantly?'}
+            </h3>
+            <p>
+              {userType === 'enterprise'
+                ? 'Start sending cross-border payouts in minutes.'
+                : 'Create your wallet and receive payments today.'}
+            </p>
+            <div className="cta-buttons">
+              {userType === 'enterprise' ? (
+                <>
+                  <Link to="/register" className="btn-final btn-final-primary">
+                    Get Started <HiOutlineArrowRight size={18} />
+                  </Link>
+                  <a
+                    href="mailto:sales@funti3rpay.com?subject=Enterprise%20Demo"
+                    className="btn-final btn-final-secondary"
+                  >
+                    Schedule a Demo
+                  </a>
+                </>
+              ) : (
+                <>
+                  <Link to="/register?role=worker" className="btn-final btn-final-primary">
+                    Create Wallet Free
+                  </Link>
+                  <a href="mailto:support@funti3rpay.com" className="btn-final btn-final-secondary">
+                    Need Help?
+                  </a>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="cta-final-graphic">
+            <PayoutCard
+              rateNote="1 USD = 1,550.40 NGN"
+              recipientName="Tunde"
+              receiveAmount="₦775,200.00"
+              receiveCurrency="NGN"
+              flagCc="ng"
+            />
           </div>
         </div>
       </section>
@@ -744,7 +779,7 @@ export default function Landing() {
       <footer className="landing-footer">
         <div className="footer-content">
           <div className="footer-section">
-            <h5>Funti3rPay</h5>
+            <img src={logoWhtImg} alt="Funti3rPay" className="footer-logo" />
             <p>Global workforce payments, settled on Stellar.</p>
             <span className="footer-powered">
               <StellarMark size={16} light /> Built on the Stellar network
