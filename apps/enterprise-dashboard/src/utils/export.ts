@@ -1,6 +1,12 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+function timestamp() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+}
+
 // ── CSV ───────────────────────────────────────────────────────────────────────
 
 function escapeCell(v: unknown): string {
@@ -15,7 +21,9 @@ function downloadBlob(blob: Blob, filename: string) {
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   URL.revokeObjectURL(url);
 }
 
@@ -104,7 +112,7 @@ const paymentRow = (p: ExportPayment) => [
 ];
 
 export function exportPaymentsCSV(payments: ExportPayment[], suffix = '') {
-  exportCSV(PAYMENT_HEADERS, payments.map(paymentRow), `funti3rpay-payments${suffix}.csv`);
+  exportCSV(PAYMENT_HEADERS, payments.map(paymentRow), `funti3rpay-payments${suffix}-${timestamp()}.csv`);
 }
 export function exportPaymentsPDF(payments: ExportPayment[], suffix = '') {
   exportPDF(
@@ -112,7 +120,7 @@ export function exportPaymentsPDF(payments: ExportPayment[], suffix = '') {
     new Date().toLocaleDateString(),
     PAYMENT_HEADERS,
     payments.map(paymentRow),
-    `funti3rpay-payments${suffix}.pdf`,
+    `funti3rpay-payments${suffix}-${timestamp()}.pdf`,
   );
 }
 
@@ -143,10 +151,10 @@ const workerRow = (w: ExportWorker) => [
 ];
 
 export function exportWorkersCSV(workers: ExportWorker[]) {
-  exportCSV(WORKER_HEADERS, workers.map(workerRow), 'funti3rpay-workers.csv');
+  exportCSV(WORKER_HEADERS, workers.map(workerRow), `funti3rpay-workers-${timestamp()}.csv`);
 }
 export function exportWorkersPDF(workers: ExportWorker[]) {
-  exportPDF('Worker Report', new Date().toLocaleDateString(), WORKER_HEADERS, workers.map(workerRow), 'funti3rpay-workers.pdf');
+  exportPDF('Worker Report', new Date().toLocaleDateString(), WORKER_HEADERS, workers.map(workerRow), `funti3rpay-workers-${timestamp()}.pdf`);
 }
 
 // ── Analytics helpers ─────────────────────────────────────────────────────────
@@ -172,7 +180,7 @@ export function exportAnalyticsCSV(summary: ExportSummary, recentPayments: Expor
   const separator = [[''], ['Recent Payments'], PAYMENT_HEADERS];
   const paymentRows = recentPayments.map(paymentRow);
   const all = [...summaryRows, ...separator, ...paymentRows];
-  exportCSV([], all, 'funti3rpay-analytics.csv');
+  exportCSV([], all, `funti3rpay-analytics-${timestamp()}.csv`);
 }
 
 export function exportAnalyticsPDF(summary: ExportSummary, recentPayments: ExportPayment[]) {
@@ -238,5 +246,5 @@ export function exportAnalyticsPDF(summary: ExportSummary, recentPayments: Expor
     );
   }
 
-  doc.save('funti3rpay-analytics.pdf');
+  doc.save(`funti3rpay-analytics-${timestamp()}.pdf`);
 }

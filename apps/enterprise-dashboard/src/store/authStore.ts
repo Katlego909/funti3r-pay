@@ -41,13 +41,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     sessionStorage.setItem('access_token', token);
     sessionStorage.setItem('auth_user', JSON.stringify(user));
     set({ user, accessToken: token });
-    console.log('[AuthStore] Session set:', { userId: user.userId, email: user.email, token: token.substring(0, 20) + '...' });
   },
 
   clearSession: () => {
     sessionStorage.removeItem('access_token');
     sessionStorage.removeItem('auth_user');
     set({ user: null, accessToken: null });
-    console.log('[AuthStore] Session cleared');
   },
 }));

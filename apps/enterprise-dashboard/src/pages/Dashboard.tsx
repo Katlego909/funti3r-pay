@@ -162,10 +162,12 @@ export default function Dashboard() {
     <div className="dashboard">
       {/* Header */}
       <div className="dashboard-header">
-        <p className="subtitle">
-          Hello, {user?.email.split('@')[0]} ·{' '}
-          {isEnterprise ? 'Overview of your payment operations' : 'Your incoming payments'}
-        </p>
+        <div className="dashboard-greeting">
+          <h2 className="greeting-name">Hello, {user?.email.split('@')[0]}</h2>
+          <p className="greeting-sub">
+            {isEnterprise ? 'Overview of your payment operations' : 'Your incoming payments'}
+          </p>
+        </div>
         {isEnterprise ? (
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             {summary && recent.length > 0 && (

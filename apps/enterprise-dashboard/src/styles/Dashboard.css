@@ -16,10 +16,25 @@
   margin-bottom: 20px;
 }
 
-.subtitle {
-  font-size: 16px;
-  color: var(--gray-700);
-  font-weight: 500;
+.dashboard-greeting {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.greeting-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.greeting-sub {
+  font-size: 13px;
+  color: var(--gray-500);
+  font-weight: 400;
+  margin: 0;
 }
 
 .btn-new-payout {

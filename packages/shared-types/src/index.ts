@@ -290,13 +290,6 @@ export interface PaymentSigningRequest {
   walletPublicKey: string;
 }
 
-export interface EncryptedSecret {
-  ciphertext: string;
-  iv: string;
-  tag: string;
-  salt: string;
-}
-
 export interface WalletDeploymentStatus {
   status: 'idle' | 'deploying' | 'deployed' | 'error';
   contractAddress?: string;

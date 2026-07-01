@@ -217,7 +217,9 @@ export async function addTrustline(
     networkPassphrase: NETWORK_PASSPHRASE,
   })
     .addOperation(
-      Operation.changeTrust({ asset: new Asset(assetCode, assetIssuer), limit: '1000000' }),
+      // 922337203685 is Stellar's max trustline limit (2^63 - 1 stroops in XLM units).
+      // Using max avoids limit exhaustion for high-denomination local currencies (e.g. UGX).
+      Operation.changeTrust({ asset: new Asset(assetCode, assetIssuer), limit: '922337203685' }),
     )
     .setTimeout(60)
     .build();
@@ -362,6 +364,26 @@ async function buildAndSubmitSoroban(
   throw new Error('Max retries exceeded');
 }
 
+// Navigate from services/payment-service/src/lib to project root
+const WASM_PATH = join(
+  __dirname,
+  '../../../../contracts/target/wasm32-unknown-unknown/release/funti3r_soroban.wasm',
+);
+let _cachedWasm: Buffer | null = null;
+function getWasmBytes(): Buffer {
+  if (!_cachedWasm) {
+    try {
+      _cachedWasm = readFileSync(WASM_PATH);
+    } catch {
+      throw new Error(
+        `SmartWallet WASM not found at ${WASM_PATH}. ` +
+        'Run: cd contracts && cargo build --target wasm32-unknown-unknown --release',
+      );
+    }
+  }
+  return _cachedWasm;
+}
+
 /**
  * Deploys a Funti3r SmartWallet Soroban contract for a worker.
  *
@@ -378,21 +400,7 @@ export async function deploySmartWallet(
     throw new Error('STELLAR_OPERATOR_SECRET is required to deploy SmartWallet contracts');
   }
 
-  // Navigate from services/payment-service/src/lib to project root
-  const wasmPath = join(
-    __dirname,
-    '../../../../contracts/target/wasm32-unknown-unknown/release/funti3r_soroban.wasm',
-  );
-
-  let wasmBytes: Buffer;
-  try {
-    wasmBytes = readFileSync(wasmPath);
-  } catch {
-    throw new Error(
-      `SmartWallet WASM not found at ${wasmPath}. ` +
-      'Run: cd contracts && cargo build --target wasm32-unknown-unknown --release',
-    );
-  }
+  const wasmBytes = getWasmBytes();
 
   const keypair = Keypair.fromSecret(operatorSecret);
   const salt = randomBytes(32);
@@ -423,9 +431,6 @@ export async function deploySmartWallet(
   }
 
   const contractAddress = Address.fromScVal(createResult.returnValue!).toString();
-
-  // Wait for contract to be fully initialized on chain before calling init
-  await new Promise(r => setTimeout(r, 2000));
 
   // 3. Initialise the contract with the worker's passkey
   logger.info('Initialising SmartWallet contract', { contractAddress });
@@ -491,6 +496,8 @@ export async function prepareUnsignedPayment(
 
 /**
  * Prepare an unsigned path payment transaction for external wallet signing.
+ * Queries the DEX to find the best route and applies `slippage` tolerance
+ * so the worker is guaranteed to receive at least (1 - slippage) × expected amount.
  */
 export async function prepareUnsignedPathPayment(
   sourcePublic: string,
@@ -498,6 +505,7 @@ export async function prepareUnsignedPathPayment(
   sendAsset: Asset,
   sendAmount: string,
   destAsset: Asset,
+  slippage = 0.05,
   memoHash?: Buffer,
 ): Promise<string> {
   logger.info('Preparing unsigned path payment', {
@@ -506,6 +514,31 @@ export async function prepareUnsignedPathPayment(
     sendAmount,
     sendAssetCode: sendAsset.code || 'XLM',
     destAssetCode: destAsset.code || 'XLM',
+  });
+
+  // Query the DEX so we can set a meaningful minimum destination amount.
+  const pathsResult = await horizon
+    .strictSendPaths(sendAsset, sendAmount, [destAsset])
+    .call();
+
+  if (!pathsResult.records || pathsResult.records.length === 0) {
+    throw new Error(
+      `No DEX path found: ${sendAsset.code || 'XLM'} → ${destAsset.code || 'XLM'} for amount ${sendAmount}`,
+    );
+  }
+
+  const best = pathsResult.records.reduce((a, b) =>
+    Number(a.destination_amount) >= Number(b.destination_amount) ? a : b,
+  );
+  const destMin = (Number(best.destination_amount) * (1 - slippage)).toFixed(7);
+  const explicitPath = (best.path || []).map((p: any) =>
+    p.asset_type === 'native' ? Asset.native() : new Asset(p.asset_code, p.asset_issuer),
+  );
+
+  logger.info('Unsigned path payment route selected', {
+    expectedDestAmount: best.destination_amount,
+    destMin,
+    hops: explicitPath.length,
   });
 
   const account = await horizon.loadAccount(sourcePublic);
@@ -527,8 +560,8 @@ export async function prepareUnsignedPathPayment(
         sendAsset,
         sendAmount,
         destAsset,
-        destMin: '0',
-        path: [],
+        destMin,
+        path: explicitPath,
       }),
     )
     .setTimeout(60)

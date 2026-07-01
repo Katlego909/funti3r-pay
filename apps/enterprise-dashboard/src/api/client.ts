@@ -1,7 +1,9 @@
 import axios from 'axios';
 
+const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+
 export const api = axios.create({
-  baseURL: 'http://localhost:3000',
+  baseURL: BASE_URL,
   withCredentials: true, // send httpOnly refresh_token cookie
 });
 
@@ -25,7 +27,7 @@ api.interceptors.response.use(
 
     if (!refreshing) {
       refreshing = axios
-        .post<{ accessToken: string }>('http://localhost:3000/api/auth/refresh', {}, { withCredentials: true })
+        .post<{ accessToken: string }>(`${BASE_URL}/api/auth/refresh`, {}, { withCredentials: true })
         .then((r) => {
           sessionStorage.setItem('access_token', r.data.accessToken);
           return r.data.accessToken;

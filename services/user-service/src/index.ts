@@ -155,12 +155,11 @@ const registerStartHandler = async (req: express.Request, res: express.Response)
     // Store the challenge for verification during register/finish
     await setJSON(`reg:${email}`, { challenge: options.challenge, role }, CHALLENGE_TTL_SEC);
 
-    console.log('[registerStart] Generated options for', email, '- Challenge:', options.challenge);
+    logger.info('register/start: options generated', { email });
 
     // Return the FULL options object as-is
     res.status(200).json(options);
   } catch (err) {
-    console.error('[registerStart] Error:', err);
     logger.error('register/start error', { error: String(err) });
     res.status(500).json({ error: 'Registration failed: ' + String(err) });
   }
@@ -187,11 +186,10 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
 
     const session = await getJSON<{ challenge: string; role: UserRole }>(`reg:${email}`);
     if (!session) {
-      console.log('[registerFinish] Challenge not found for email:', email);
+      logger.warn('register/finish: challenge not found', { email });
       return res.status(400).json({ error: 'Registration session expired. Please start again.' });
     }
 
-    console.log('[registerFinish] Challenge found, verifying credential...');
     const clientOrigin = origin || req.headers.origin || RP_ORIGIN;
     const verification = await verifyRegistrationResponse({
       response: credential as unknown as Parameters<typeof verifyRegistrationResponse>[0]['response'],
@@ -201,7 +199,7 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
       requireUserVerification: false,
     });
 
-    console.log('[registerFinish] Verification result:', { verified: verification.verified, hasInfo: !!verification.registrationInfo });
+    logger.info('register/finish: credential verified', { email, verified: verification.verified });
     if (!verification.verified || !verification.registrationInfo) {
       return res.status(400).json({ error: 'Passkey verification failed' });
     }
@@ -212,8 +210,6 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     // transports come from the client credential response, not registrationInfo in v10
     // For platform authenticators (Windows Hello), transports should be ['internal']
     const transports = (credential as { transports?: string[] }).transports ?? ['internal'];
-
-    console.log('[registerFinish] Credential transports:', transports);
 
     // Check if user already exists
     const existingUserRow = await query(
@@ -294,12 +290,11 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     const errorCode = (err as any)?.code;
     logger.error('register/finish failed', { error: errorMsg, code: errorCode, stack: err instanceof Error ? err.stack : undefined });
 
-    // Return specific error for debugging
     if (errorCode === '23505') return res.status(409).json({ error: 'Email already registered' });
     if (errorMsg.includes('challenge')) return res.status(400).json({ error: 'Invalid or expired challenge' });
-    if (errorMsg.includes('verification')) return res.status(400).json({ error: 'Passkey verification failed: ' + errorMsg });
+    if (errorMsg.includes('verification')) return res.status(400).json({ error: 'Passkey verification failed' });
 
-    res.status(500).json({ error: errorMsg || 'Internal server error' });
+    res.status(500).json({ error: process.env.NODE_ENV === 'development' ? errorMsg : 'Internal server error' });
   }
 };
 
@@ -467,7 +462,7 @@ const devLoginHandler = async (req: express.Request, res: express.Response) => {
     );
     setRefreshCookie(res, refreshToken);
 
-    logger.info('[DevLogin] Signed in without passkey', { userId, email, role });
+    logger.info('dev-login: signed in without passkey', { userId, email, role });
     res.json({ accessToken, userId, email, role });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });

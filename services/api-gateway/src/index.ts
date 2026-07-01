@@ -52,9 +52,10 @@ const authLimiter = rateLimit({
   message: { error: 'Too many auth attempts, please wait' },
 });
 
-// Rate limiting disabled for development
-// app.use(globalLimiter);
-// app.use('/auth', authLimiter);
+if (process.env.NODE_ENV !== 'development') {
+  app.use(globalLimiter);
+  app.use('/auth', authLimiter);
+}
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
@@ -86,30 +87,47 @@ app.get('/health', (_, res) => {
   res.json({ status: 'healthy', service: 'api-gateway', uptime: process.uptime() });
 });
 
+const ALLOWED_REDIRECT_ORIGINS = new Set(
+  (process.env.ALLOWED_ORIGINS?.split(',') ?? [
+    'http://localhost:3100',
+    'http://localhost:3102',
+  ]).map((o) => o.trim()),
+);
+
 app.get('/auth.html', (req, res) => {
-  const returnTo = req.query.returnTo as string || 'http://localhost:3100';
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Funti3r-Pay Authentication</title>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width">
-    </head>
-    <body style="font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;">
-      <div id="auth-app" style="text-align: center;">
-        <h1>Authenticating...</h1>
-        <p>Please wait while we set up your authentication.</p>
-      </div>
-      <script>
-        // Store returnTo in sessionStorage and load the auth app
-        sessionStorage.setItem('authReturnTo', '${returnTo}');
-        // Redirect to the actual app which will handle auth
-        window.location.href = returnTo;
-      </script>
-    </body>
-    </html>
-  `);
+  const requested = req.query.returnTo as string | undefined;
+  // Validate returnTo is an explicitly allowed origin to prevent open-redirect / XSS.
+  let returnTo = 'http://localhost:3100';
+  if (requested) {
+    try {
+      const origin = new URL(requested).origin;
+      if (ALLOWED_REDIRECT_ORIGINS.has(origin)) returnTo = requested;
+      else logger.warn('auth.html: rejected disallowed returnTo', { returnTo: requested });
+    } catch {
+      logger.warn('auth.html: rejected malformed returnTo', { returnTo: requested });
+    }
+  }
+  // JSON-encode so the value is safely embedded in a JS string literal.
+  const safeReturnTo = JSON.stringify(returnTo);
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Funti3r-Pay Authentication</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+</head>
+<body style="font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;">
+  <div style="text-align: center;">
+    <h1>Authenticating...</h1>
+    <p>Please wait while we set up your authentication.</p>
+  </div>
+  <script>
+    var dest = ${safeReturnTo};
+    sessionStorage.setItem('authReturnTo', dest);
+    window.location.href = dest;
+  </script>
+</body>
+</html>`);
 });
 
 app.get('/status', async (_, res) => {
@@ -151,10 +169,9 @@ function proxy(target: string, pathRewrite?: Record<string, string>) {
 }
 
 // Rebuild path for stripped auth routes
-app.use((req, res, next) => {
-  console.log('[GATEWAY] Incoming request:', { method: req.method, path: req.path, url: req.url });
+app.use((req, _res, next) => {
   if (req.path.match(/^\/(register|login|refresh|logout)\//)) {
-    console.log('[GATEWAY] Rebuilding path from', req.url, 'to', '/auth' + req.url);
+    logger.debug('Rebuilding auth path', { from: req.url, to: '/auth' + req.url });
     req.url = '/auth' + req.url;
   }
   next();
