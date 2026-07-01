@@ -1,12 +1,14 @@
 import { useAuthStore } from '../store/authStore.js';
 import { useNavigate } from 'react-router-dom';
 import { logout } from '../api/auth.js';
-import { HiOutlineArrowRightOnRectangle, HiOutlineCheckCircle } from 'react-icons/hi2';
+import {
+  HiOutlineArrowRightOnRectangle,
+  HiOutlineShieldCheck,
+} from 'react-icons/hi2';
 import WalletInfo from '../components/WalletInfo.js';
 
 export default function Profile() {
   const user = useAuthStore((s) => s.user);
-  const token = useAuthStore((s) => s.accessToken);
   const clearSession = useAuthStore((s) => s.clearSession);
   const navigate = useNavigate();
 
@@ -16,227 +18,91 @@ export default function Profile() {
     navigate('/login');
   }
 
-  if (!user) {
-    return (
-      <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-        <p style={{ fontSize: '1.1em', color: '#999' }}>Not logged in</p>
-      </div>
-    );
-  }
+  if (!user) return null;
 
-  const initials = user.email
-    .split('@')[0]
+  const displayName = user.email.split('@')[0];
+  const initials = displayName
     .split('.')
-    .map((part) => part[0])
+    .map((p: string) => p[0])
     .join('')
     .toUpperCase()
     .substring(0, 2);
 
   return (
-    <div style={{ maxWidth: '700px', margin: '0 auto', padding: '40px 20px' }}>
-      {/* Header Section */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: '24px',
-          marginBottom: '40px',
-          paddingBottom: '30px',
-          borderBottom: '1px solid #e5e7eb',
-        }}
-      >
-        {/* Avatar */}
-        <div
-          style={{
-            width: '80px',
-            height: '80px',
-            borderRadius: '50%',
-            backgroundColor: '#3b82f6',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            fontSize: '32px',
-            fontWeight: 'bold',
-            flexShrink: 0,
-          }}
-        >
-          {initials}
-        </div>
+    <div className="dashboard" style={{ maxWidth: 720, margin: '0 auto' }}>
 
-        {/* User Info */}
-        <div style={{ flex: 1 }}>
-          <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: '600' }}>
-            {user.email.split('@')[0]}
-          </h1>
-          <p style={{ margin: '0 0 12px 0', color: '#6b7280', fontSize: '14px' }}>
-            {user.email}
-          </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <HiOutlineCheckCircle size={18} style={{ color: '#10b981' }} />
-            <span style={{ fontSize: '14px', color: '#10b981', fontWeight: '500' }}>
-              Verified Account
-            </span>
+      {/* Header */}
+      <div className="dashboard-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: '50%', flexShrink: 0,
+            background: 'linear-gradient(135deg, var(--primary) 0%, #6d28d9 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#fff', fontSize: '1.25rem', fontWeight: 800,
+          }}>
+            {initials}
+          </div>
+          <div>
+            <h2 style={{ margin: 0 }}>{displayName}</h2>
+            <p className="subtitle" style={{ marginTop: 2 }}>{user.email}</p>
           </div>
         </div>
+        <span className={`status ${user.role === 'enterprise' ? 'completed' : 'pending'}`}
+          style={{ fontSize: '0.8rem', padding: '5px 12px' }}>
+          {user.role === 'enterprise' ? 'Enterprise' : 'Worker'}
+        </span>
       </div>
 
-      {/* Account Information Section */}
-      <div style={{ marginBottom: '40px' }}>
-        <h2 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '16px', color: '#111' }}>
-          Account Information
-        </h2>
+      {/* Account details */}
+      <section className="section" style={{ marginBottom: 14 }}>
+        <h3>Account Information</h3>
+        <table className="data-table">
+          <tbody>
+            <tr>
+              <td style={{ color: 'var(--gray-600)', width: 160, fontWeight: 600, fontSize: 13 }}>Email</td>
+              <td>{user.email}</td>
+            </tr>
+            <tr>
+              <td style={{ color: 'var(--gray-600)', fontWeight: 600, fontSize: 13 }}>Account type</td>
+              <td style={{ textTransform: 'capitalize' }}>{user.role}</td>
+            </tr>
+            <tr style={{ cursor: 'default' }}>
+              <td style={{ color: 'var(--gray-600)', fontWeight: 600, fontSize: 13 }}>User ID</td>
+              <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--gray-700)' }}>{user.userId}</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
 
-        <div
-          style={{
-            display: 'grid',
-            gap: '20px',
-            backgroundColor: '#f9fafb',
-            border: '1px solid #e5e7eb',
-            borderRadius: '8px',
-            padding: '20px',
-          }}
-        >
-          {/* Email */}
-          <div>
-            <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '6px' }}>
-              Email Address
-            </label>
-            <p style={{ margin: 0, fontSize: '15px', color: '#111', fontWeight: '500' }}>
-              {user.email}
-            </p>
-          </div>
-
-          {/* Role */}
-          <div>
-            <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '6px' }}>
-              Account Type
-            </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span
-                style={{
-                  display: 'inline-block',
-                  paddingLeft: '12px',
-                  paddingRight: '12px',
-                  paddingTop: '4px',
-                  paddingBottom: '4px',
-                  backgroundColor: '#dbeafe',
-                  color: '#1e40af',
-                  borderRadius: '4px',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  textTransform: 'capitalize',
-                }}
-              >
-                {user.role}
-              </span>
-            </div>
-          </div>
-
-          {/* User ID */}
-          <div>
-            <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '6px' }}>
-              User ID
-            </label>
-            <p
-              style={{
-                margin: 0,
-                fontSize: '13px',
-                color: '#374151',
-                fontFamily: 'monospace',
-                wordBreak: 'break-all',
-                backgroundColor: 'white',
-                padding: '8px',
-                borderRadius: '4px',
-                border: '1px solid #e5e7eb',
-              }}
-            >
-              {user.userId}
-            </p>
-          </div>
-
-          {/* Token */}
-          <div>
-            <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '6px' }}>
-              Access Token
-            </label>
-            <p
-              style={{
-                margin: 0,
-                fontSize: '13px',
-                color: '#374151',
-                fontFamily: 'monospace',
-                wordBreak: 'break-all',
-                backgroundColor: 'white',
-                padding: '8px',
-                borderRadius: '4px',
-                border: '1px solid #e5e7eb',
-              }}
-            >
-              {token ? `${token.substring(0, 30)}...` : 'No token'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Wallet Section */}
-      <div style={{ marginBottom: '40px' }}>
+      {/* Wallet */}
+      <section className="section" style={{ marginBottom: 14 }}>
+        <h3>Wallet</h3>
         <WalletInfo />
-      </div>
+      </section>
 
-      {/* Security Section */}
-      <div style={{ marginBottom: '40px' }}>
-        <h2 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '16px', color: '#111' }}>
-          Security
-        </h2>
-        <div
-          style={{
-            backgroundColor: '#f0fdf4',
-            border: '1px solid #dcfce7',
-            borderRadius: '8px',
-            padding: '16px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-          }}
-        >
-          <HiOutlineCheckCircle size={20} style={{ color: '#10b981', flexShrink: 0 }} />
+      {/* Security */}
+      <section className="section" style={{ marginBottom: 14 }}>
+        <h3>Security</h3>
+        <div className="status-item" style={{ cursor: 'default' }}>
+          <div className="status-dot completed" />
           <div>
-            <p style={{ margin: '0 0 4px 0', fontSize: '14px', fontWeight: '500', color: '#047857' }}>
-              Passkey Authentication Enabled
-            </p>
-            <p style={{ margin: 0, fontSize: '13px', color: '#059669' }}>
-              Your account is secured with WebAuthn
-            </p>
+            <div className="status-name">Passkey Authentication</div>
+            <div className="status-detail">Your account is secured with WebAuthn — no password required</div>
           </div>
+          <HiOutlineShieldCheck size={18} style={{ color: 'var(--success)', marginLeft: 'auto' }} />
         </div>
-      </div>
+      </section>
 
-      {/* Sign Out Button */}
+      {/* Sign out */}
       <button
         onClick={handleLogout}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '8px',
-          width: '100%',
-          padding: '12px 16px',
-          backgroundColor: '#ef4444',
-          color: 'white',
-          border: 'none',
-          borderRadius: '6px',
-          cursor: 'pointer',
-          fontSize: '15px',
-          fontWeight: '600',
-          transition: 'background-color 0.2s',
-        }}
-        onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#dc2626')}
-        onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#ef4444')}
+        className="btn-secondary"
+        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', justifyContent: 'center', color: 'var(--danger)', borderColor: '#fecaca' }}
       >
-        <HiOutlineArrowRightOnRectangle size={18} />
+        <HiOutlineArrowRightOnRectangle size={17} />
         Sign Out
       </button>
+
     </div>
   );
 }

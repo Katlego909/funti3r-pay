@@ -28,6 +28,7 @@ import Register from './pages/Register.js';
 import Landing from './pages/Landing.js';
 import { useAuthStore } from './store/authStore.js';
 import { logout } from './api/auth.js';
+import GlobalSearch from './components/GlobalSearch.js';
 import './App.css';
 
 function hasToken(): boolean {
@@ -143,6 +144,10 @@ function TopBar({ role, onMenuToggle }: { role: string; onMenuToggle: () => void
           <HiOutlineBars3 size={22} />
         </button>
         <span className="topbar-title">{pageTitle}</span>
+      </div>
+
+      <div className="topbar-center">
+        <GlobalSearch />
       </div>
 
       <div className="topbar-right">

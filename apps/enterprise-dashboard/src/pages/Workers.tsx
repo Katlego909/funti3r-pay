@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { HiOutlineArrowDownTray } from 'react-icons/hi2';
+import { useEffect, useState, FormEvent } from 'react';
+import { HiOutlineArrowDownTray, HiOutlineEnvelope, HiOutlineClipboard, HiCheck, HiOutlineXMark } from 'react-icons/hi2';
+import { useAuthStore } from '../store/authStore.js';
 import { getWorkerWallet, getKYCStatus, type Worker, type WorkerWallet, type KYCStatus } from '../api/workers.js';
 import { api } from '../api/client.js';
 import WorkerDetailDrawer from '../components/WorkerDetailDrawer.js';
@@ -31,6 +32,7 @@ function kycBadge(status?: string) {
 }
 
 export default function Workers() {
+  const user = useAuthStore((s) => s.user);
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -40,6 +42,43 @@ export default function Workers() {
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [actionError, setActionError] = useState('');
+
+  // Invite state
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteLink, setInviteLink] = useState('');
+  const [inviteSending, setInviteSending] = useState(false);
+  const [inviteError, setInviteError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  async function handleInvite(e: FormEvent) {
+    e.preventDefault();
+    setInviteSending(true);
+    setInviteError('');
+    setInviteLink('');
+    try {
+      const res = await api.post<{ inviteUrl: string }>('/invites', { email: inviteEmail });
+      setInviteLink(res.data.inviteUrl);
+    } catch (err: any) {
+      setInviteError(err?.response?.data?.error ?? 'Failed to create invite');
+    } finally {
+      setInviteSending(false);
+    }
+  }
+
+  function copyLink() {
+    navigator.clipboard?.writeText(inviteLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  function closeInvite() {
+    setInviteOpen(false);
+    setInviteEmail('');
+    setInviteLink('');
+    setInviteError('');
+    setCopied(false);
+  }
 
   useEffect(() => {
     api.get<{ users?: Worker[]; data?: Worker[] }>('/users?role=worker&limit=50')
@@ -127,15 +166,77 @@ export default function Workers() {
           <h2>Workers</h2>
           <p className="subtitle">Registered workers, wallets, and KYC status</p>
         </div>
-        <div className="export-btn-group">
-          <button className="btn-export" onClick={() => exportWorkersCSV(workers)}>
-            <HiOutlineArrowDownTray size={14} /> CSV
-          </button>
-          <button className="btn-export" onClick={() => exportWorkersPDF(workers)}>
-            <HiOutlineArrowDownTray size={14} /> PDF
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <div className="export-btn-group">
+            <button className="btn-export" onClick={() => exportWorkersCSV(workers)}>
+              <HiOutlineArrowDownTray size={14} /> CSV
+            </button>
+            <button className="btn-export" onClick={() => exportWorkersPDF(workers)}>
+              <HiOutlineArrowDownTray size={14} /> PDF
+            </button>
+          </div>
+          <button className="btn-primary" onClick={() => setInviteOpen(true)}>
+            <HiOutlineEnvelope size={15} /> Invite Worker
           </button>
         </div>
       </div>
+
+      {inviteOpen && (
+        <div className="modal-overlay" onClick={closeInvite}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '420px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0 }}>Invite Worker</h3>
+              <button onClick={closeInvite} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }}>
+                <HiOutlineXMark size={20} />
+              </button>
+            </div>
+            {!inviteLink ? (
+              <form onSubmit={handleInvite} className="payment-form">
+                <p style={{ fontSize: '0.85rem', color: '#6b7280', marginTop: 0 }}>
+                  Enter the worker's email. They'll receive a registration link pre-linked to your account.
+                </p>
+                <label>Worker email
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="worker@example.com"
+                    required
+                  />
+                </label>
+                {inviteError && <p className="auth-error">{inviteError}</p>}
+                <div className="form-actions">
+                  <button type="button" className="btn-secondary" onClick={closeInvite}>Cancel</button>
+                  <button type="submit" className="btn-primary" disabled={inviteSending}>
+                    {inviteSending ? 'Generating…' : 'Generate invite link'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <p style={{ fontSize: '0.85rem', color: '#065f46', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px 12px', margin: 0 }}>
+                  Invite link generated for <strong>{inviteEmail}</strong>. Send it to them — it expires in 7 days.
+                </p>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    readOnly
+                    value={inviteLink}
+                    style={{ flex: 1, fontSize: '0.78rem', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#f9fafb', fontFamily: 'monospace' }}
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                  />
+                  <button className="btn-secondary" onClick={copyLink} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    {copied ? <><HiCheck size={14} /> Copied</> : <><HiOutlineClipboard size={14} /> Copy</>}
+                  </button>
+                </div>
+                <div className="form-actions">
+                  <button className="btn-secondary" onClick={() => { setInviteLink(''); setInviteEmail(''); }}>Invite another</button>
+                  <button className="btn-primary" onClick={closeInvite}>Done</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <section className="section">
         <table className="data-table">

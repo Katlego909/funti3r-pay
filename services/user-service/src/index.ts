@@ -1,6 +1,8 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { randomBytes, createHash, randomUUID } from 'crypto';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import axios from 'axios';
 import {
   generateRegistrationOptions,
@@ -553,25 +555,25 @@ app.get('/users/summary', async (_req, res) => {
 app.get('/users', async (req, res) => {
   try {
     const role = req.query.role as string | undefined;
+    const search = req.query.search as string | undefined;
     const limit = Math.min(Number(req.query.limit ?? 50), 500);
     const offset = Number(req.query.offset ?? 0);
 
     let sql = 'SELECT id, email, role, status, country, preferred_currency, created_at FROM users';
     const params: any[] = [];
+    const conditions: string[] = [];
 
-    if (role) {
-      sql += ' WHERE role = $1';
-      params.push(role);
-    }
+    if (role) { conditions.push(`role = $${params.length + 1}`); params.push(role); }
+    if (search) { conditions.push(`(email ILIKE $${params.length + 1} OR first_name ILIKE $${params.length + 1} OR last_name ILIKE $${params.length + 1})`); params.push(`%${search}%`); }
+    if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
 
     sql += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
     params.push(limit, offset);
 
     const result = await query(sql, params);
-    const total = await query(
-      role ? 'SELECT COUNT(*) AS total FROM users WHERE role = $1' : 'SELECT COUNT(*) AS total FROM users',
-      role ? [role] : [],
-    );
+    const countParams = [...params.slice(0, params.length - 2)];
+    const countWhere = conditions.length ? ' WHERE ' + conditions.join(' AND ') : '';
+    const total = await query(`SELECT COUNT(*) AS total FROM users${countWhere}`, countParams);
 
     res.json({
       users: result.rows,
@@ -752,11 +754,105 @@ app.get('/wallets/:userId/deployment-status', async (req: express.Request, res: 
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
+// ── Worker invites ────────────────────────────────────────────────────────────
+
+app.post('/invites', async (req, res) => {
+  const requesterId = req.headers['x-user-id'] as string;
+  const requesterRole = req.headers['x-user-role'] as string;
+  if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
+
+  const { email } = req.body as { email?: string };
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Valid email required' });
+  }
+
+  const token = randomBytes(32).toString('hex');
+  try {
+    await query(
+      `INSERT INTO worker_invites (enterprise_id, email, token)
+       VALUES ($1, $2, $3)
+       ON CONFLICT DO NOTHING`,
+      [requesterId, email.toLowerCase(), token],
+    );
+    const baseUrl = process.env.APP_URL || 'http://localhost:3100';
+    const inviteUrl = `${baseUrl}/register?role=worker&invite=${token}&email=${encodeURIComponent(email)}`;
+    return res.status(201).json({ token, inviteUrl });
+  } catch (err) {
+    logger.error('Create invite failed', { error: String(err) });
+    return res.status(500).json({ error: 'Failed to create invite' });
+  }
+});
+
+app.get('/invites', async (req, res) => {
+  const requesterId = req.headers['x-user-id'] as string;
+  const requesterRole = req.headers['x-user-role'] as string;
+  if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
+
+  try {
+    const result = await query(
+      `SELECT id, email, status, created_at, expires_at FROM worker_invites
+       WHERE enterprise_id = $1 ORDER BY created_at DESC`,
+      [requesterId],
+    );
+    return res.json({ invites: result.rows });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to list invites' });
+  }
+});
+
+app.get('/invites/:token', async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT id, enterprise_id, email, status, expires_at FROM worker_invites WHERE token = $1`,
+      [req.params.token],
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Invite not found' });
+    const invite = result.rows[0];
+    if (invite.status !== 'pending' || new Date(invite.expires_at) < new Date()) {
+      return res.status(410).json({ error: 'Invite has expired or already been used' });
+    }
+    return res.json({ email: invite.email, enterpriseId: invite.enterprise_id });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to validate invite' });
+  }
+});
+
+// Called after worker registration to accept the invite and link them
+app.post('/invites/:token/accept', async (req, res) => {
+  const { workerId } = req.body as { workerId?: string };
+  if (!workerId) return res.status(400).json({ error: 'workerId required' });
+
+  try {
+    const inv = await query(
+      `UPDATE worker_invites SET status = 'accepted'
+       WHERE token = $1 AND status = 'pending' AND expires_at > NOW()
+       RETURNING enterprise_id`,
+      [req.params.token],
+    );
+    if (!inv.rows.length) return res.status(410).json({ error: 'Invite expired or already used' });
+
+    const enterpriseId = inv.rows[0].enterprise_id;
+    const entRes = await query(`SELECT id FROM enterprises WHERE user_id = $1`, [enterpriseId]);
+    if (entRes.rows.length) {
+      await query(
+        `INSERT INTO enterprise_workers (enterprise_id, worker_id)
+         VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [entRes.rows[0].id, workerId],
+      );
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    logger.error('Accept invite failed', { error: String(err) });
+    return res.status(500).json({ error: 'Failed to accept invite' });
+  }
+});
+
 async function start() {
   try {
     await initPostgres();
     logger.info('PostgreSQL connected');
-    await runInitialMigrations();
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    await runInitialMigrations(join(__dirname, '../../database/migrations'));
     await initRedis();
     logger.info('Redis connected');
   } catch (err) {

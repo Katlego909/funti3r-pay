@@ -96,7 +96,7 @@ export default function Dashboard() {
 
     async function fetchWalletBalance() {
       try {
-        const { data } = await api.get(`/wallets/${user.userId}`);
+        const { data } = await api.get(`/wallets/${user!.userId}`);
         const all: any[] = data.balances ?? [];
         const xlmBalance = all.find((b) => b.asset_type === 'native')?.balance;
         const others = all

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { HiOutlineArrowTopRightOnSquare, HiXMark, HiOutlineClipboard, HiCheck } from 'react-icons/hi2';
+import { HiOutlineArrowTopRightOnSquare, HiXMark, HiOutlineClipboard, HiCheck, HiOutlineArrowPath } from 'react-icons/hi2';
 import { api } from '../api/client.js';
 
 interface PaymentDetail {
@@ -50,11 +50,14 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState('');
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState('');
+  const [retrySuccess, setRetrySuccess] = useState(false);
 
   // mounted = in the DOM (kept during slide-out); visible = slid into view.
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!paymentId) return;
@@ -99,6 +102,35 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
     setCopied(key);
     setTimeout(() => setCopied(''), 1500);
   };
+
+  async function handleRetry() {
+    if (!p) return;
+    setRetrying(true);
+    setRetryError('');
+    setRetrySuccess(false);
+    try {
+      await api.post('/payouts', {
+        enterpriseId: p.enterprise_id,
+        workerId: p.worker_id,
+        amount: p.amount,
+        currency: p.currency,
+      });
+      setRetrySuccess(true);
+      // Reload payment details after short delay
+      setTimeout(() => {
+        setLoading(true);
+        setRetrySuccess(false);
+        api.get<PaymentDetail>(`/payouts/${paymentId}`)
+          .then((r) => setP(r.data))
+          .catch((e: any) => setError(e?.response?.data?.error ?? 'Failed to reload payment'))
+          .finally(() => setLoading(false));
+      }, 1200);
+    } catch (e: any) {
+      setRetryError(e?.response?.data?.error ?? 'Retry failed. Please try again.');
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   const color = p ? (CURRENCY_COLORS[p.currency] ?? '#374151') : '#374151';
   const isConverted = p && p.currency !== 'USDC' && p.fx_rate; // USD → local conversion happened
@@ -210,6 +242,26 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
                 </a>
                 <button onClick={() => copy(p.stellar_tx_hash!, 'tx')} className="btn-secondary" style={{ marginLeft: '8px' }}>
                   {copied === 'tx' ? 'Copied ✓' : 'Copy tx hash'}
+                </button>
+              </div>
+            )}
+
+            {p.status === 'failed' && (
+              <div style={{ marginTop: '16px' }}>
+                {retryError && (
+                  <p style={{ color: '#dc2626', fontSize: '0.82rem', marginBottom: '8px' }}>{retryError}</p>
+                )}
+                {retrySuccess && (
+                  <p style={{ color: '#16a34a', fontSize: '0.82rem', marginBottom: '8px' }}>Payment retried — reloading…</p>
+                )}
+                <button
+                  onClick={handleRetry}
+                  disabled={retrying}
+                  className="btn-primary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#f59e0b', border: 'none' }}
+                >
+                  <HiOutlineArrowPath size={15} style={{ animation: retrying ? 'spin 1s linear infinite' : undefined }} />
+                  {retrying ? 'Retrying…' : 'Retry Payment'}
                 </button>
               </div>
             )}
