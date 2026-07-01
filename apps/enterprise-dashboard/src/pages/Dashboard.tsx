@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import {
   HiOutlineUsers,
@@ -5,6 +6,7 @@ import {
   HiOutlineClock,
   HiOutlineCheckCircle,
   HiOutlineArrowTopRightOnSquare,
+  HiOutlineArrowRight,
 } from 'react-icons/hi2';
 import {
   getSummary,
@@ -73,9 +75,12 @@ function CurrencyBadges({ byCurrency }: { byCurrency: Record<string, number> }) 
 
 export default function Dashboard() {
   const user = useAuthStore((s) => s.user);
+  const isEnterprise = user?.role !== 'worker';
+
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [userCount, setUserCount] = useState<number | null>(null);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
+  const [otherBalances, setOtherBalances] = useState<Array<{ code: string; balance: string }>>([]);
   const [xlmUsd, setXlmUsd] = useState(0);
   const [fxRates, setFxRates] = useState<Record<string, number>>({});
   const [recent, setRecent] = useState<Payment[]>([]);
@@ -87,41 +92,50 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user?.userId) return;
 
-    console.log('[Dashboard] Mounting, loading data...');
-
     async function fetchWalletBalance() {
       try {
-        // Use the gateway api client (adds auth token). Enterprises don't hold a
-        // worker Stellar wallet, so this may 400 — default to 0 in that case.
         const { data } = await api.get(`/wallets/${user.userId}`);
-        const xlmBalance = data.balances?.find((b: any) => b.asset_type === 'native')?.balance;
+        const all: any[] = data.balances ?? [];
+        const xlmBalance = all.find((b) => b.asset_type === 'native')?.balance;
+        const others = all
+          .filter((b) => b.asset_code && Number(b.balance) > 0)
+          .map((b) => ({ code: b.asset_code as string, balance: b.balance as string }));
         setWalletBalance(xlmBalance ?? '0');
+        setOtherBalances(others);
       } catch {
         setWalletBalance('0');
       }
     }
 
-    Promise.all([getSummary(), getUserSummary(), getRecentPayments(8)])
-      .then(([pSummary, uSummary, payments]) => {
-        console.log('[Dashboard] Data loaded:', { pSummary, uSummary, payments });
-        setSummary(pSummary);
-        setUserCount(uSummary.total);
-        setRecent(payments);
-      })
-      .catch((err) => {
-        console.error('[Dashboard] Error loading data:', err);
-        setError(err.message ?? 'Failed to load dashboard');
-      })
+    const summaryFetch = isEnterprise
+      ? Promise.all([getSummary(), getUserSummary(), getRecentPayments(8)]).then(
+          ([pSummary, uSummary, payments]) => {
+            setSummary(pSummary);
+            setUserCount(uSummary.total);
+            setRecent(payments);
+          }
+        )
+      : Promise.all([getSummary(), getRecentPayments(8)]).then(([pSummary, payments]) => {
+          setSummary(pSummary);
+          setRecent(payments);
+        });
+
+    summaryFetch
+      .catch((err) => setError(err.message ?? 'Failed to load dashboard'))
       .finally(() => setLoading(false));
 
     fetchWalletBalance();
     getXlmPrice().then(setXlmUsd);
     getFxRates().then(setFxRates);
-    // Recent rows for the charts (more than the 8-row table needs).
-    listPayments({ enterpriseId: user.userId, limit: 200 })
+
+    const chartQuery = isEnterprise
+      ? listPayments({ enterpriseId: user.userId, limit: 200 })
+      : listPayments({ workerId: user.userId, limit: 200 });
+
+    chartQuery
       .then(({ payments }) => setChartPayments(payments))
       .catch(() => setChartPayments([]));
-  }, [user]);
+  }, [user, isEnterprise]);
 
   if (loading) return <div className="loading">Loading dashboard…</div>;
   if (error) return <div className="error-banner">{error}</div>;
@@ -136,11 +150,9 @@ export default function Dashboard() {
       ? `≈ $${(xlm * xlmUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : '';
   const balanceXlm = walletBalance ? parseFloat(walletBalance) : 0;
-  // Currency unit / percent rendered smaller than the number so large amounts
-  // don't get clipped (em scales with the metric font size).
-  const unit = (label: string) => (
+  const unit = (lbl: string) => (
     <span style={{ fontSize: '0.5em', fontWeight: 600, marginLeft: '0.2em', opacity: 0.85 }}>
-      {label}
+      {lbl}
     </span>
   );
   const fmtMoney = (n: number) =>
@@ -148,81 +160,119 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard">
+      {/* Header */}
       <div className="dashboard-header">
-        <div className="dashboard-title">
-          <h2>Dashboard</h2>
-          <p>Hello, {user.email.split('@')[0]}</p>
-        </div>
-
-        <p className="subtitle">Overview of your payment operations</p>
+        <p className="subtitle">
+          Hello, {user.email.split('@')[0]} ·{' '}
+          {isEnterprise ? 'Overview of your payment operations' : 'Your incoming payments'}
+        </p>
+        {isEnterprise ? (
+          <Link to="/payments" className="btn-new-payout">
+            New Payout <HiOutlineArrowRight size={16} />
+          </Link>
+        ) : (
+          <Link to="/wallet" className="btn-new-payout">
+            My Wallet <HiOutlineArrowRight size={16} />
+          </Link>
+        )}
       </div>
 
+      {/* Metric cards */}
       <div className="metrics-grid">
-        <div className="metric-card">
+        {/* Wallet Balance */}
+        <div className="metric-card" data-accent="orange">
           <div className="metric-header">
-            <HiOutlineBanknotes size={20} className="metric-icon" />
+            <span className="metric-icon"><HiOutlineBanknotes size={18} /></span>
             <h3>Wallet Balance</h3>
           </div>
-          <div className="metric-value" style={{ color: '#3b82f6', whiteSpace: 'nowrap' }}>
-            {walletBalance ? (
-              <>
-                {fmtXlm(balanceXlm)}
-                {unit('XLM')}
-              </>
-            ) : (
-              '—'
-            )}
+          <div className="metric-value" style={{ whiteSpace: 'nowrap' }}>
+            {walletBalance ? <>{fmtXlm(balanceXlm)}{unit('XLM')}</> : '—'}
           </div>
+          {!isEnterprise && otherBalances.map((b) => (
+            <div key={b.code} className="metric-value"
+              style={{ color: 'var(--success)', fontSize: '1rem', whiteSpace: 'nowrap' }}>
+              {fmtXlm(parseFloat(b.balance))}{unit(b.code)}
+            </div>
+          ))}
           {walletBalance && xlmUsd > 0 && (
-            <div className="metric-change neutral">{fmtUsd(balanceXlm)}</div>
+            <div className="metric-change">{fmtUsd(balanceXlm)}</div>
           )}
         </div>
 
-        <div className="metric-card">
+        {/* Total Payments */}
+        <div className="metric-card" data-accent="green">
           <div className="metric-header">
-            <HiOutlineBanknotes size={20} className="metric-icon" />
-            <h3>Total Payments</h3>
+            <span className="metric-icon"><HiOutlineBanknotes size={18} /></span>
+            <h3>{isEnterprise ? 'Total Payments' : 'Total Received'}</h3>
           </div>
           <div className="metric-value" style={{ whiteSpace: 'nowrap' }}>
             {summary ? `$${fmtMoney(summary.completedVolumeUsd)}` : '—'}
           </div>
-          <div className="metric-change neutral">{summary?.totalCount ?? 0} transactions</div>
+          <div className="metric-change">{summary?.totalCount ?? 0} transactions</div>
           {summary && <CurrencyBadges byCurrency={summary.byCurrency} />}
         </div>
 
-        <div className="metric-card">
-          <div className="metric-header">
-            <HiOutlineClock size={20} className="metric-icon" />
-            <h3>Pending / Processing</h3>
-          </div>
-          <div className="metric-value">{pending + processing}</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-header">
-            <HiOutlineCheckCircle size={20} className="metric-icon" />
-            <h3>Success Rate</h3>
-          </div>
-          <div className="metric-value">
-            {summary ? (
-              <>
-                {summary.successRate}
-                {unit('%')}
-              </>
-            ) : (
-              '—'
+        {/* Enterprise: Total Workers / Worker: Pending */}
+        {isEnterprise ? (
+          <div className="metric-card" data-accent="purple">
+            <div className="metric-header">
+              <span className="metric-icon"><HiOutlineUsers size={18} /></span>
+              <h3>Total Workers</h3>
+            </div>
+            <div className="metric-value">{userCount ?? '—'}</div>
+            {userCount !== null && (
+              <div className="metric-change">registered workers</div>
             )}
           </div>
-        </div>
+        ) : (
+          <div className="metric-card" data-accent="warning">
+            <div className="metric-header">
+              <span className="metric-icon"><HiOutlineClock size={18} /></span>
+              <h3>Pending</h3>
+            </div>
+            <div className="metric-value">{pending + processing}</div>
+            {(pending + processing) > 0 && (
+              <div className="metric-change">awaiting settlement</div>
+            )}
+          </div>
+        )}
+
+        {/* Enterprise: Success Rate / Worker: Completed payments */}
+        {isEnterprise ? (
+          <div className="metric-card" data-accent="warning">
+            <div className="metric-header">
+              <span className="metric-icon"><HiOutlineCheckCircle size={18} /></span>
+              <h3>Success Rate</h3>
+            </div>
+            <div className="metric-value">
+              {summary ? <>{summary.successRate}{unit('%')}</> : '—'}
+            </div>
+          </div>
+        ) : (
+          <div className="metric-card" data-accent="purple">
+            <div className="metric-header">
+              <span className="metric-icon"><HiOutlineCheckCircle size={18} /></span>
+              <h3>Completed</h3>
+            </div>
+            <div className="metric-value">
+              {summary?.byStatus['completed'] ?? '—'}
+            </div>
+            <div className="metric-change">payments received</div>
+          </div>
+        )}
       </div>
 
+      {/* Charts */}
       <InsightsCharts
         payments={chartPayments}
         xlmUsd={xlmUsd}
         fx={fxRates}
         byStatus={summary?.byStatus ?? {}}
+        byCurrency={summary?.byCurrency ?? {}}
+        isWorker={!isEnterprise}
       />
 
+      {/* Recent transactions + breakdown */}
       <div className="content-grid">
         <section className="section">
           <h3>Recent Transactions</h3>
@@ -233,7 +283,7 @@ export default function Dashboard() {
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>Worker</th>
+                  <th>{isEnterprise ? 'Worker' : 'From'}</th>
                   <th>Amount</th>
                   <th>Rail</th>
                   <th>Status</th>
@@ -246,9 +296,7 @@ export default function Dashboard() {
                   <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
                     <td>#{p.id.slice(0, 8)}</td>
                     <td>{p.worker_email ?? p.worker_id.slice(0, 8)}</td>
-                    <td>
-                      {p.amount} {p.currency}
-                    </td>
+                    <td>{p.amount} {p.currency}</td>
                     <td>{p.rail ?? 'stellar'}</td>
                     <td>
                       <span className={`status ${statusClass(p.status)}`}>{p.status}</span>
@@ -282,12 +330,8 @@ export default function Dashboard() {
                 <div className="status-item" key={status}>
                   <div className={`status-dot ${statusClass(status)}`} />
                   <div>
-                    <div className="status-name" style={{ textTransform: 'capitalize' }}>
-                      {status}
-                    </div>
-                    <div className="status-detail">
-                      {count} transaction{count !== 1 ? 's' : ''}
-                    </div>
+                    <div className="status-name" style={{ textTransform: 'capitalize' }}>{status}</div>
+                    <div className="status-detail">{count} transaction{count !== 1 ? 's' : ''}</div>
                   </div>
                   <div className="status-badge">{count}</div>
                 </div>

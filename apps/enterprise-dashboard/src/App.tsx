@@ -8,13 +8,17 @@ import {
   HiOutlineBars3,
   HiOutlineArrowRightOnRectangle,
   HiOutlineUser,
+  HiOutlineCog6Tooth,
+  HiOutlineLifebuoy,
+  HiOutlineChevronDown,
 } from 'react-icons/hi2';
 import { useState, useEffect } from 'react';
 import Dashboard from './pages/Dashboard.js';
 import Payments from './pages/Payments.js';
 import Workers from './pages/Workers.js';
 import Profile from './pages/Profile.js';
-import WorkerDashboard from './pages/WorkerDashboard.js';
+import Settings from './pages/Settings.js';
+import Support from './pages/Support.js';
 import WorkerProfile from './pages/WorkerProfile.js';
 import Wallet from './pages/Wallet.js';
 import KYC from './pages/KYC.js';
@@ -26,11 +30,9 @@ import { useAuthStore } from './store/authStore.js';
 import { logout } from './api/auth.js';
 import './App.css';
 
-// Fallback: check sessionStorage directly if store is out of sync
 function hasToken(): boolean {
   const storeToken = useAuthStore.getState().accessToken;
   if (storeToken) return true;
-  // Fallback: check sessionStorage directly
   const sessionToken = sessionStorage.getItem('access_token');
   if (sessionToken) {
     console.warn('[Auth] Token in sessionStorage but not in store, syncing...');
@@ -51,6 +53,8 @@ const ENTERPRISE_LINKS = [
   { to: '/', icon: HiOutlineChartBar, label: 'Dashboard' },
   { to: '/payments', icon: HiOutlineArrowPathRoundedSquare, label: 'Payments' },
   { to: '/workers', icon: HiOutlineUsers, label: 'Workers' },
+  { to: '/settings', icon: HiOutlineCog6Tooth, label: 'Settings' },
+  { to: '/support', icon: HiOutlineLifebuoy, label: 'Support' },
 ];
 
 const WORKER_LINKS = [
@@ -58,13 +62,14 @@ const WORKER_LINKS = [
   { to: '/payments', icon: HiOutlineArrowPathRoundedSquare, label: 'Payment History' },
   { to: '/wallet', icon: HiOutlineBanknotes, label: 'Wallet' },
   { to: '/kyc', icon: HiOutlineShieldCheck, label: 'KYC' },
+  { to: '/settings', icon: HiOutlineCog6Tooth, label: 'Settings' },
+  { to: '/support', icon: HiOutlineLifebuoy, label: 'Support' },
 ];
 
-function NavBar({ role }: { role: string }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const user = useAuthStore((s) => s.user);
-  const clearSession = useAuthStore((s) => s.clearSession);
+function Sidebar({ role, isOpen, onClose }: { role: string; isOpen: boolean; onClose: () => void }) {
   const links = role === 'worker' ? WORKER_LINKS : ENTERPRISE_LINKS;
+  const location = useLocation();
+  const clearSession = useAuthStore((s) => s.clearSession);
 
   async function handleLogout() {
     await logout();
@@ -72,67 +77,140 @@ function NavBar({ role }: { role: string }) {
   }
 
   return (
-    <header className="header">
-      <div className="header-container">
-        <div className="logo">
-          <img src="/images/logo.png" alt="Funti3rPay" className="logo-image" />
+    <>
+      {isOpen && <div className="sidebar-overlay" onClick={onClose} />}
+      <aside className={`sidebar${isOpen ? ' open' : ''}`}>
+        <div className="sidebar-logo">
+          <img src="/images/logo-wht.png" alt="Funti3rPay" />
         </div>
-        <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>
-          <HiOutlineBars3 size={24} />
-        </button>
-        <nav className={`nav ${menuOpen ? 'open' : ''}`}>
+        <nav className="sidebar-nav">
           {links.map(({ to, icon: Icon, label }) => (
-            <Link key={to} to={to} className="nav-link" onClick={() => setMenuOpen(false)}>
+            <Link
+              key={to}
+              to={to}
+              className={`sidebar-link${location.pathname === to ? ' active' : ''}`}
+              onClick={onClose}
+            >
               <Icon size={18} />
               <span>{label}</span>
             </Link>
           ))}
-          {user && (
+        </nav>
+        <div className="sidebar-footer">
+          <button className="sidebar-signout" onClick={handleLogout}>
+            <HiOutlineArrowRightOnRectangle size={18} />
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function TopBar({ role, onMenuToggle }: { role: string; onMenuToggle: () => void }) {
+  const user = useAuthStore((s) => s.user);
+  const clearSession = useAuthStore((s) => s.clearSession);
+  const location = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const allLinks = role === 'worker' ? WORKER_LINKS : ENTERPRISE_LINKS;
+  const currentLink = allLinks.find((l) => l.to === location.pathname);
+  const pageTitle = currentLink?.label ?? 'Funti3rPay';
+
+  const email = user?.email ?? '';
+  const initials = email.split('@')[0].slice(0, 2).toUpperCase() || 'U';
+  const displayName = email.split('@')[0];
+
+  async function handleLogout() {
+    await logout();
+    clearSession();
+  }
+
+  return (
+    <header className="topbar">
+      <div className="topbar-left">
+        <button className="topbar-hamburger" onClick={onMenuToggle} aria-label="Toggle menu">
+          <HiOutlineBars3 size={22} />
+        </button>
+        <span className="topbar-title">{pageTitle}</span>
+      </div>
+
+      <div className="topbar-right">
+        <div className="user-menu">
+          <button className="user-menu-btn" onClick={() => setMenuOpen(!menuOpen)}>
+            <span className="user-avatar">{initials}</span>
+            <div className="user-meta">
+              <span className="user-meta-name">{displayName}</span>
+              <span className="user-meta-role">{user?.role ?? 'enterprise'}</span>
+            </div>
+            <HiOutlineChevronDown size={14} style={{ color: 'var(--gray-600)', flexShrink: 0 }} />
+          </button>
+
+          {menuOpen && (
             <>
-              <Link to="/profile" className="nav-link" onClick={() => setMenuOpen(false)}>
-                <HiOutlineUser size={18} />
-                <span>Profile</span>
-              </Link>
-              <button className="nav-link" onClick={handleLogout} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-                <HiOutlineArrowRightOnRectangle size={18} />
-                <span>Sign Out</span>
-              </button>
+              <div
+                style={{ position: 'fixed', inset: 0, zIndex: 150 }}
+                onClick={() => setMenuOpen(false)}
+              />
+              <div className="user-dropdown">
+                <div className="dropdown-header">
+                  <div className="dropdown-email">{email}</div>
+                </div>
+                <Link to="/profile" className="dropdown-item" onClick={() => setMenuOpen(false)}>
+                  <HiOutlineUser size={15} /> Profile
+                </Link>
+                <Link to="/settings" className="dropdown-item" onClick={() => setMenuOpen(false)}>
+                  <HiOutlineCog6Tooth size={15} /> Settings
+                </Link>
+                <div className="dropdown-divider" />
+                <button className="dropdown-item dropdown-item-danger" onClick={handleLogout}>
+                  <HiOutlineArrowRightOnRectangle size={15} /> Sign out
+                </button>
+              </div>
             </>
           )}
-        </nav>
+        </div>
       </div>
     </header>
   );
 }
 
-/** Authenticated app shell — picks nav + pages by the user's role. */
 function AuthedApp({ role }: { role: string }) {
   const isWorker = role === 'worker';
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
-    <>
-      <NavBar role={role} />
-      <main className="main">
-        <Routes>
-          {isWorker ? (
-            <>
-              <Route path="/" element={<ProtectedRoute><WorkerDashboard /></ProtectedRoute>} />
-              <Route path="/payments" element={<ProtectedRoute><PaymentHistory /></ProtectedRoute>} />
-              <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
-              <Route path="/kyc" element={<ProtectedRoute><KYC /></ProtectedRoute>} />
-              <Route path="/profile" element={<ProtectedRoute><WorkerProfile /></ProtectedRoute>} />
-            </>
-          ) : (
-            <>
-              <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-              <Route path="/payments" element={<ProtectedRoute><Payments /></ProtectedRoute>} />
-              <Route path="/workers" element={<ProtectedRoute><Workers /></ProtectedRoute>} />
-              <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-            </>
-          )}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
-    </>
+    <div className="app-shell">
+      <Sidebar role={role} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="content-area">
+        <TopBar role={role} onMenuToggle={() => setSidebarOpen((o) => !o)} />
+        <main className="main">
+          <Routes>
+            {isWorker ? (
+              <>
+                <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                <Route path="/payments" element={<ProtectedRoute><PaymentHistory /></ProtectedRoute>} />
+                <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
+                <Route path="/kyc" element={<ProtectedRoute><KYC /></ProtectedRoute>} />
+                <Route path="/profile" element={<ProtectedRoute><WorkerProfile /></ProtectedRoute>} />
+                <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="/support" element={<ProtectedRoute><Support /></ProtectedRoute>} />
+              </>
+            ) : (
+              <>
+                <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                <Route path="/payments" element={<ProtectedRoute><Payments /></ProtectedRoute>} />
+                <Route path="/workers" element={<ProtectedRoute><Workers /></ProtectedRoute>} />
+                <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+                <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="/support" element={<ProtectedRoute><Support /></ProtectedRoute>} />
+              </>
+            )}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+      </div>
+    </div>
   );
 }
 
@@ -146,7 +224,6 @@ export default function App() {
     console.log('[App] Initialized, current auth:', { hasToken: !!token, hasUser: !!user });
   }, [initializeFromStorage]);
 
-  // Use both store token and fallback check
   const isAuthenticated = token || hasToken();
   const role = user?.role ?? 'enterprise';
 

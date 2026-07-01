@@ -5,7 +5,6 @@ import {
   HiOutlineShieldCheck,
   HiOutlineGlobeAlt,
   HiOutlineCurrencyDollar,
-  HiOutlineCheckCircle,
   HiOutlineBars3,
   HiOutlineXMark,
   HiOutlineUserGroup,
@@ -73,35 +72,17 @@ function UsdcMark({ size = 22 }: { size?: number }) {
   );
 }
 
-/** Stellar network mark (orbit). */
+/** Stellar network mark — official logo. */
 function StellarMark({ size = 16, light = false }: { size?: number; light?: boolean }) {
-  const bg = light ? '#fff' : '#0e1014';
-  const fg = light ? '#0e1014' : '#fff';
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 32 32"
+      viewBox="0 0 24 24"
       aria-hidden
-      style={{ display: 'block', borderRadius: '50%' }}
+      style={{ display: 'block', fill: light ? '#ffffff' : 'currentColor' }}
     >
-      <circle cx="16" cy="16" r="16" fill={bg} />
-      <path
-        d="M7 13c5-3 11 1 17-2.5"
-        stroke={fg}
-        strokeWidth="1.7"
-        fill="none"
-        strokeLinecap="round"
-      />
-      <path
-        d="M8 21.5c6-3.5 12 1 17-2.5"
-        stroke={fg}
-        strokeWidth="1.7"
-        fill="none"
-        strokeLinecap="round"
-      />
-      <circle cx="23" cy="10.5" r="1.7" fill={fg} />
-      <circle cx="9" cy="21.5" r="1.7" fill={fg} />
+      <path d="M12.283 1.851A10.154 10.154 0 001.846 12.002c0 .259.01.516.03.773A1.847 1.847 0 01.872 14.56L0 15.005v2.074l2.568-1.309.832-.424.82-.417 14.71-7.496 1.653-.842L24 4.85V2.776l-3.387 1.728-2.89 1.473-13.955 7.108a8.376 8.376 0 01-.07-1.086 8.313 8.313 0 0112.366-7.247l1.654-.843.247-.126a10.154 10.154 0 00-5.682-1.932zM24 6.925L5.055 16.571l-1.653.844L0 19.15v2.072L3.378 19.5l2.89-1.473 13.97-7.117a8.474 8.474 0 01.07 1.092A8.313 8.313 0 017.93 19.248l-.101.054-1.793.914a10.154 10.154 0 0016.119-8.214c0-.26-.01-.522-.03-.78a1.848 1.848 0 011.003-1.785L24 8.992Z" />
     </svg>
   );
 }
@@ -585,115 +566,6 @@ export default function Landing() {
             </div>
             <h5>Compliance built-in</h5>
             <p>KYC verification before payouts.</p>
-          </div>
-        </div>
-      </section>
-
-      {/* Pricing */}
-      <section className="pricing">
-        <div className="section-header">
-          <h3>Simple, transparent pricing</h3>
-          <p>
-            {userType === 'enterprise'
-              ? 'Custom pricing built around your volume.'
-              : 'No hidden fees. Scale as you grow.'}
-          </p>
-        </div>
-        <div className={`pricing-grid ${userType === 'enterprise' ? 'pricing-grid-single' : ''}`}>
-          {userType === 'worker' && (
-            <>
-              <div className="pricing-card">
-                <div className="pricing-header">
-                  <h4>Starter</h4>
-                  <p className="pricing-desc">Perfect for small teams</p>
-                </div>
-                <div className="pricing-amount">
-                  <span className="amount">1.5%</span>
-                  <span className="per">per transaction</span>
-                </div>
-                <ul className="pricing-features">
-                  <li>
-                    <HiOutlineCheckCircle size={16} /> Up to 100 workers
-                  </li>
-                  <li>
-                    <HiOutlineCheckCircle size={16} /> Multi-currency payouts
-                  </li>
-                  <li>
-                    <HiOutlineCheckCircle size={16} /> Dashboard analytics
-                  </li>
-                  <li>
-                    <HiOutlineCheckCircle size={16} /> Email support
-                  </li>
-                </ul>
-                <button className="pricing-cta">Get Started</button>
-              </div>
-              <div className="pricing-card featured">
-                <div className="featured-badge">Popular</div>
-                <div className="pricing-header">
-                  <h4>Growth</h4>
-                  <p className="pricing-desc">For scaling companies</p>
-                </div>
-                <div className="pricing-amount">
-                  <span className="amount">1.2%</span>
-                  <span className="per">per transaction</span>
-                </div>
-                <ul className="pricing-features">
-                  <li>
-                    <HiOutlineCheckCircle size={16} /> Unlimited workers
-                  </li>
-                  <li>
-                    <HiOutlineCheckCircle size={16} /> Batch payouts
-                  </li>
-                  <li>
-                    <HiOutlineCheckCircle size={16} /> API access
-                  </li>
-                  <li>
-                    <HiOutlineCheckCircle size={16} /> Priority support
-                  </li>
-                </ul>
-                <button className="pricing-cta">Get Started</button>
-              </div>
-            </>
-          )}
-          <div className="pricing-card">
-            <div className="pricing-header">
-              <h4>{userType === 'enterprise' ? 'Custom Enterprise' : 'Enterprise'}</h4>
-              <p className="pricing-desc">
-                {userType === 'enterprise' ? 'Tailored to your business' : 'Custom solutions'}
-              </p>
-            </div>
-            <div className="pricing-amount">
-              <span className="amount">Custom</span>
-              <span className="per">volume pricing</span>
-            </div>
-            <ul className="pricing-features">
-              <li>
-                <HiOutlineCheckCircle size={16} /> Custom rates
-              </li>
-              <li>
-                <HiOutlineCheckCircle size={16} /> Dedicated support
-              </li>
-              <li>
-                <HiOutlineCheckCircle size={16} /> SLA guarantee
-              </li>
-              {userType === 'enterprise' && (
-                <li>
-                  <HiOutlineCheckCircle size={16} /> API integration
-                </li>
-              )}
-              {userType === 'enterprise' && (
-                <li>
-                  <HiOutlineCheckCircle size={16} /> White-label options
-                </li>
-              )}
-            </ul>
-            <a
-              href="mailto:sales@funti3rpay.com?subject=Enterprise%20Pricing%20Inquiry"
-              className="pricing-cta"
-              style={{ textDecoration: 'none' }}
-            >
-              Contact Sales
-            </a>
           </div>
         </div>
       </section>

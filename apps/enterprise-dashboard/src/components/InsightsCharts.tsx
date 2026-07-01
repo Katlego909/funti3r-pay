@@ -6,7 +6,7 @@ import type { Payment } from '../api/payments.js';
 
 const STATUS_COLORS: Record<string, string> = {
   completed: '#16a34a', failed: '#dc2626', pending: '#d97706',
-  initiated: '#3b82f6', submitted: '#3b82f6', cancelled: '#9ca3af',
+  initiated: '#7c3aed', submitted: '#7c3aed', cancelled: '#9ca3af',
 };
 
 /**
@@ -52,66 +52,105 @@ function dailyUsd(payments: Payment[], xlmUsd: number, fx: Record<string, number
 
 const fmtUsd = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
+const CURRENCY_COLORS: Record<string, string> = {
+  XLM: '#7c3aed', USDC: '#16a34a', NGN: '#f59e0b',
+  KES: '#8b5cf6', GHS: '#ec4899', ZAR: '#06b6d4', UGX: '#ef4444',
+};
+
 export default function InsightsCharts({
-  payments, xlmUsd, byStatus = {}, fx = {},
+  payments, xlmUsd, byStatus = {}, byCurrency = {}, fx = {}, isWorker = false,
 }: {
   payments: Payment[];
   xlmUsd: number;
   byStatus?: Record<string, number>;
+  byCurrency?: Record<string, number>;
   fx?: Record<string, number>;
+  isWorker?: boolean;
 }) {
   const series = dailyUsd(payments, xlmUsd, fx);
   const hasVolume = series.some((d) => d.usd > 0);
   const statusData = Object.entries(byStatus)
     .map(([name, value]) => ({ name, value }))
     .filter((d) => d.value > 0);
+  const currencyData = Object.entries(byCurrency)
+    .map(([name, value]) => ({ name, value: Number(value) }))
+    .filter((d) => d.value > 0);
+
+  const chartColor = isWorker ? '#16a34a' : '#7c3aed';
+  const chartTitle = isWorker ? 'Received (USD · 14 days)' : 'Payout Volume (USD · 14 days)';
+  const emptyText = isWorker
+    ? 'No payments received in the last 14 days.'
+    : 'No completed payouts in the last 14 days.';
 
   return (
     <div className="content-grid">
       <section className="section">
-        <h3>Payout Volume (USD · 14 days)</h3>
+        <h3>{chartTitle}</h3>
         {hasVolume ? (
           <ResponsiveContainer width="100%" height={240}>
             <AreaChart data={series} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="volFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
+                  <stop offset="0%" stopColor={chartColor} stopOpacity={0.3} />
+                  <stop offset="100%" stopColor={chartColor} stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} width={48}
                 tickFormatter={(v) => `$${v}`} />
-              <Tooltip formatter={(v: number) => [fmtUsd(v), 'Volume']} />
-              <Area type="monotone" dataKey="usd" stroke="#3b82f6" strokeWidth={2} fill="url(#volFill)" />
+              <Tooltip formatter={(v: number) => [fmtUsd(v), isWorker ? 'Received' : 'Volume']} />
+              <Area type="monotone" dataKey="usd" stroke={chartColor} strokeWidth={2} fill="url(#volFill)" />
             </AreaChart>
           </ResponsiveContainer>
         ) : (
-          <p className="empty-state">No completed payouts in the last 14 days.</p>
+          <p className="empty-state">{emptyText}</p>
         )}
       </section>
 
-      <section className="section">
-        <h3>Payments by Status</h3>
-        {statusData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%"
-                innerRadius={55} outerRadius={85} paddingAngle={2}>
-                {statusData.map((d) => (
-                  <Cell key={d.name} fill={STATUS_COLORS[d.name] ?? '#9ca3af'} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(v: number, n: string) => [v, n]} />
-              <Legend verticalAlign="bottom" height={24} iconType="circle"
-                formatter={(v) => <span style={{ fontSize: 12, textTransform: 'capitalize', color: '#374151' }}>{v}</span>} />
-            </PieChart>
-          </ResponsiveContainer>
-        ) : (
-          <p className="empty-state">No payments yet.</p>
-        )}
-      </section>
+      {isWorker ? (
+        <section className="section">
+          <h3>Received by Currency</h3>
+          {currencyData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <PieChart>
+                <Pie data={currencyData} dataKey="value" nameKey="name" cx="50%" cy="50%"
+                  innerRadius={55} outerRadius={85} paddingAngle={2}>
+                  {currencyData.map((d) => (
+                    <Cell key={d.name} fill={CURRENCY_COLORS[d.name] ?? '#9ca3af'} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(v: number, n: string) => [v.toLocaleString(undefined, { maximumFractionDigits: 2 }), n]} />
+                <Legend verticalAlign="bottom" height={24} iconType="circle"
+                  formatter={(v) => <span style={{ fontSize: 12, color: '#374151' }}>{v}</span>} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="empty-state">No payments received yet.</p>
+          )}
+        </section>
+      ) : (
+        <section className="section">
+          <h3>Payments by Status</h3>
+          {statusData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <PieChart>
+                <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%"
+                  innerRadius={55} outerRadius={85} paddingAngle={2}>
+                  {statusData.map((d) => (
+                    <Cell key={d.name} fill={STATUS_COLORS[d.name] ?? '#9ca3af'} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(v: number, n: string) => [v, n]} />
+                <Legend verticalAlign="bottom" height={24} iconType="circle"
+                  formatter={(v) => <span style={{ fontSize: 12, textTransform: 'capitalize', color: '#374151' }}>{v}</span>} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="empty-state">No payments yet.</p>
+          )}
+        </section>
+      )}
     </div>
   );
 }

@@ -1973,10 +1973,35 @@ h1, h2, h3, h4, h5, h6 {
    ============================================================ */
 
 /* Solid backgrounds (were gradients) */
-.hero-bg { background: #ffffff; }
+.hero-bg {
+  background: #ffffff;
+  border-bottom-color: transparent;
+  padding: 40px 24px 48px;
+}
+.hero {
+  background: var(--dark);
+  border-radius: 28px;
+}
 .hero-graphic::before { display: none; }
 .hc-usd { background: #16a34a; }
 .step-icon { background: var(--primary-light); }
+
+/* Hero dark-background text + button overrides */
+.hero-content h2 { color: #ffffff; }
+.hero-content > p { color: #94a3b8; }
+.btn-hero-secondary {
+  background: transparent;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.45);
+}
+.btn-hero-secondary:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+@media (max-width: 768px) {
+  .hero-bg { padding: 0 16px 32px; }
+  .hero { border-radius: 20px; }
+}
 
 /* Trust band — solid color, flat text */
 .trust { background: var(--dark); }
