@@ -2,8 +2,10 @@ import {
   Horizon,
   Keypair,
   Asset,
+  Claimant,
   Operation,
   TransactionBuilder,
+  Transaction,
   Networks,
   rpc,
   Contract,
@@ -114,15 +116,42 @@ export async function pathPaymentStrictSend(
   sendAsset: Asset,
   sendAmount: string,
   destAsset: Asset,
+  slippage = 0.02,
   memoHash?: Buffer,
 ): Promise<string> {
   const sourceKeypair = Keypair.fromSecret(sourceSecret);
-  logger.info('Preparing path payment', {
+
+  // Discover the best DEX route and expected output before building the tx.
+  const pathsResult = await horizon
+    .strictSendPaths(sendAsset, sendAmount, [destAsset])
+    .call();
+
+  if (!pathsResult.records || pathsResult.records.length === 0) {
+    throw new Error(
+      `No DEX path found: ${sendAsset.code || 'XLM'} → ${destAsset.code || 'XLM'} for amount ${sendAmount}`,
+    );
+  }
+
+  // Pick the path that delivers the most to the destination.
+  const best = pathsResult.records.reduce((a, b) =>
+    Number(a.destination_amount) >= Number(b.destination_amount) ? a : b,
+  );
+
+  // Guard against slippage: reject if the network moves more than `slippage` against us.
+  const destMin = (Number(best.destination_amount) * (1 - slippage)).toFixed(7);
+  const explicitPath = (best.path || []).map((p: any) =>
+    p.asset_type === 'native' ? Asset.native() : new Asset(p.asset_code, p.asset_issuer),
+  );
+
+  logger.info('Path payment route selected', {
     from: sourceKeypair.publicKey(),
     to: destinationPublic,
     sendAmount,
-    sendAssetCode: sendAsset.code || 'XLM',
-    destAssetCode: destAsset.code || 'XLM',
+    sendAsset: sendAsset.code || 'XLM',
+    destAsset: destAsset.code || 'XLM',
+    expectedDestAmount: best.destination_amount,
+    destMin,
+    hops: explicitPath.length,
   });
 
   const account = await horizon.loadAccount(sourceKeypair.publicKey());
@@ -133,9 +162,7 @@ export async function pathPaymentStrictSend(
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
-  if (memoHash) {
-    builder.addMemo(Memo.hash(memoHash));
-  }
+  if (memoHash) builder.addMemo(Memo.hash(memoHash));
 
   const tx = builder
     .addOperation(
@@ -144,8 +171,8 @@ export async function pathPaymentStrictSend(
         sendAsset,
         sendAmount,
         destAsset,
-        destMin: '0',
-        path: [],
+        destMin,
+        path: explicitPath,
       }),
     )
     .setTimeout(60)
@@ -516,9 +543,7 @@ export async function prepareUnsignedPathPayment(
  */
 export async function submitSignedTransaction(signedXDR: string): Promise<string> {
   try {
-    // Parse the XDR to get the transaction
-    const tx = new (require('@stellar/stellar-sdk')).TransactionBuilder.fromXDR(signedXDR, NETWORK_PASSPHRASE);
-
+    const tx = TransactionBuilder.fromXDR(signedXDR, NETWORK_PASSPHRASE) as Transaction;
     logger.info('Submitting externally-signed transaction');
     const result = await horizon.submitTransaction(tx);
     logger.info('Externally-signed transaction submitted', { hash: result.hash });
@@ -527,6 +552,92 @@ export async function submitSignedTransaction(signedXDR: string): Promise<string
     logger.error('Failed to submit externally-signed transaction', { error: String(err) });
     throw err;
   }
+}
+
+// ── Fee bump ──────────────────────────────────────────────────────────────────
+
+/**
+ * Bump the fee on a stuck transaction. Call this when a submitted transaction
+ * sits unconfirmed past its timeout due to a fee surge on the network.
+ *
+ * @param originalXDR  The XDR of the already-signed inner transaction.
+ * @param feeAccountSecret  The account that pays the new fee (can be the same as sender).
+ * @param newFeeStroopsPerOp  New fee per operation in stroops (e.g. 10000 = 0.001 XLM/op).
+ */
+export async function bumpPaymentFee(
+  originalXDR: string,
+  feeAccountSecret: string,
+  newFeeStroopsPerOp = 10_000,
+): Promise<string> {
+  const feeKeypair = Keypair.fromSecret(feeAccountSecret);
+  const innerTx = TransactionBuilder.fromXDR(originalXDR, NETWORK_PASSPHRASE) as Transaction;
+
+  const totalFee = String(newFeeStroopsPerOp * innerTx.operations.length);
+  const feeBump = TransactionBuilder.buildFeeBumpTransaction(
+    feeKeypair,
+    totalFee,
+    innerTx,
+    NETWORK_PASSPHRASE,
+  );
+  feeBump.sign(feeKeypair);
+
+  logger.info('Submitting fee-bump transaction', {
+    innerHash: innerTx.hash().toString('hex'),
+    newFeeStroopsPerOp,
+  });
+
+  const result = await horizon.submitTransaction(feeBump);
+  logger.info('Fee-bump transaction submitted', { hash: result.hash });
+  return result.hash;
+}
+
+// ── Claimable balances ────────────────────────────────────────────────────────
+
+/**
+ * Create a claimable balance payable to `claimantPublic`. Use this as a fallback
+ * when the destination account lacks the required trustline — the worker can claim
+ * the balance later once their wallet is configured.
+ *
+ * @returns The transaction hash of the claimable-balance creation.
+ */
+export async function createClaimableBalance(
+  sourceSecret: string,
+  claimantPublic: string,
+  asset: Asset,
+  amount: string,
+  memoHash?: Buffer,
+): Promise<string> {
+  const keypair = Keypair.fromSecret(sourceSecret);
+  const account = await horizon.loadAccount(keypair.publicKey());
+  const fee = await horizon.fetchBaseFee();
+
+  const builder = new TransactionBuilder(account, {
+    fee: String(Math.max(fee * 10, 100)),
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
+  if (memoHash) builder.addMemo(Memo.hash(memoHash));
+
+  const tx = builder
+    .addOperation(
+      Operation.createClaimableBalance({
+        asset,
+        amount,
+        claimants: [new Claimant(claimantPublic, Claimant.predicateUnconditional())],
+      }),
+    )
+    .setTimeout(60)
+    .build();
+
+  tx.sign(keypair);
+  const result = await horizon.submitTransaction(tx);
+  logger.info('Claimable balance created', {
+    claimant: claimantPublic,
+    asset: asset.code || 'XLM',
+    amount,
+    hash: result.hash,
+  });
+  return result.hash;
 }
 
 // ── Horizon streaming ─────────────────────────────────────────────────────────
@@ -538,53 +649,71 @@ export async function streamEnterprisePayments(
   const redis = await getRedis();
   const cursorKey = `stellar:cursor:${enterprisePublicKey}`;
 
-  let cursor: string | null = null;
-  try {
-    cursor = await redis.get(cursorKey);
-  } catch (err) {
-    logger.warn('Failed to load cursor from Redis', { error: String(err) });
+  let stopped = false;
+  let currentStream: { close: () => void } | null = null;
+
+  async function connect(retryDelayMs = 1_000): Promise<void> {
+    if (stopped) return;
+
+    let cursor: string | null = null;
+    try {
+      cursor = await redis.get(cursorKey);
+    } catch (err) {
+      logger.warn('Failed to load stream cursor from Redis', { error: String(err) });
+    }
+
+    logger.info('Starting Horizon payment stream', { enterprisePublicKey, cursor, retryDelayMs });
+
+    const stream = horizon
+      .payments()
+      .forAccount(enterprisePublicKey)
+      .cursor(cursor ?? 'now')
+      .stream({
+        onmessage: async (op: Horizon.ServerApi.OperationRecord) => {
+          // A successful message resets the backoff for the next reconnect.
+          retryDelayMs = 1_000;
+
+          if (op.type === 'payment' && 'transaction_hash' in op && op.transaction_hash) {
+            try {
+              logger.info('Payment confirmed on-chain', { hash: op.transaction_hash });
+              await onPayment(op.transaction_hash);
+            } catch (err) {
+              logger.error('Failed to process payment event', {
+                hash: op.transaction_hash,
+                error: String(err),
+              });
+            }
+          }
+
+          if ('paging_token' in op && op.paging_token) {
+            try {
+              await redis.set(cursorKey, op.paging_token, { EX: 86400 * 7 });
+            } catch (err) {
+              logger.warn('Failed to persist cursor', { error: String(err) });
+            }
+          }
+        },
+        onerror: (err: unknown) => {
+          logger.error('Horizon stream dropped — will reconnect', {
+            enterprisePublicKey,
+            error: String(err),
+            nextRetryMs: retryDelayMs,
+          });
+          if (currentStream) { currentStream.close(); currentStream = null; }
+          if (!stopped) {
+            const nextDelay = Math.min(retryDelayMs * 2, 30_000);
+            setTimeout(() => connect(nextDelay), retryDelayMs);
+          }
+        },
+      });
+
+    currentStream = stream as unknown as { close: () => void };
   }
 
-  logger.info('Starting Horizon payment stream', { enterprisePublicKey, cursor });
-
-  const stream = horizon
-    .payments()
-    .forAccount(enterprisePublicKey)
-    .cursor(cursor ?? 'now')
-    .stream({
-      onmessage: async (
-        op: Horizon.ServerApi.OperationRecord,
-      ) => {
-        if (op.type === 'payment' && 'transaction_hash' in op && op.transaction_hash) {
-          try {
-            logger.info('Payment confirmed on-chain', { hash: op.transaction_hash });
-            await onPayment(op.transaction_hash);
-          } catch (err) {
-            logger.error('Failed to process payment event', {
-              hash: op.transaction_hash,
-              error: String(err),
-            });
-          }
-        }
-
-        // Persist cursor for recovery
-        if ('paging_token' in op && op.paging_token) {
-          try {
-            await redis.set(cursorKey, op.paging_token, { EX: 86400 * 7 });
-          } catch (err) {
-            logger.warn('Failed to persist cursor', { error: String(err) });
-          }
-        }
-      },
-      onerror: (err: unknown) => {
-        logger.error('Horizon stream error', { error: String(err) });
-      },
-    });
+  await connect();
 
   return () => {
-    // Stream returned from Horizon is an event emitter with close ability
-    if (stream && typeof stream === 'object' && 'close' in stream) {
-      (stream as any).close();
-    }
+    stopped = true;
+    if (currentStream) currentStream.close();
   };
 }

@@ -586,7 +586,11 @@ app.get('/users', async (req, res) => {
 app.get('/users/:id', async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, email, role, status, country, preferred_currency, created_at FROM users WHERE id = $1',
+      `SELECT u.id, u.email, u.role, u.status, u.country, u.preferred_currency, u.created_at,
+              e.company_name
+         FROM users u
+         LEFT JOIN enterprises e ON e.user_id = u.id
+        WHERE u.id = $1`,
       [req.params.id],
     );
     if (result.rows.length === 0) throw new NotFoundError('User');
@@ -623,6 +627,50 @@ const setPreferredCurrencyHandler = async (req: express.Request, res: express.Re
 };
 app.put('/users/me/preferred-currency', setPreferredCurrencyHandler);
 app.put('/api/users/me/preferred-currency', setPreferredCurrencyHandler);
+
+/**
+ * PATCH /users/me — update mutable profile fields for the authenticated user.
+ * Enterprise: updates company_name in the enterprises table.
+ * Any role: updates first_name, last_name, phone, country in users.
+ */
+const patchMeHandler = async (req: express.Request, res: express.Response) => {
+  const userId = req.headers['x-user-id'] as string | undefined;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { company_name, first_name, last_name, phone, country } = req.body as Record<string, string | undefined>;
+
+  try {
+    const userCols: string[] = [];
+    const userVals: unknown[] = [];
+    if (first_name !== undefined) { userCols.push(`first_name = $${userCols.length + 1}`); userVals.push(first_name); }
+    if (last_name  !== undefined) { userCols.push(`last_name = $${userCols.length + 1}`);  userVals.push(last_name); }
+    if (phone      !== undefined) { userCols.push(`phone = $${userCols.length + 1}`);       userVals.push(phone); }
+    if (country    !== undefined) { userCols.push(`country = $${userCols.length + 1}`);     userVals.push(country); }
+
+    if (userCols.length > 0) {
+      await query(
+        `UPDATE users SET ${userCols.join(', ')}, updated_at = NOW() WHERE id = $${userCols.length + 1}`,
+        [...userVals, userId],
+      );
+    }
+
+    if (company_name !== undefined) {
+      await query(
+        `INSERT INTO enterprises (user_id, company_name)
+         VALUES ($2, $1)
+         ON CONFLICT (user_id) DO UPDATE SET company_name = EXCLUDED.company_name, updated_at = NOW()`,
+        [company_name, userId],
+      );
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error('Failed to update profile', { error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+app.patch('/users/me', patchMeHandler);
+app.patch('/api/users/me', patchMeHandler);
 
 // ── Wallet Deployment ────────────────────────────────────────────────────────
 

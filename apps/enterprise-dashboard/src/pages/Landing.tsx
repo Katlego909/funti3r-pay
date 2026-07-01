@@ -24,11 +24,11 @@ const logoWhtImg = '../public/images/logo-wht.png';
 
 /** Supported payout currencies — coin mark for USDC, real flags for fiat. */
 const CURRENCIES: Array<{ code: string; cc?: string; coin?: boolean }> = [
+  { code: 'ZAR', cc: 'za' },
   { code: 'USDC', coin: true },
   { code: 'NGN', cc: 'ng' },
   { code: 'KES', cc: 'ke' },
   { code: 'GHS', cc: 'gh' },
-  { code: 'ZAR', cc: 'za' },
   { code: 'UGX', cc: 'ug' },
 ];
 

@@ -115,6 +115,7 @@ CREATE TABLE payments (
     'pending_signature',
     'submitted',
     'completed',
+    'pending_claim',
     'failed',
     'cancelled'
   )) DEFAULT 'initiated',

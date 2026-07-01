@@ -70,6 +70,7 @@ export class StellarRail implements IPaymentRail {
         sendAsset,
         String(params.amount),
         destAsset,
+        0.02,
         memoHash,
       );
     } else {

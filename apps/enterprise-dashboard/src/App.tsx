@@ -49,25 +49,30 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-const ENTERPRISE_LINKS = [
+const ENTERPRISE_NAV = [
   { to: '/', icon: HiOutlineChartBar, label: 'Dashboard' },
   { to: '/payments', icon: HiOutlineArrowPathRoundedSquare, label: 'Payments' },
   { to: '/workers', icon: HiOutlineUsers, label: 'Workers' },
-  { to: '/settings', icon: HiOutlineCog6Tooth, label: 'Settings' },
-  { to: '/support', icon: HiOutlineLifebuoy, label: 'Support' },
 ];
 
-const WORKER_LINKS = [
+const WORKER_NAV = [
   { to: '/', icon: HiOutlineChartBar, label: 'Dashboard' },
   { to: '/payments', icon: HiOutlineArrowPathRoundedSquare, label: 'Payment History' },
   { to: '/wallet', icon: HiOutlineBanknotes, label: 'Wallet' },
   { to: '/kyc', icon: HiOutlineShieldCheck, label: 'KYC' },
+];
+
+const FOOTER_LINKS = [
   { to: '/settings', icon: HiOutlineCog6Tooth, label: 'Settings' },
   { to: '/support', icon: HiOutlineLifebuoy, label: 'Support' },
 ];
 
+// Combined for TopBar page-title lookup
+const ENTERPRISE_LINKS = [...ENTERPRISE_NAV, ...FOOTER_LINKS];
+const WORKER_LINKS = [...WORKER_NAV, ...FOOTER_LINKS];
+
 function Sidebar({ role, isOpen, onClose }: { role: string; isOpen: boolean; onClose: () => void }) {
-  const links = role === 'worker' ? WORKER_LINKS : ENTERPRISE_LINKS;
+  const navLinks = role === 'worker' ? WORKER_NAV : ENTERPRISE_NAV;
   const location = useLocation();
   const clearSession = useAuthStore((s) => s.clearSession);
 
@@ -75,6 +80,18 @@ function Sidebar({ role, isOpen, onClose }: { role: string; isOpen: boolean; onC
     await logout();
     clearSession();
   }
+
+  const navLink = (to: string, Icon: React.ElementType, label: string) => (
+    <Link
+      key={to}
+      to={to}
+      className={`sidebar-link${location.pathname === to ? ' active' : ''}`}
+      onClick={onClose}
+    >
+      <Icon size={18} />
+      <span>{label}</span>
+    </Link>
+  );
 
   return (
     <>
@@ -84,19 +101,11 @@ function Sidebar({ role, isOpen, onClose }: { role: string; isOpen: boolean; onC
           <img src="/images/logo-wht.png" alt="Funti3rPay" />
         </div>
         <nav className="sidebar-nav">
-          {links.map(({ to, icon: Icon, label }) => (
-            <Link
-              key={to}
-              to={to}
-              className={`sidebar-link${location.pathname === to ? ' active' : ''}`}
-              onClick={onClose}
-            >
-              <Icon size={18} />
-              <span>{label}</span>
-            </Link>
-          ))}
+          {navLinks.map(({ to, icon: Icon, label }) => navLink(to, Icon, label))}
         </nav>
         <div className="sidebar-footer">
+          {FOOTER_LINKS.map(({ to, icon: Icon, label }) => navLink(to, Icon, label))}
+          <div className="sidebar-divider" />
           <button className="sidebar-signout" onClick={handleLogout}>
             <HiOutlineArrowRightOnRectangle size={18} />
             <span>Sign Out</span>

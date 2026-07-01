@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { HiOutlineArrowTopRightOnSquare, HiXMark, HiOutlineClipboard, HiCheck } from 'react-icons/hi2';
 import { api } from '../api/client.js';
 
@@ -54,11 +54,17 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
   // mounted = in the DOM (kept during slide-out); visible = slid into view.
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!paymentId) return;
+    // Cancel any in-flight close timer so a rapid re-open doesn't self-destruct.
+    if (closeTimerRef.current !== null) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
     setMounted(true);
-    const raf = requestAnimationFrame(() => setVisible(true)); // trigger slide-in
+    const raf = requestAnimationFrame(() => setVisible(true));
     setLoading(true);
     setError('');
     setP(null);
@@ -71,7 +77,11 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
 
   const handleClose = useCallback(() => {
     setVisible(false);
-    window.setTimeout(() => { setMounted(false); onClose(); }, 220); // slide out, then unmount
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      setMounted(false);
+      onClose();
+    }, 220);
   }, [onClose]);
 
   // Close on Escape.

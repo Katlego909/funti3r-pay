@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore.js';
+import { api } from '../api/client.js';
 import {
   HiOutlineUser,
   HiOutlineBell,
   HiOutlineGlobeAlt,
   HiOutlineShieldCheck,
   HiOutlineCheckCircle,
+  HiOutlineExclamationCircle,
 } from 'react-icons/hi2';
 
 const card: React.CSSProperties = {
@@ -37,7 +39,7 @@ const divider: React.CSSProperties = {
   margin: '20px 0',
 };
 
-const label: React.CSSProperties = {
+const labelStyle: React.CSSProperties = {
   display: 'block',
   fontSize: '13px',
   fontWeight: 700,
@@ -59,12 +61,12 @@ const field: React.CSSProperties = {
   boxSizing: 'border-box' as const,
 };
 
-function ToggleRow({ label: rowLabel, description, defaultOn = false }: {
+function ToggleRow({ label: rowLabel, description, checked, onChange }: {
   label: string;
   description: string;
-  defaultOn?: boolean;
+  checked: boolean;
+  onChange: (v: boolean) => void;
 }) {
-  const [on, setOn] = useState(defaultOn);
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0' }}>
       <div>
@@ -72,14 +74,15 @@ function ToggleRow({ label: rowLabel, description, defaultOn = false }: {
         <div style={{ fontSize: '13px', color: 'var(--gray-600)' }}>{description}</div>
       </div>
       <button
-        onClick={() => setOn(!on)}
+        onClick={() => onChange(!checked)}
+        aria-pressed={checked}
         style={{
           width: '44px',
           height: '24px',
           borderRadius: '999px',
           border: 'none',
           cursor: 'pointer',
-          background: on ? 'var(--primary)' : 'var(--gray-300)',
+          background: checked ? 'var(--primary)' : 'var(--gray-300)',
           position: 'relative',
           transition: 'background 0.2s',
           flexShrink: 0,
@@ -88,7 +91,7 @@ function ToggleRow({ label: rowLabel, description, defaultOn = false }: {
         <span style={{
           position: 'absolute',
           top: '3px',
-          left: on ? '23px' : '3px',
+          left: checked ? '23px' : '3px',
           width: '18px',
           height: '18px',
           borderRadius: '50%',
@@ -102,11 +105,39 @@ function ToggleRow({ label: rowLabel, description, defaultOn = false }: {
 
 export default function Settings() {
   const user = useAuthStore((s) => s.user);
-  const [saved, setSaved] = useState(false);
+  const isEnterprise = user?.role !== 'worker';
 
-  function handleSave() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  const [companyName, setCompanyName] = useState('');
+  const [notifyCompleted, setNotifyCompleted] = useState(true);
+  const [notifyFailed, setNotifyFailed] = useState(true);
+  const [notifyWeekly, setNotifyWeekly] = useState(false);
+
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  // Load existing company name for enterprise users
+  useEffect(() => {
+    if (!isEnterprise || !user?.userId) return;
+    api.get<{ company_name?: string }>(`/users/${user.userId}`)
+      .then((r) => { if (r.data.company_name) setCompanyName(r.data.company_name); })
+      .catch(() => {});
+  }, [isEnterprise, user?.userId]);
+
+  async function handleSave() {
+    setSaving(true);
+    setSaveError('');
+    try {
+      const body: Record<string, unknown> = {};
+      if (isEnterprise) body.company_name = companyName;
+      await api.patch('/users/me', body);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch {
+      setSaveError('Failed to save. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -128,24 +159,32 @@ export default function Settings() {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           <div>
-            <label style={label}>Email</label>
+            <label style={labelStyle}>Email</label>
             <input style={field} value={user?.email ?? ''} readOnly />
           </div>
           <div>
-            <label style={label}>Role</label>
+            <label style={labelStyle}>Role</label>
             <input style={field} value={user?.role ?? 'enterprise'} readOnly />
           </div>
         </div>
 
-        <hr style={divider} />
-
-        <div>
-          <label style={label}>Company name</label>
-          <input style={{ ...field, background: '#fff' }} placeholder="Your company name" />
-        </div>
+        {isEnterprise && (
+          <>
+            <hr style={divider} />
+            <div>
+              <label style={labelStyle}>Company name</label>
+              <input
+                style={{ ...field, background: '#fff' }}
+                placeholder="Your company name"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+              />
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Payment preferences */}
+      {/* Payment preferences — read-only until backend supports them */}
       <div style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
           <HiOutlineGlobeAlt size={18} style={{ color: 'var(--primary)' }} />
@@ -155,16 +194,15 @@ export default function Settings() {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           <div>
-            <label style={label}>Default rail</label>
-            <select style={{ ...field, background: '#fff' }}>
+            <label style={labelStyle}>Default rail</label>
+            <select style={{ ...field, background: '#f9fafb', color: 'var(--gray-500)' }} disabled>
               <option value="stellar">Stellar</option>
             </select>
           </div>
           <div>
-            <label style={label}>Send currency</label>
-            <select style={{ ...field, background: '#fff' }}>
+            <label style={labelStyle}>Send currency</label>
+            <select style={{ ...field, background: '#f9fafb', color: 'var(--gray-500)' }} disabled>
               <option value="USD">USD</option>
-              <option value="USDC">USDC</option>
             </select>
           </div>
         </div>
@@ -178,11 +216,11 @@ export default function Settings() {
         </div>
         <p style={sectionDesc}>Choose which email alerts you receive</p>
 
-        <ToggleRow label="Payment completed" description="Notify when a payout settles on-chain" defaultOn />
+        <ToggleRow label="Payment completed" description="Notify when a payout settles on-chain" checked={notifyCompleted} onChange={setNotifyCompleted} />
         <hr style={divider} />
-        <ToggleRow label="Payment failed" description="Notify when a payout fails" defaultOn />
+        <ToggleRow label="Payment failed" description="Notify when a payout fails" checked={notifyFailed} onChange={setNotifyFailed} />
         <hr style={divider} />
-        <ToggleRow label="Weekly summary" description="A digest of your payout volume every Monday" />
+        <ToggleRow label="Weekly summary" description="A digest of your payout volume every Monday" checked={notifyWeekly} onChange={setNotifyWeekly} />
       </div>
 
       {/* Security */}
@@ -203,7 +241,12 @@ export default function Settings() {
       </div>
 
       {/* Save */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px' }}>
+        {saveError && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--error, #dc2626)', fontSize: '14px' }}>
+            <HiOutlineExclamationCircle size={16} /> {saveError}
+          </span>
+        )}
         {saved && (
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--success)', fontSize: '14px', fontWeight: 600 }}>
             <HiOutlineCheckCircle size={16} /> Saved
@@ -211,13 +254,14 @@ export default function Settings() {
         )}
         <button
           onClick={handleSave}
+          disabled={saving}
           style={{
-            padding: '12px 28px', background: 'var(--accent)', color: '#fff',
+            padding: '12px 28px', background: saving ? 'var(--gray-300)' : 'var(--accent)', color: '#fff',
             border: 'none', borderRadius: '10px', fontSize: '15px', fontWeight: 700,
-            cursor: 'pointer', fontFamily: 'inherit',
+            cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
           }}
         >
-          Save changes
+          {saving ? 'Saving…' : 'Save changes'}
         </button>
       </div>
     </div>

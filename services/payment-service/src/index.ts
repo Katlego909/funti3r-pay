@@ -1,9 +1,12 @@
 import express from 'express';
 import crypto from 'crypto';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import { createLogger, encryptSecret, decryptSecret, decryptFromString, ValidationError, NotFoundError } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, runInitialMigrations, query, transaction, getRedis } from '@funti3r/database';
 import { PaymentStatus, PaymentMethod } from '@funti3r/shared-types';
 import * as stellar from './lib/stellar.js';
+import { Asset } from '@stellar/stellar-sdk';
 import { getCurrency, isSupportedCurrency, PAYOUT_CURRENCIES } from './lib/currencies.js';
 import { usdToCurrencyRate, getUsdRates, amountToUsd } from './lib/fx.js';
 import { selectRail, getAllQuotes } from './rails/router.js';
@@ -364,7 +367,7 @@ interface PayoutResult {
   workerId: string;
   amount: number;
   currency: string;
-  status: 'completed' | 'failed';
+  status: 'completed' | 'pending_claim' | 'failed';
   stellarTxHash?: string;
   sourceAmountXlm?: string;
   error?: string;
@@ -436,32 +439,61 @@ async function executePayout(opts: {
     const memoHash = crypto.createHash('sha256').update(paymentId).digest();
     let txHash: string;
     let feePaidXlm: string | null = null;
+    let paymentStatus: PayoutResult['status'] = 'completed';
 
     if (def.kind === 'native') {
       // Direct native XLM payment.
       txHash = await stellar.sendPayment(sourceSecret, destination, String(amountNum), 'XLM', undefined, memoHash);
     } else {
-      // Issued asset (USDC or local currency): ensure the worker holds it, then
-      // deliver an exact amount via a path payment funded from the enterprise's XLM.
-      if (!workerStoredSecret) throw new Error(`Worker account is not set up to receive ${asset}`);
-      const workerSecret = decryptFromString(workerStoredSecret);
-      await stellar.ensureTrustline(workerSecret, def.code, def.issuer!);
-      const result = await stellar.payExactWithXlm(
-        sourceSecret, destination, def.code, def.issuer!, String(amountNum), 0.05, memoHash,
-      );
-      txHash = result.hash;
-      feePaidXlm = result.sourceAmountXlm;
+      // Issued asset (USDC or local currency).
+      // Try to auto-set up the trustline if we have the worker's secret (classic account).
+      // If the worker is a SmartWallet (passkey) user, workerStoredSecret is null —
+      // we'll attempt the path payment anyway; the contract may hold the trustline.
+      if (workerStoredSecret) {
+        const workerSecret = decryptFromString(workerStoredSecret);
+        await stellar.ensureTrustline(workerSecret, def.code, def.issuer!);
+      }
+
+      try {
+        const result = await stellar.payExactWithXlm(
+          sourceSecret, destination, def.code, def.issuer!, String(amountNum), 0.05, memoHash,
+        );
+        txHash = result.hash;
+        feePaidXlm = result.sourceAmountXlm;
+      } catch (pathErr: any) {
+        // If the destination lacks a trustline (op_no_trust / op_no_destination),
+        // fall back to a claimable XLM balance the worker can claim when ready.
+        const codes: string = JSON.stringify(
+          pathErr?.response?.data?.extras?.result_codes ?? {},
+        );
+        const isNoTrust = codes.includes('op_no_trust') || codes.includes('op_no_destination');
+        if (!isNoTrust) throw pathErr;
+
+        logger.warn('Destination lacks trustline — creating claimable XLM balance', {
+          paymentId, workerId, asset,
+        });
+
+        txHash = await stellar.createClaimableBalance(
+          sourceSecret,
+          destination,
+          Asset.native(),
+          String(amountNum),
+          memoHash,
+        );
+        paymentStatus = 'pending_claim';
+      }
     }
 
     await query(
       `UPDATE payments
-          SET status = 'completed', stellar_tx_hash = $1, memo_hash = $2, fee_paid_xlm = $3,
-              completed_at = NOW(), updated_at = NOW()
-        WHERE id = $4`,
-      [txHash, memoHash.toString('hex'), feePaidXlm, paymentId],
+          SET status = $1::text, stellar_tx_hash = $2,
+              completed_at = CASE WHEN $1::text = 'completed' THEN NOW() ELSE NULL END,
+              updated_at = NOW()
+        WHERE id = $3`,
+      [paymentStatus, txHash, paymentId],
     );
-    logger.info('Payment completed', { paymentId, txHash, amount: amountNum, currency: asset, workerId });
-    return { ...base, paymentId, status: 'completed', stellarTxHash: txHash, ...(feePaidXlm ? { sourceAmountXlm: feePaidXlm } : {}) };
+    logger.info('Payment settled', { paymentId, txHash, status: paymentStatus, amount: amountNum, currency: asset, workerId });
+    return { ...base, paymentId, status: paymentStatus, stellarTxHash: txHash, ...(feePaidXlm ? { sourceAmountXlm: feePaidXlm } : {}) };
   } catch (err: any) {
     const resultCodes = err?.response?.data?.extras?.result_codes;
     const detail = resultCodes ? JSON.stringify(resultCodes) : (err instanceof Error ? err.message : String(err));
@@ -1183,7 +1215,8 @@ async function bootstrapStreaming() {
 async function start() {
   await initPostgres();
   logger.info('PostgreSQL connected');
-  await runInitialMigrations();
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  await runInitialMigrations(join(__dirname, '../../database/migrations'));
   await initRedis();
   logger.info('Redis connected');
 
