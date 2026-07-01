@@ -554,7 +554,7 @@ app.get('/users', async (req, res) => {
     const limit = Math.min(Number(req.query.limit ?? 50), 500);
     const offset = Number(req.query.offset ?? 0);
 
-    let sql = 'SELECT id, email, role, status, country, preferred_currency, created_at FROM users';
+    let sql = 'SELECT id, email, role, status, country, preferred_currency, stellar_public_key, created_at FROM users';
     const params: any[] = [];
     const conditions: string[] = [];
 

@@ -6,7 +6,7 @@ import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
 
-interface WorkerOption { id: string; email: string; preferred_currency?: string }
+interface WorkerOption { id: string; email: string; preferred_currency?: string; stellar_public_key?: string }
 interface BatchRow { workerId: string; amount: string }
 
 const CURRENCY_META: Record<string, { name: string; symbol: string }> = {
@@ -228,6 +228,11 @@ export default function Payments() {
                 <p style={{ margin: '-8px 0 4px', fontSize: '0.78rem', color: '#6b7280' }}>
                   Paid in <strong>{CURRENCY_META[payCurrency]?.name ?? payCurrency} ({payCurrency})</strong>
                   <span style={{ fontFamily: 'monospace', wordBreak: 'break-all', display: 'block' }}>Worker ID: {workerId}</span>
+                  {selectedWorker?.stellar_public_key && (
+                    <span style={{ fontFamily: 'monospace', wordBreak: 'break-all', display: 'block' }}>
+                      Stellar: {selectedWorker.stellar_public_key}
+                    </span>
+                  )}
                 </p>
               )}
               <label>Amount (USD)
