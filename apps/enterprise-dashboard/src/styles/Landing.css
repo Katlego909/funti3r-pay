@@ -1876,17 +1876,16 @@ h6 {
   font-weight: 600;
 }
 
-/* Currency strip */
+/* Currency carousel */
 .strip {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 4px 48px 56px;
+  padding: 4px 0 56px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 18px;
-  flex-wrap: wrap;
-  justify-content: center;
-  box-sizing: border-box;
+  overflow: hidden;
 }
 .strip-label {
   font-size: 12px;
@@ -1896,11 +1895,27 @@ h6 {
   letter-spacing: 0.7px;
   margin: 0;
 }
-.currency-strip {
+.currency-carousel-track-wrap {
+  display: flex;
+  width: 100%;
+  overflow: hidden;
+  /* fade edges */
+  mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+}
+@keyframes carousel-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.currency-carousel-track {
   display: flex;
   gap: 10px;
-  flex-wrap: wrap;
-  justify-content: center;
+  padding-right: 10px;
+  flex-shrink: 0;
+  animation: carousel-scroll 30s linear infinite;
+}
+.currency-carousel-track-wrap:hover .currency-carousel-track {
+  animation-play-state: paused;
 }
 .currency-chip {
   font-weight: 700;
@@ -1910,11 +1925,14 @@ h6 {
   border: 1px solid #e2e8f0;
   padding: 7px 15px;
   border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
-.currency-chip-more {
-  color: var(--primary);
-  background: var(--primary-light);
-  border-color: var(--primary-border);
+.chip-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #94a3b8;
+  margin-left: 2px;
 }
 
 /* Step number watermark */
@@ -1951,7 +1969,7 @@ h6 {
     max-width: 100%;
   }
   .strip {
-    padding: 4px 24px 40px;
+    padding: 4px 0 40px;
   }
 }
 
@@ -1976,7 +1994,7 @@ h6 {
   flex-shrink: 0;
 }
 
-/* Currency chips now carry an icon */
+/* Currency chips carry an icon — inline-flex set in the carousel block above */
 .currency-chip {
   display: inline-flex;
   align-items: center;
@@ -2167,11 +2185,14 @@ h6 {
 
 /* Breathing room between the hero divider and the currency strip */
 .strip {
-  padding-top: 48px;
+  padding-top: 20px;
 }
 @media (max-width: 768px) {
   .strip {
-    padding-top: 32px;
+    padding-top: 16px;
+  }
+  .currency-carousel-track {
+    animation-duration: 20s;
   }
 }
 
@@ -2183,7 +2204,7 @@ h6 {
 .hero-bg {
   background: #ffffff;
   border-bottom-color: transparent;
-  padding: 40px 24px 48px;
+  padding: 40px 24px 24px;
 }
 .hero {
   background: var(--dark);

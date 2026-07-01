@@ -124,7 +124,8 @@ function TopBar({ role, onMenuToggle }: { role: string; onMenuToggle: () => void
 
   const allLinks = role === 'worker' ? WORKER_LINKS : ENTERPRISE_LINKS;
   const currentLink = allLinks.find((l) => l.to === location.pathname);
-  const pageTitle = currentLink?.label ?? 'Funti3rPay';
+  const PAGE_TITLES: Record<string, string> = { '/profile': 'Profile' };
+  const pageTitle = currentLink?.label ?? PAGE_TITLES[location.pathname] ?? 'Funti3rPay';
 
   const email = user?.email ?? '';
   const initials = email.split('@')[0].slice(0, 2).toUpperCase() || 'U';

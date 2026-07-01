@@ -7,7 +7,9 @@ import {
   HiOutlineCheckCircle,
   HiOutlineArrowTopRightOnSquare,
   HiOutlineArrowRight,
+  HiOutlineArrowDownTray,
 } from 'react-icons/hi2';
+import { exportAnalyticsCSV, exportAnalyticsPDF } from '../utils/export.js';
 import {
   getSummary,
   getRecentPayments,
@@ -132,9 +134,7 @@ export default function Dashboard() {
       ? listPayments({ enterpriseId: user.userId, limit: 200 })
       : listPayments({ workerId: user.userId, limit: 200 });
 
-    chartQuery
-      .then(({ payments }) => setChartPayments(payments))
-      .catch(() => setChartPayments([]));
+    chartQuery.then(({ payments }) => setChartPayments(payments)).catch(() => setChartPayments([]));
   }, [user, isEnterprise]);
 
   if (loading) return <div className="loading">Loading dashboard…</div>;
@@ -163,13 +163,25 @@ export default function Dashboard() {
       {/* Header */}
       <div className="dashboard-header">
         <p className="subtitle">
-          Hello, {user.email.split('@')[0]} ·{' '}
+          Hello, {user?.email.split('@')[0]} ·{' '}
           {isEnterprise ? 'Overview of your payment operations' : 'Your incoming payments'}
         </p>
         {isEnterprise ? (
-          <Link to="/payments" className="btn-new-payout">
-            New Payout <HiOutlineArrowRight size={16} />
-          </Link>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            {summary && recent.length > 0 && (
+              <div className="export-btn-group">
+                <button className="btn-export" onClick={() => exportAnalyticsCSV(summary, recent)}>
+                  <HiOutlineArrowDownTray size={14} /> CSV
+                </button>
+                <button className="btn-export" onClick={() => exportAnalyticsPDF(summary, recent)}>
+                  <HiOutlineArrowDownTray size={14} /> PDF
+                </button>
+              </div>
+            )}
+            <Link to="/payments" className="btn-new-payout">
+              New Payout <HiOutlineArrowRight size={16} />
+            </Link>
+          </div>
         ) : (
           <Link to="/wallet" className="btn-new-payout">
             My Wallet <HiOutlineArrowRight size={16} />
@@ -182,27 +194,41 @@ export default function Dashboard() {
         {/* Wallet Balance */}
         <div className="metric-card" data-accent="orange">
           <div className="metric-header">
-            <span className="metric-icon"><HiOutlineBanknotes size={18} /></span>
+            <span className="metric-icon">
+              <HiOutlineBanknotes size={18} />
+            </span>
             <h3>Wallet Balance</h3>
           </div>
           <div className="metric-value" style={{ whiteSpace: 'nowrap' }}>
-            {walletBalance ? <>{fmtXlm(balanceXlm)}{unit('XLM')}</> : '—'}
+            {walletBalance ? (
+              <>
+                {fmtXlm(balanceXlm)}
+                {unit('XLM')}
+              </>
+            ) : (
+              '—'
+            )}
           </div>
-          {!isEnterprise && otherBalances.map((b) => (
-            <div key={b.code} className="metric-value"
-              style={{ color: 'var(--success)', fontSize: '1rem', whiteSpace: 'nowrap' }}>
-              {fmtXlm(parseFloat(b.balance))}{unit(b.code)}
-            </div>
-          ))}
-          {walletBalance && xlmUsd > 0 && (
-            <div className="metric-change">{fmtUsd(balanceXlm)}</div>
-          )}
+          {!isEnterprise &&
+            otherBalances.map((b) => (
+              <div
+                key={b.code}
+                className="metric-value"
+                style={{ color: 'var(--success)', fontSize: '1rem', whiteSpace: 'nowrap' }}
+              >
+                {fmtXlm(parseFloat(b.balance))}
+                {unit(b.code)}
+              </div>
+            ))}
+          {walletBalance && xlmUsd > 0 && <div className="metric-change">{fmtUsd(balanceXlm)}</div>}
         </div>
 
         {/* Total Payments */}
         <div className="metric-card" data-accent="green">
           <div className="metric-header">
-            <span className="metric-icon"><HiOutlineBanknotes size={18} /></span>
+            <span className="metric-icon">
+              <HiOutlineBanknotes size={18} />
+            </span>
             <h3>{isEnterprise ? 'Total Payments' : 'Total Received'}</h3>
           </div>
           <div className="metric-value" style={{ whiteSpace: 'nowrap' }}>
@@ -216,24 +242,24 @@ export default function Dashboard() {
         {isEnterprise ? (
           <div className="metric-card" data-accent="purple">
             <div className="metric-header">
-              <span className="metric-icon"><HiOutlineUsers size={18} /></span>
+              <span className="metric-icon">
+                <HiOutlineUsers size={18} />
+              </span>
               <h3>Total Workers</h3>
             </div>
             <div className="metric-value">{userCount ?? '—'}</div>
-            {userCount !== null && (
-              <div className="metric-change">registered workers</div>
-            )}
+            {userCount !== null && <div className="metric-change">registered workers</div>}
           </div>
         ) : (
           <div className="metric-card" data-accent="warning">
             <div className="metric-header">
-              <span className="metric-icon"><HiOutlineClock size={18} /></span>
+              <span className="metric-icon">
+                <HiOutlineClock size={18} />
+              </span>
               <h3>Pending</h3>
             </div>
             <div className="metric-value">{pending + processing}</div>
-            {(pending + processing) > 0 && (
-              <div className="metric-change">awaiting settlement</div>
-            )}
+            {pending + processing > 0 && <div className="metric-change">awaiting settlement</div>}
           </div>
         )}
 
@@ -241,22 +267,31 @@ export default function Dashboard() {
         {isEnterprise ? (
           <div className="metric-card" data-accent="warning">
             <div className="metric-header">
-              <span className="metric-icon"><HiOutlineCheckCircle size={18} /></span>
+              <span className="metric-icon">
+                <HiOutlineCheckCircle size={18} />
+              </span>
               <h3>Success Rate</h3>
             </div>
             <div className="metric-value">
-              {summary ? <>{summary.successRate}{unit('%')}</> : '—'}
+              {summary ? (
+                <>
+                  {summary.successRate}
+                  {unit('%')}
+                </>
+              ) : (
+                '—'
+              )}
             </div>
           </div>
         ) : (
           <div className="metric-card" data-accent="purple">
             <div className="metric-header">
-              <span className="metric-icon"><HiOutlineCheckCircle size={18} /></span>
+              <span className="metric-icon">
+                <HiOutlineCheckCircle size={18} />
+              </span>
               <h3>Completed</h3>
             </div>
-            <div className="metric-value">
-              {summary?.byStatus['completed'] ?? '—'}
-            </div>
+            <div className="metric-value">{summary?.byStatus['completed'] ?? '—'}</div>
             <div className="metric-change">payments received</div>
           </div>
         )}
@@ -296,7 +331,9 @@ export default function Dashboard() {
                   <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
                     <td>#{p.id.slice(0, 8)}</td>
                     <td>{p.worker_email ?? p.worker_id.slice(0, 8)}</td>
-                    <td>{p.amount} {p.currency}</td>
+                    <td>
+                      {p.amount} {p.currency}
+                    </td>
                     <td>{p.rail ?? 'stellar'}</td>
                     <td>
                       <span className={`status ${statusClass(p.status)}`}>{p.status}</span>
@@ -330,8 +367,12 @@ export default function Dashboard() {
                 <div className="status-item" key={status}>
                   <div className={`status-dot ${statusClass(status)}`} />
                   <div>
-                    <div className="status-name" style={{ textTransform: 'capitalize' }}>{status}</div>
-                    <div className="status-detail">{count} transaction{count !== 1 ? 's' : ''}</div>
+                    <div className="status-name" style={{ textTransform: 'capitalize' }}>
+                      {status}
+                    </div>
+                    <div className="status-detail">
+                      {count} transaction{count !== 1 ? 's' : ''}
+                    </div>
                   </div>
                   <div className="status-badge">{count}</div>
                 </div>

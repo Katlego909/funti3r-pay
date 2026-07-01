@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { HiOutlineArrowDownTray } from 'react-icons/hi2';
 import { getWorkerWallet, getKYCStatus, type Worker, type WorkerWallet, type KYCStatus } from '../api/workers.js';
 import { api } from '../api/client.js';
 import WorkerDetailDrawer from '../components/WorkerDetailDrawer.js';
+import { exportWorkersCSV, exportWorkersPDF } from '../utils/export.js';
 
 interface WorkerRow extends Worker {
   wallet?: WorkerWallet;
@@ -124,6 +126,14 @@ export default function Workers() {
         <div>
           <h2>Workers</h2>
           <p className="subtitle">Registered workers, wallets, and KYC status</p>
+        </div>
+        <div className="export-btn-group">
+          <button className="btn-export" onClick={() => exportWorkersCSV(workers)}>
+            <HiOutlineArrowDownTray size={14} /> CSV
+          </button>
+          <button className="btn-export" onClick={() => exportWorkersPDF(workers)}>
+            <HiOutlineArrowDownTray size={14} /> PDF
+          </button>
         </div>
       </div>
 

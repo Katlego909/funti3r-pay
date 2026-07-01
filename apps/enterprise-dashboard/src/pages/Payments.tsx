@@ -1,5 +1,6 @@
-import { useEffect, useState, FormEvent } from 'react';
-import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
+import { useEffect, useState, FormEvent, useMemo } from 'react';
+import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMark, HiOutlineArrowDownTray } from 'react-icons/hi2';
+import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
 import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, type Payment, type BatchResult } from '../api/payments.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
@@ -52,20 +53,59 @@ export default function Payments() {
   // Payment detail modal
   const [detailId, setDetailId] = useState<string | null>(null);
 
+  // Filters
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
+
+  async function fetchAllForExport(): Promise<Payment[]> {
+    if (!user) return [];
+    setExporting(true);
+    try {
+      const { total } = await listPayments({ enterpriseId: user.userId, limit: 1, offset: 0, ...(statusFilter !== 'all' ? { status: statusFilter } : {}) });
+      const { payments: all } = await listPayments({ enterpriseId: user.userId, limit: total, offset: 0, ...(statusFilter !== 'all' ? { status: statusFilter } : {}) });
+      return all;
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const STATUS_TABS = ['all', 'completed', 'failed', 'pending_claim', 'initiated'] as const;
+
   const PAGE = 15;
 
   function loadPayments() {
     if (!user) return;
     setLoading(true);
-    listPayments({ enterpriseId: user.userId, limit: PAGE, offset })
+    listPayments({
+      enterpriseId: user.userId,
+      limit: PAGE,
+      offset,
+      ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
+    })
       .then(({ payments: p, total: t }) => { setPayments(p); setTotal(t); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }
 
   useEffect(() => {
+    setOffset(0);
+  }, [statusFilter]);
+
+  useEffect(() => {
     loadPayments();
-  }, [user, offset]);
+  }, [user, offset, statusFilter]);
+
+  const visiblePayments = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return payments;
+    return payments.filter(
+      (p) =>
+        p.id.toLowerCase().includes(q) ||
+        (p.worker_email ?? '').toLowerCase().includes(q) ||
+        p.worker_id.toLowerCase().includes(q),
+    );
+  }, [payments, search]);
 
   // Load the worker list + live FX rates once.
   useEffect(() => {
@@ -151,7 +191,15 @@ export default function Payments() {
           <h2>Payments</h2>
           <p className="subtitle">Send XLM or USDC payouts to your workers on Stellar</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <div className="export-btn-group">
+            <button className="btn-export" disabled={exporting} onClick={async () => { const all = await fetchAllForExport(); exportPaymentsCSV(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}>
+              <HiOutlineArrowDownTray size={14} /> {exporting ? 'Exporting…' : 'CSV'}
+            </button>
+            <button className="btn-export" disabled={exporting} onClick={async () => { const all = await fetchAllForExport(); exportPaymentsPDF(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}>
+              <HiOutlineArrowDownTray size={14} /> {exporting ? 'Exporting…' : 'PDF'}
+            </button>
+          </div>
           <button className="btn-secondary" onClick={() => { setBatchOpen(true); setBatchResult(null); setBatchError(''); setBatchRows([{ workerId: '', amount: '' }]); }}>
             Batch Payout
           </button>
@@ -313,6 +361,35 @@ export default function Payments() {
         </div>
       )}
 
+      {/* Filter bar */}
+      <div className="payments-filter-bar">
+        <div className="payments-status-tabs">
+          {STATUS_TABS.map((s) => (
+            <button
+              key={s}
+              className={`status-tab ${statusFilter === s ? 'active' : ''}`}
+              onClick={() => setStatusFilter(s)}
+            >
+              {s === 'all' ? 'All' : s === 'pending_claim' ? 'Pending Claim' : s.charAt(0).toUpperCase() + s.slice(1)}
+            </button>
+          ))}
+        </div>
+        <div className="payments-search-wrap">
+          <HiOutlineMagnifyingGlass size={16} className="search-icon" />
+          <input
+            className="payments-search"
+            placeholder="Search by worker or ID…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button className="search-clear" onClick={() => setSearch('')}>
+              <HiOutlineXMark size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
       {loading ? (
         <div className="loading">Loading payments…</div>
       ) : error ? (
@@ -326,9 +403,9 @@ export default function Payments() {
               </tr>
             </thead>
             <tbody>
-              {payments.length === 0 ? (
+              {visiblePayments.length === 0 ? (
                 <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>No payments found.</td></tr>
-              ) : payments.map((p) => (
+              ) : visiblePayments.map((p) => (
                 <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
                   <td>#{p.id.slice(0, 8)}</td>
                   <td>{p.worker_email ?? p.worker_id.slice(0, 8)}</td>

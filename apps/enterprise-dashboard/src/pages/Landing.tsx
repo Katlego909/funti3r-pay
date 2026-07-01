@@ -22,14 +22,23 @@ import '../styles/Landing.css';
 const logoImg = '../public/images/logo.png';
 const logoWhtImg = '../public/images/logo-wht.png';
 
-/** Supported payout currencies — coin mark for USDC, real flags for fiat. */
-const CURRENCIES: Array<{ code: string; cc?: string; coin?: boolean }> = [
-  { code: 'ZAR', cc: 'za' },
-  { code: 'USDC', coin: true },
-  { code: 'NGN', cc: 'ng' },
-  { code: 'KES', cc: 'ke' },
-  { code: 'GHS', cc: 'gh' },
-  { code: 'UGX', cc: 'ug' },
+/** Supported payout currencies — coin mark for USDC/XLM, real flags for fiat. */
+const CURRENCIES: Array<{ code: string; label?: string; cc?: string; coin?: boolean; xlm?: boolean }> = [
+  { code: 'NGN', label: 'Nigerian Naira',      cc: 'ng' },
+  { code: 'KES', label: 'Kenyan Shilling',     cc: 'ke' },
+  { code: 'GHS', label: 'Ghanaian Cedi',       cc: 'gh' },
+  { code: 'ZAR', label: 'South African Rand',  cc: 'za' },
+  { code: 'UGX', label: 'Ugandan Shilling',    cc: 'ug' },
+  { code: 'USDC', label: 'USD Coin',           coin: true },
+  { code: 'TZS', label: 'Tanzanian Shilling',  cc: 'tz' },
+  { code: 'RWF', label: 'Rwandan Franc',       cc: 'rw' },
+  { code: 'ETB', label: 'Ethiopian Birr',      cc: 'et' },
+  { code: 'EGP', label: 'Egyptian Pound',      cc: 'eg' },
+  { code: 'XOF', label: 'West African Franc',  cc: 'sn' },
+  { code: 'MAD', label: 'Moroccan Dirham',     cc: 'ma' },
+  { code: 'XLM', label: 'Stellar Lumens',      xlm: true },
+  { code: 'MWK', label: 'Malawian Kwacha',     cc: 'mw' },
+  { code: 'ZMW', label: 'Zambian Kwacha',      cc: 'zm' },
 ];
 
 function Flag({ cc, size = 22 }: { cc: string; size?: number }) {
@@ -68,6 +77,16 @@ function UsdcMark({ size = 22 }: { size?: number }) {
       >
         $
       </text>
+    </svg>
+  );
+}
+
+/** XLM coin mark. */
+function XlmMark({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden style={{ display: 'block', borderRadius: '50%' }}>
+      <circle cx="16" cy="16" r="16" fill="#000000" />
+      <path d="M12.283 7.851A10.154 10.154 0 002.846 18.002c0 .259.01.516.03.773A1.847 1.847 0 01.872 20.56L0 21.005v2.074l2.568-1.309.832-.424.82-.417 14.71-7.496 1.653-.842L24 10.85V8.776l-3.387 1.728-2.89 1.473-13.955 7.108a8.376 8.376 0 01-.07-1.086 8.313 8.313 0 0112.366-7.247l1.654-.843.247-.126a10.154 10.154 0 00-5.682-1.932zM24 12.925L5.055 22.571l-1.653.844L0 25.15v2.072L3.378 25.5l2.89-1.473 13.97-7.117a8.474 8.474 0 01.07 1.092A8.313 8.313 0 017.93 25.248l-.101.054-1.793.914a10.154 10.154 0 0016.119-8.214c0-.26-.01-.522-.03-.78a1.848 1.848 0 011.003-1.785L24 14.992Z" fill="white" transform="scale(0.6) translate(10.5 4)" />
     </svg>
   );
 }
@@ -292,17 +311,22 @@ export default function Landing() {
         </section>
       </div>
 
-      {/* Currency / network strip */}
+      {/* Currency carousel */}
       <section className="strip">
         <p className="strip-label">Pay out in</p>
-        <div className="currency-strip">
-          {CURRENCIES.map((c) => (
-            <span key={c.code} className="currency-chip">
-              {c.coin ? <UsdcMark size={20} /> : <Flag cc={c.cc!} size={20} />}
-              {c.code}
-            </span>
+        <div className="currency-carousel-track-wrap">
+          {/* Duplicate the list so the infinite scroll is seamless */}
+          {[0, 1].map((pass) => (
+            <div key={pass} className="currency-carousel-track" aria-hidden={pass === 1}>
+              {CURRENCIES.map((c) => (
+                <span key={c.code} className="currency-chip">
+                  {c.coin ? <UsdcMark size={20} /> : c.xlm ? <XlmMark size={20} /> : <Flag cc={c.cc!} size={20} />}
+                  {c.code}
+                  {c.label && <span className="chip-label">{c.label}</span>}
+                </span>
+              ))}
+            </div>
           ))}
-          <span className="currency-chip currency-chip-more">+ more</span>
         </div>
       </section>
 
