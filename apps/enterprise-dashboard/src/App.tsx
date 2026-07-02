@@ -28,6 +28,9 @@ import PaymentHistory from './pages/PaymentHistory.js';
 import Login from './pages/Login.js';
 import Register from './pages/Register.js';
 import Landing from './pages/Landing.js';
+import Terms from './pages/Terms.js';
+import Privacy from './pages/Privacy.js';
+import Compliance from './pages/Compliance.js';
 import { useAuthStore } from './store/authStore.js';
 import { logout } from './api/auth.js';
 import GlobalSearch from './components/GlobalSearch.js';
@@ -250,16 +253,23 @@ export default function App() {
   return (
     <BrowserRouter>
       <Toaster position="top-right" richColors closeButton />
-      {!isAuthenticated ? (
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      ) : (
-        <AuthedApp role={role} />
-      )}
+      <Routes>
+        {/* Always-public legal pages */}
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/compliance" element={<Compliance />} />
+
+        {!isAuthenticated ? (
+          <>
+            <Route path="/" element={<Landing />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </>
+        ) : (
+          <Route path="/*" element={<AuthedApp role={role} />} />
+        )}
+      </Routes>
     </BrowserRouter>
   );
 }

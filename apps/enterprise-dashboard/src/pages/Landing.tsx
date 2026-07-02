@@ -1,5 +1,5 @@
-import { Link } from 'react-router-dom';
-import { useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import {
   HiOutlineArrowRight,
   HiOutlineShieldCheck,
@@ -217,13 +217,20 @@ export default function Landing() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [userType, setUserType] = useState<'enterprise' | 'worker'>('enterprise');
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const { state } = useLocation();
+
+  useEffect(() => {
+    if ((state as any)?.scrollToFooter) {
+      document.getElementById('landing-footer')?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [state]);
 
   return (
     <div className="landing">
       {/* Navigation */}
       <nav className="landing-nav">
         <div className="nav-container">
-          <div className="logo">
+          <div className="logo" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} style={{ cursor: 'pointer' }}>
             <img src={logoImg} alt="Funti3rPay" className="logo-img" />
           </div>
           <button className="mobile-menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>
@@ -672,7 +679,7 @@ export default function Landing() {
       </section>
 
       {/* Footer */}
-      <footer className="landing-footer">
+      <footer className="landing-footer" id="landing-footer">
         <div className="footer-content">
           <div className="footer-section">
             <img src={logoWhtImg} alt="Funti3rPay" className="footer-logo" />
@@ -685,13 +692,13 @@ export default function Landing() {
             <h5>Legal</h5>
             <ul>
               <li>
-                <a href="#privacy">Privacy Policy</a>
+                <Link to="/privacy">Privacy Policy</Link>
               </li>
               <li>
-                <a href="#terms">Terms of Service</a>
+                <Link to="/terms">Terms of Service</Link>
               </li>
               <li>
-                <a href="#compliance">Compliance</a>
+                <Link to="/compliance">AML & Compliance</Link>
               </li>
             </ul>
           </div>
