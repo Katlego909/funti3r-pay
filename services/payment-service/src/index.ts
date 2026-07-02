@@ -11,6 +11,8 @@ import { getCurrency, isSupportedCurrency, PAYOUT_CURRENCIES } from './lib/curre
 import { usdToCurrencyRate, getUsdRates, amountToUsd } from './lib/fx.js';
 import { getAllQuotes } from './rails/router.js';
 import walletLinkingRouter from './routes/wallet-linking.js';
+import schedulesRouter from './routes/schedules.js';
+import { startScheduler } from './scheduler.js';
 import axios from 'axios';
 
 const logger = createLogger('PaymentService');
@@ -22,6 +24,7 @@ app.use(express.json());
 // ── Routers ───────────────────────────────────────────────────────────────────
 
 app.use('/wallets', walletLinkingRouter);
+app.use('/schedules', schedulesRouter);
 
 // ── Health ────────────────────────────────────────────────────────────────────
 
@@ -1007,6 +1010,8 @@ async function start() {
 
   // Bootstrap Horizon streaming for enterprise wallets
   await bootstrapStreaming();
+
+  startScheduler();
 
   const PORT = parseInt(process.env.PAYMENT_SERVICE_PORT || '3002', 10);
   app.listen(PORT, '0.0.0.0', () => {
