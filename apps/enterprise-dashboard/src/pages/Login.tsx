@@ -82,6 +82,9 @@ export default function Login() {
         <p className="auth-link">
           Don't have an account? <Link to="/register">Register</Link>
         </p>
+        <p className="auth-link" style={{ marginTop: '8px' }}>
+          New device? <Link to="/recovery/start">Get a sign-in link</Link>
+        </p>
       </div>
     </div>
   );

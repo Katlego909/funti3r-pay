@@ -90,6 +90,30 @@ export async function devLogin(email: string) {
   return data;
 }
 
+export async function requestRecoveryLink(email: string): Promise<void> {
+  await api.post(`${base}/recovery/start`, { email });
+}
+
+export async function verifyRecoveryToken(token: string): Promise<{
+  accessToken: string;
+  userId: string;
+  email: string;
+  role: string;
+}> {
+  const { data } = await api.post<{
+    accessToken: string;
+    userId: string;
+    email: string;
+    role: string;
+  }>(`${base}/recovery/verify`, { token });
+
+  useAuthStore.getState().setSession(
+    { userId: data.userId, email: data.email, role: data.role },
+    data.accessToken,
+  );
+  return data;
+}
+
 export async function logout() {
   try {
     await api.post(`${base}/logout`, {});

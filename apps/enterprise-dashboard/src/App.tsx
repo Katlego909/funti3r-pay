@@ -34,6 +34,8 @@ import Landing from './pages/Landing.js';
 import Terms from './pages/Terms.js';
 import Privacy from './pages/Privacy.js';
 import Compliance from './pages/Compliance.js';
+import RecoveryStart from './pages/RecoveryStart.js';
+import RecoveryVerify from './pages/RecoveryVerify.js';
 import { useAuthStore } from './store/authStore.js';
 import { logout } from './api/auth.js';
 import GlobalSearch from './components/GlobalSearch.js';
@@ -436,10 +438,12 @@ export default function App() {
     <BrowserRouter>
       <Toaster position="top-right" richColors closeButton />
       <Routes>
-        {/* Always-public legal pages */}
+        {/* Always-public pages */}
         <Route path="/terms" element={<Terms />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/compliance" element={<Compliance />} />
+        <Route path="/recovery/start" element={<RecoveryStart />} />
+        <Route path="/recovery/verify" element={<RecoveryVerify />} />
 
         {!isAuthenticated ? (
           <>

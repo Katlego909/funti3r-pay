@@ -20,6 +20,7 @@ import {
   AuthenticationError,
   NotFoundError,
 } from '@funti3r/shared-utils';
+import { sendRecoveryEmail } from './lib/email.js';
 import { initPostgres, runInitialMigrations, initRedis, query, setJSON, getJSON, deleteKey } from '@funti3r/database';
 import { UserRole } from '@funti3r/shared-types';
 
@@ -920,6 +921,108 @@ app.patch('/notifications/:id/read', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// ── Account recovery (magic link) ────────────────────────────────────────────
+
+const RECOVERY_TTL_SEC = 15 * 60; // 15 minutes
+
+/**
+ * POST /auth/recovery/start
+ * Body: { email }
+ * Sends a magic sign-in link to the user's email for re-enrolling a passkey
+ * on a new device. Always responds 200 even if the email is unknown (prevents
+ * email enumeration).
+ */
+const recoveryStartHandler = async (req: express.Request, res: express.Response) => {
+  const { email } = req.body as { email?: string };
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Valid email required' });
+  }
+
+  try {
+    const result = await query(
+      'SELECT id, role FROM users WHERE email = $1',
+      [email.toLowerCase()],
+    );
+
+    // Always return 200 — don't reveal whether the account exists
+    if (!result.rows.length) {
+      return res.json({ ok: true });
+    }
+
+    const { id: userId, role } = result.rows[0];
+    const token = randomBytes(32).toString('hex');
+    const tokenHash = hashRefreshToken(token); // reuse sha256 helper
+
+    await setJSON(
+      `recovery:${tokenHash}`,
+      { userId, email: email.toLowerCase(), role },
+      RECOVERY_TTL_SEC,
+    );
+
+    const appUrl = process.env.APP_URL || 'http://localhost:3100';
+    const link = `${appUrl}/recovery/verify?token=${token}`;
+
+    await sendRecoveryEmail(email.toLowerCase(), link);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    logger.error('recovery/start failed', { error: String(err) });
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+app.post('/auth/recovery/start', recoveryStartHandler);
+app.post('/api/auth/recovery/start', recoveryStartHandler);
+
+/**
+ * POST /auth/recovery/verify
+ * Body: { token }
+ * Verifies the magic link token, issues an access + refresh token pair,
+ * and deletes the recovery token (single-use).
+ */
+const recoveryVerifyHandler = async (req: express.Request, res: express.Response) => {
+  const { token } = req.body as { token?: string };
+  if (!token) return res.status(400).json({ error: 'Token required' });
+
+  try {
+    const tokenHash = hashRefreshToken(token);
+    const session = await getJSON<{ userId: string; email: string; role: string }>(
+      `recovery:${tokenHash}`,
+    );
+
+    if (!session) {
+      return res.status(410).json({ error: 'Link has expired or already been used' });
+    }
+
+    // Single-use: delete immediately
+    await deleteKey(`recovery:${tokenHash}`);
+
+    const accessToken = generateToken(session.userId, session.email, session.role);
+    const refreshToken = randomBytes(64).toString('hex');
+    await setJSON(
+      `refresh:${hashRefreshToken(refreshToken)}`,
+      { userId: session.userId, email: session.email, role: session.role },
+      REFRESH_TOKEN_TTL_SEC,
+    );
+
+    setRefreshCookie(res, refreshToken);
+
+    logger.info('recovery/verify: session issued', { userId: session.userId });
+    return res.json({
+      accessToken,
+      userId: session.userId,
+      email: session.email,
+      role: session.role,
+    });
+  } catch (err) {
+    logger.error('recovery/verify failed', { error: String(err) });
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+app.post('/auth/recovery/verify', recoveryVerifyHandler);
+app.post('/api/auth/recovery/verify', recoveryVerifyHandler);
 
 async function start() {
   try {
