@@ -232,23 +232,23 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
             </Row>
 
             {p.stellar_tx_hash && (
-              <div style={{ marginTop: '16px' }}>
+              <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <a
                   href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`}
                   target="_blank" rel="noopener noreferrer"
                   className="btn-primary"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
+                  style={{ gap: '6px', textDecoration: 'none' }}
                 >
                   View on Stellar Explorer <HiOutlineArrowTopRightOnSquare size={15} />
                 </a>
-                <button onClick={() => copy(p.stellar_tx_hash!, 'tx')} className="btn-secondary" style={{ marginLeft: '8px' }}>
+                <button onClick={() => copy(p.stellar_tx_hash!, 'tx')} className="btn-secondary">
                   {copied === 'tx' ? 'Copied ✓' : 'Copy tx hash'}
                 </button>
               </div>
             )}
 
             {p.status === 'completed' && (
-              <div style={{ marginTop: '16px' }}>
+              <div style={{ marginTop: '8px' }}>
                 <button
                   onClick={() => generatePayslip({
                     id: p.id,
@@ -266,7 +266,7 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
                     completedAt: p.completed_at,
                   })}
                   className="btn-secondary"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  style={{ gap: '6px', width: '100%' }}
                 >
                   <HiOutlineArrowDownTray size={15} /> Download Payslip
                 </button>
