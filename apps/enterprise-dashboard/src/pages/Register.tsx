@@ -1,5 +1,6 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 import { toast } from 'sonner';
 import { HiOutlineFingerPrint } from 'react-icons/hi2';
 import { registerPasskey } from '../api/auth.js';
@@ -9,6 +10,7 @@ import { useAuthStore } from '../store/authStore.js';
 type Role = 'enterprise' | 'worker';
 
 export default function Register() {
+  useDocumentTitle('Create Account');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const setSession = useAuthStore((s) => s.setSession);

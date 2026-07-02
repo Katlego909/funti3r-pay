@@ -1,4 +1,5 @@
 import LegalLayout from '../components/LegalLayout.js';
+import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 
 const UPDATED = 'July 2, 2026';
 
@@ -191,6 +192,7 @@ const sections = [
 ];
 
 export default function Privacy() {
+  useDocumentTitle('Privacy Policy');
   return (
     <LegalLayout
       title="Privacy Policy"

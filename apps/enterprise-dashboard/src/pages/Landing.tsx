@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 import {
   HiOutlineArrowRight,
   HiOutlineShieldCheck,
@@ -214,6 +215,7 @@ const faqs = [
 ];
 
 export default function Landing() {
+  useDocumentTitle('Cross-Border Payroll for Africa');
   const [menuOpen, setMenuOpen] = useState(false);
   const [userType, setUserType] = useState<'enterprise' | 'worker'>('enterprise');
   const [openFaq, setOpenFaq] = useState<number | null>(null);

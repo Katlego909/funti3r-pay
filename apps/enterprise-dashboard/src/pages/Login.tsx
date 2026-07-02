@@ -1,11 +1,13 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 import { toast } from 'sonner';
 import { HiOutlineFingerPrint } from 'react-icons/hi2';
 import { loginPasskey, devLogin } from '../api/auth.js';
 import { useAuthStore } from '../store/authStore.js';
 
 export default function Login() {
+  useDocumentTitle('Sign In');
   const navigate = useNavigate();
   const setSession = useAuthStore((s) => s.setSession);
   const [email, setEmail] = useState('');

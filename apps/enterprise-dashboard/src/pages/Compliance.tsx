@@ -1,4 +1,5 @@
 import LegalLayout from '../components/LegalLayout.js';
+import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 
 const UPDATED = 'July 2, 2026';
 
@@ -146,6 +147,7 @@ const sections = [
 ];
 
 export default function Compliance() {
+  useDocumentTitle('AML & Compliance Policy');
   return (
     <LegalLayout
       title="AML & Compliance Policy"
