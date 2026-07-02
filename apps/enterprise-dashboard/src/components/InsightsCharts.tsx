@@ -5,6 +5,8 @@ import {
 } from 'recharts';
 import type { Payment } from '../api/payments.js';
 
+const WORKER_COLORS = ['#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
 const STATUS_COLORS: Record<string, string> = {
   completed: '#16a34a', failed: '#dc2626', pending: '#d97706',
   initiated: '#7c3aed', submitted: '#7c3aed', cancelled: '#9ca3af',
@@ -244,7 +246,11 @@ export default function InsightsCharts({
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#374151' }}
                     axisLine={false} tickLine={false} width={72} />
                   <Tooltip formatter={(v) => [fmtUsd(Number(v)), 'Total paid']} />
-                  <Bar dataKey="usd" fill="#7c3aed" radius={[0, 4, 4, 0]} maxBarSize={20} />
+                  <Bar dataKey="usd" radius={[0, 4, 4, 0]} maxBarSize={20}>
+                    {topWorkers.map((_, i) => (
+                      <Cell key={i} fill={WORKER_COLORS[i % WORKER_COLORS.length]} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             ) : (
