@@ -1,5 +1,6 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { HiOutlineArrowDownTray, HiOutlineEnvelope, HiOutlineClipboard, HiCheck, HiOutlineXMark } from 'react-icons/hi2';
+import { toast } from 'sonner';
 import { useAuthStore } from '../store/authStore.js';
 import { getWorkerWallet, getKYCStatus, type Worker, type WorkerWallet, type KYCStatus } from '../api/workers.js';
 import { api } from '../api/client.js';
@@ -41,26 +42,23 @@ export default function Workers() {
   const [kycModalOpen, setKycModalOpen] = useState(false);
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
-  const [actionError, setActionError] = useState('');
 
   // Invite state
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLink, setInviteLink] = useState('');
   const [inviteSending, setInviteSending] = useState(false);
-  const [inviteError, setInviteError] = useState('');
   const [copied, setCopied] = useState(false);
 
   async function handleInvite(e: FormEvent) {
     e.preventDefault();
     setInviteSending(true);
-    setInviteError('');
     setInviteLink('');
     try {
       const res = await api.post<{ inviteUrl: string }>('/invites', { email: inviteEmail });
       setInviteLink(res.data.inviteUrl);
     } catch (err: any) {
-      setInviteError(err?.response?.data?.error ?? 'Failed to create invite');
+      toast.error(err?.response?.data?.error ?? 'Failed to create invite');
     } finally {
       setInviteSending(false);
     }
@@ -76,7 +74,6 @@ export default function Workers() {
     setInviteOpen(false);
     setInviteEmail('');
     setInviteLink('');
-    setInviteError('');
     setCopied(false);
   }
 
@@ -108,16 +105,14 @@ export default function Workers() {
       const data = await api.get<KYCDetail>(`/compliance/${workerId}`);
       setSelectedKYC(data.data);
       setKycModalOpen(true);
-      setActionError('');
     } catch (err: unknown) {
-      setActionError(err instanceof Error ? err.message : 'Failed to load KYC details');
+      toast.error(err instanceof Error ? err.message : 'Failed to load KYC details');
     }
   }
 
   async function approveKYC() {
     if (!selectedKYC) return;
     setApproving(true);
-    setActionError('');
     try {
       await api.post(`/compliance/${selectedKYC.user_id}/approve`, {});
       setSelectedKYC({ ...selectedKYC, status: 'verified' });
@@ -128,8 +123,9 @@ export default function Workers() {
             : w,
         ),
       );
+      toast.success('KYC approved');
     } catch (err: unknown) {
-      setActionError(err instanceof Error ? err.message : 'Failed to approve KYC');
+      toast.error(err instanceof Error ? err.message : 'Failed to approve KYC');
     } finally {
       setApproving(false);
     }
@@ -138,7 +134,6 @@ export default function Workers() {
   async function rejectKYC() {
     if (!selectedKYC) return;
     setRejecting(true);
-    setActionError('');
     try {
       await api.post(`/compliance/${selectedKYC.user_id}/reject`, { reason: 'Rejected by enterprise' });
       setSelectedKYC({ ...selectedKYC, status: 'rejected' });
@@ -149,8 +144,9 @@ export default function Workers() {
             : w,
         ),
       );
+      toast.success('KYC rejected');
     } catch (err: unknown) {
-      setActionError(err instanceof Error ? err.message : 'Failed to reject KYC');
+      toast.error(err instanceof Error ? err.message : 'Failed to reject KYC');
     } finally {
       setRejecting(false);
     }
@@ -204,7 +200,6 @@ export default function Workers() {
                     required
                   />
                 </label>
-                {inviteError && <p className="auth-error">{inviteError}</p>}
                 <div className="form-actions">
                   <button type="button" className="btn-secondary" onClick={closeInvite}>Cancel</button>
                   <button type="submit" className="btn-primary" disabled={inviteSending}>
@@ -316,8 +311,6 @@ export default function Workers() {
                 <p style={{ fontSize: '0.875rem', color: '#666', margin: '0 0 0.25rem 0' }}>Submitted</p>
                 <p style={{ margin: 0 }}>{new Date(selectedKYC.created_at).toLocaleString()}</p>
               </div>
-
-              {actionError && <p style={{ color: '#dc2626', marginBottom: '1rem' }}>{actionError}</p>}
 
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
                 <button

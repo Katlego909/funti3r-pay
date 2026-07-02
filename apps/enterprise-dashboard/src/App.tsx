@@ -29,6 +29,7 @@ import Landing from './pages/Landing.js';
 import { useAuthStore } from './store/authStore.js';
 import { logout } from './api/auth.js';
 import GlobalSearch from './components/GlobalSearch.js';
+import { Toaster } from 'sonner';
 import './App.css';
 
 function hasToken(): boolean {
@@ -244,6 +245,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <Toaster position="top-right" richColors closeButton />
       {!isAuthenticated ? (
         <Routes>
           <Route path="/" element={<Landing />} />

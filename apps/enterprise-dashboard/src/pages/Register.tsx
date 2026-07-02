@@ -1,5 +1,7 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { toast } from 'sonner';
+import { HiOutlineFingerPrint } from 'react-icons/hi2';
 import { registerPasskey } from '../api/auth.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
@@ -16,12 +18,10 @@ export default function Register() {
 
   const [role, setRole] = useState<Role>(initialRole);
   const [email, setEmail] = useState(inviteEmail);
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'form' | 'passkey' | 'wallet'>('form');
   const [inviteValid, setInviteValid] = useState<boolean | null>(inviteToken ? null : true);
 
-  // Validate the invite token on mount
   useEffect(() => {
     if (!inviteToken) return;
     api.get(`/invites/${inviteToken}`)
@@ -31,33 +31,27 @@ export default function Register() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setError('');
     setLoading(true);
     setStep('passkey');
 
     try {
-      console.log('[Register] Starting passkey registration for:', email, 'as', role);
       const session = await registerPasskey(email, role);
-      console.log('[Register] Passkey registration succeeded:', session.userId);
       setSession({ userId: session.userId, email: session.email, role: session.role }, session.accessToken);
 
-      // Accept the invite and link worker to enterprise
       if (inviteToken && role === 'worker') {
         await api.post(`/invites/${inviteToken}/accept`, { workerId: session.userId }).catch(() => {});
       }
 
-      console.log('[Register] Registration complete, navigating to dashboard');
       navigate('/');
     } catch (err: unknown) {
       setStep('form');
-      console.error('[Register] Registration failed:', err);
       const msg = err instanceof Error ? err.message : 'Registration failed';
       if (msg.includes('409') || msg.includes('already registered')) {
-        setError('This email is already registered. Please sign in.');
+        toast.error('This email is already registered. Please sign in.');
       } else if (msg.includes('cancelled') || msg.includes('NotAllowedError')) {
-        setError('Passkey creation was cancelled. Please try again.');
+        toast.error('Passkey creation was cancelled. Please try again.');
       } else {
-        setError(msg);
+        toast.error(msg);
       }
     } finally {
       setLoading(false);
@@ -73,20 +67,21 @@ export default function Register() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <h2>Create Account</h2>
+        <img src="/images/logo.png" alt="Funti3rPay" className="auth-logo" />
+
+        <h2>Create account</h2>
+        <p className="auth-subtitle">A passkey will be created on your device — no password required.</p>
 
         {inviteToken && inviteValid === false && (
-          <p className="auth-error">This invite link has expired or is invalid. Ask your employer for a new one.</p>
+          <p className="auth-error" style={{ marginBottom: '1rem' }}>
+            This invite link has expired or is invalid. Ask your employer for a new one.
+          </p>
         )}
         {inviteToken && inviteValid === true && (
-          <p style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px 12px', fontSize: '0.85rem', color: '#065f46', margin: '0 0 1rem' }}>
+          <p style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '10px 14px', fontSize: '0.85rem', color: '#065f46', margin: '0 0 1.25rem' }}>
             You've been invited to join as a worker. Your account will be linked to your employer automatically.
           </p>
         )}
-
-        <p className="auth-subtitle">
-          A passkey will be created on your device. No passwords required.
-        </p>
 
         {!inviteToken && (
           <div className="role-toggle" role="group" aria-label="Account type">
@@ -97,7 +92,7 @@ export default function Register() {
 
         <form onSubmit={handleSubmit} className="auth-form">
           <label>
-            {role === 'worker' ? 'Email' : 'Work Email'}
+            {role === 'worker' ? 'Email' : 'Work email'}
             <input
               type="email"
               value={email}
@@ -110,10 +105,11 @@ export default function Register() {
           </label>
 
           {step !== 'form' && <p className="auth-status">{stepMessages[step]}</p>}
-          {error && <p className="auth-error">{error}</p>}
 
-          <button type="submit" className="btn-primary" disabled={loading || !email}>
-            {loading ? stepMessages[step] || 'Working…' : 'Create Account with Passkey'}
+          <button type="submit" className="btn-primary" disabled={loading || !email}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+            <HiOutlineFingerPrint size={18} />
+            {loading ? stepMessages[step] || 'Working…' : 'Create account with Passkey'}
           </button>
         </form>
 

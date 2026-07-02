@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { HiOutlineBanknotes } from 'react-icons/hi2';
+import { toast } from 'sonner';
 import { useAuthStore } from '../store/authStore';
 import { api } from '../api/client.js';
 import { getPayoutCurrencies, getPreferredCurrency, setPreferredCurrency, type PayoutCurrency } from '../api/payments.js';
@@ -29,7 +30,6 @@ export default function Wallet() {
   const [currencies, setCurrencies] = useState<PayoutCurrency[]>([]);
   const [preferred, setPreferred] = useState('USDC');
   const [savingPref, setSavingPref] = useState(false);
-  const [prefSaved, setPrefSaved] = useState(false);
 
   useEffect(() => {
     if (!userId) {
@@ -43,14 +43,12 @@ export default function Wallet() {
 
   async function changePreferred(code: string) {
     setSavingPref(true);
-    setPrefSaved(false);
     try {
       const saved = await setPreferredCurrency(code);
       setPreferred(saved);
-      setPrefSaved(true);
-      setTimeout(() => setPrefSaved(false), 2500);
+      toast.success('Payout currency updated');
     } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'Failed to update payout currency');
+      toast.error(err?.response?.data?.error ?? 'Failed to update payout currency');
     } finally {
       setSavingPref(false);
     }
@@ -106,8 +104,8 @@ export default function Wallet() {
                 <option key={c.code} value={c.code}>{c.symbol} {c.name} ({c.code})</option>
               ))}
             </select>
-            <span style={{ fontSize: '13px', color: prefSaved ? '#16a34a' : '#6b7280' }}>
-              {savingPref ? 'Saving…' : prefSaved ? '✓ Saved' : 'Employers send USD — you receive this currency.'}
+            <span style={{ fontSize: '13px', color: '#6b7280' }}>
+              {savingPref ? 'Saving…' : 'Employers send USD — you receive this currency.'}
             </span>
           </div>
         </div>

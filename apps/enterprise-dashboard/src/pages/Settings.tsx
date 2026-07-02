@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { useAuthStore } from '../store/authStore.js';
 import { api } from '../api/client.js';
 import {
@@ -7,7 +8,6 @@ import {
   HiOutlineGlobeAlt,
   HiOutlineShieldCheck,
   HiOutlineCheckCircle,
-  HiOutlineExclamationCircle,
 } from 'react-icons/hi2';
 
 const card: React.CSSProperties = {
@@ -113,8 +113,6 @@ export default function Settings() {
   const [notifyWeekly, setNotifyWeekly] = useState(false);
 
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState('');
 
   // Load existing company name for enterprise users
   useEffect(() => {
@@ -126,15 +124,13 @@ export default function Settings() {
 
   async function handleSave() {
     setSaving(true);
-    setSaveError('');
     try {
       const body: Record<string, unknown> = {};
       if (isEnterprise) body.company_name = companyName;
       await api.patch('/users/me', body);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
+      toast.success('Settings saved');
     } catch {
-      setSaveError('Failed to save. Please try again.');
+      toast.error('Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -242,16 +238,6 @@ export default function Settings() {
 
       {/* Save */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px' }}>
-        {saveError && (
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--error, #dc2626)', fontSize: '14px' }}>
-            <HiOutlineExclamationCircle size={16} /> {saveError}
-          </span>
-        )}
-        {saved && (
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--success)', fontSize: '14px', fontWeight: 600 }}>
-            <HiOutlineCheckCircle size={16} /> Saved
-          </span>
-        )}
         <button
           onClick={handleSave}
           disabled={saving}

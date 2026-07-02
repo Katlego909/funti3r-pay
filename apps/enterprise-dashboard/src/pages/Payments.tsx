@@ -1,5 +1,6 @@
 import { useEffect, useState, FormEvent, useMemo } from 'react';
 import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMark, HiOutlineArrowDownTray } from 'react-icons/hi2';
+import { toast } from 'sonner';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
 import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, type Payment, type BatchResult } from '../api/payments.js';
 import { api } from '../api/client.js';
@@ -40,15 +41,12 @@ export default function Payments() {
   const [memo, setMemo] = useState('');
   const [fxRates, setFxRates] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [formSuccess, setFormSuccess] = useState('');
 
   // Batch payment form state
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchCurrency, setBatchCurrency] = useState<'XLM' | 'USDC'>('XLM');
   const [batchRows, setBatchRows] = useState<BatchRow[]>([{ workerId: '', amount: '' }]);
   const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
-  const [batchError, setBatchError] = useState('');
 
   // Payment detail modal
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -124,8 +122,6 @@ export default function Payments() {
 
   async function handleSend(e: FormEvent) {
     e.preventDefault();
-    setFormError('');
-    setFormSuccess('');
     setSubmitting(true);
     try {
       const result = await initiatePayment({
@@ -138,14 +134,14 @@ export default function Payments() {
       const got = result.amount != null
         ? `${Number(result.amount).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${result.currency}`
         : result.currency;
-      setFormSuccess(`Sent $${Number(amount).toFixed(2)} → worker received ${got}`);
+      toast.success(`Sent $${Number(amount).toFixed(2)} — worker receives ${got}`);
       setFormOpen(false);
       setWorkerId('');
       setAmount('');
       setMemo('');
       loadPayments();
     } catch (err: any) {
-      setFormError(err?.response?.data?.error ?? err?.message ?? 'Payment failed');
+      toast.error(err?.response?.data?.error ?? err?.message ?? 'Payment failed');
     } finally {
       setSubmitting(false);
     }
@@ -175,8 +171,13 @@ export default function Payments() {
       });
       setBatchResult(result);
       loadPayments();
+      if (result.failedCount === 0) {
+        toast.success(`Batch complete — ${result.completedCount} payment(s) sent`);
+      } else {
+        toast.warning(`Batch partial — ${result.completedCount} sent, ${result.failedCount} failed`);
+      }
     } catch (err: any) {
-      setBatchError(err?.response?.data?.error ?? err?.message ?? 'Batch failed');
+      toast.error(err?.response?.data?.error ?? err?.message ?? 'Batch failed');
     } finally {
       setSubmitting(false);
     }
@@ -208,8 +209,6 @@ export default function Payments() {
           </button>
         </div>
       </div>
-
-      {formSuccess && <div className="success-banner">{formSuccess}</div>}
 
       {formOpen && (
         <div className="modal-overlay" onClick={() => setFormOpen(false)}>
@@ -261,7 +260,6 @@ export default function Payments() {
                 />
               </label>
 
-              {formError && <p className="auth-error">{formError}</p>}
               <div className="form-actions">
                 <button type="button" className="btn-secondary" onClick={() => setFormOpen(false)}>Cancel</button>
                 <button type="submit" className="btn-primary" disabled={submitting}>
@@ -328,7 +326,6 @@ export default function Payments() {
                   + Add worker
                 </button>
 
-                {batchError && <p className="auth-error">{batchError}</p>}
                 <div className="form-actions">
                   <button type="button" className="btn-secondary" onClick={() => setBatchOpen(false)}>Cancel</button>
                   <button type="submit" className="btn-primary" disabled={submitting}>
