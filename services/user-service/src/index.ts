@@ -835,10 +835,89 @@ app.post('/invites/:token/accept', async (req, res) => {
         [entRes.rows[0].id, workerId],
       );
     }
+
+    // Notify the enterprise that their invited worker has joined
+    try {
+      const workerRow = await query('SELECT email FROM users WHERE id = $1', [workerId]);
+      const workerEmail = workerRow.rows[0]?.email ?? 'A worker';
+      await query(
+        `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
+         VALUES ($1, 'worker_joined', 'New worker joined', $2, 'worker', $3)`,
+        [enterpriseId, `${workerEmail} accepted your invite and joined your team.`, workerId],
+      );
+    } catch (notifErr) {
+      logger.warn('Failed to emit worker_joined notification', { error: String(notifErr) });
+    }
+
     return res.json({ ok: true });
   } catch (err) {
     logger.error('Accept invite failed', { error: String(err) });
     return res.status(500).json({ error: 'Failed to accept invite' });
+  }
+});
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+app.get('/notifications', async (req, res) => {
+  const userId = req.headers['x-user-id'] as string | undefined;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+  const limit = Math.min(Number(req.query.limit ?? 30), 100);
+  const offset = Number(req.query.offset ?? 0);
+
+  try {
+    const [rows, unread] = await Promise.all([
+      query(
+        `SELECT id, type, title, body, entity_type, entity_id, read_at, created_at
+           FROM notifications
+          WHERE user_id = $1
+          ORDER BY created_at DESC
+          LIMIT $2 OFFSET $3`,
+        [userId, limit, offset],
+      ),
+      query(
+        `SELECT COUNT(*) AS count FROM notifications WHERE user_id = $1 AND read_at IS NULL`,
+        [userId],
+      ),
+    ]);
+    res.json({ notifications: rows.rows, unreadCount: Number(unread.rows[0].count) });
+  } catch (err) {
+    logger.error('Failed to fetch notifications', { error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Must be registered before /:id/read to avoid being captured by the param route
+app.patch('/notifications/read-all', async (req, res) => {
+  const userId = req.headers['x-user-id'] as string | undefined;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+  try {
+    await query(
+      `UPDATE notifications SET read_at = NOW() WHERE user_id = $1 AND read_at IS NULL`,
+      [userId],
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.patch('/notifications/:id/read', async (req, res) => {
+  const userId = req.headers['x-user-id'] as string | undefined;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+  try {
+    const result = await query(
+      `UPDATE notifications SET read_at = NOW()
+        WHERE id = $1 AND user_id = $2 AND read_at IS NULL
+        RETURNING id`,
+      [req.params.id, userId],
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Notification not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

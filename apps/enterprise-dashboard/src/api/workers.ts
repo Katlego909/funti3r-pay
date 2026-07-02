@@ -20,8 +20,9 @@ export interface WorkerWallet {
 export interface KYCStatus {
   status: string;
   verified_at?: string;
+  submitted_at?: string | null;
   expires_at?: string;
-  updated_at: string;
+  updated_at?: string;
 }
 
 export async function getWorker(id: string): Promise<Worker> {

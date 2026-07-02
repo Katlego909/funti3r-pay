@@ -12,8 +12,11 @@ import {
   HiOutlineCog6Tooth,
   HiOutlineLifebuoy,
   HiOutlineChevronDown,
+  HiOutlineBell,
 } from 'react-icons/hi2';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { toast } from 'sonner';
+import { useNotificationStore } from './store/notificationStore.js';
 import Dashboard from './pages/Dashboard.js';
 import Payments from './pages/Payments.js';
 import Schedules from './pages/Schedules.js';
@@ -78,6 +81,163 @@ const FOOTER_LINKS = [
 // Combined for TopBar page-title lookup
 const ENTERPRISE_LINKS = [...ENTERPRISE_NAV, ...FOOTER_LINKS];
 const WORKER_LINKS = [...WORKER_NAV, ...FOOTER_LINKS];
+
+function formatTimeAgo(dateStr: string): string {
+  const mins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function NotificationPanel({ onClose }: { onClose: () => void }) {
+  const { notifications, unreadCount, loading, markRead, markAllRead } = useNotificationStore();
+
+  return (
+    <>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 149 }} onClick={onClose} />
+      <div style={{
+        position: 'absolute',
+        top: 'calc(100% + 8px)',
+        right: 0,
+        width: '360px',
+        background: '#fff',
+        border: '1px solid var(--gray-200)',
+        borderRadius: '16px',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+        zIndex: 300,
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          padding: '14px 18px',
+          borderBottom: '1px solid var(--gray-100)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--gray-900)' }}>
+            Notifications
+            {unreadCount > 0 && (
+              <span style={{ marginLeft: '6px', color: 'var(--accent)', fontWeight: 700 }}>
+                ({unreadCount})
+              </span>
+            )}
+          </span>
+          {unreadCount > 0 && (
+            <button
+              onClick={markAllRead}
+              style={{ fontSize: '12px', color: 'var(--gray-600)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}
+            >
+              Mark all read
+            </button>
+          )}
+        </div>
+
+        <div style={{ maxHeight: '420px', overflowY: 'auto' }}>
+          {loading && notifications.length === 0 ? (
+            <div style={{ padding: '32px', textAlign: 'center', fontSize: '13px', color: 'var(--gray-600)' }}>
+              Loading…
+            </div>
+          ) : notifications.length === 0 ? (
+            <div style={{ padding: '40px 24px', textAlign: 'center' }}>
+              <HiOutlineBell size={28} style={{ color: 'var(--gray-300)', marginBottom: '8px' }} />
+              <p style={{ fontSize: '13px', color: 'var(--gray-600)', margin: 0 }}>No notifications yet</p>
+            </div>
+          ) : (
+            notifications.map((n) => (
+              <div
+                key={n.id}
+                onClick={() => { if (!n.read_at) markRead(n.id); }}
+                style={{
+                  padding: '12px 18px',
+                  borderBottom: '1px solid var(--gray-100)',
+                  background: n.read_at ? '#fff' : 'var(--gray-50)',
+                  cursor: n.read_at ? 'default' : 'pointer',
+                  display: 'flex',
+                  gap: '10px',
+                  alignItems: 'flex-start',
+                }}
+              >
+                <div style={{
+                  width: '7px',
+                  height: '7px',
+                  borderRadius: '50%',
+                  background: n.read_at ? 'transparent' : 'var(--accent)',
+                  flexShrink: 0,
+                  marginTop: '5px',
+                }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--gray-900)', marginBottom: '2px' }}>
+                    {n.title}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--gray-600)', lineHeight: 1.5, marginBottom: '4px' }}>
+                    {n.body}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--gray-300)' }}>
+                    {formatTimeAgo(n.created_at)}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function NotificationBell() {
+  const [open, setOpen] = useState(false);
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Notifications"
+        style={{
+          position: 'relative',
+          width: '36px',
+          height: '36px',
+          borderRadius: '10px',
+          background: open ? 'var(--gray-100)' : 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--gray-700)',
+          flexShrink: 0,
+        }}
+      >
+        <HiOutlineBell size={20} />
+        {unreadCount > 0 && (
+          <span style={{
+            position: 'absolute',
+            top: '4px',
+            right: '4px',
+            minWidth: '16px',
+            height: '16px',
+            borderRadius: '8px',
+            background: 'var(--accent)',
+            color: '#fff',
+            fontSize: '10px',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0 3px',
+            lineHeight: 1,
+          }}>
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        )}
+      </button>
+      {open && <NotificationPanel onClose={() => setOpen(false)} />}
+    </div>
+  );
+}
 
 function Sidebar({ role, isOpen, onClose }: { role: string; isOpen: boolean; onClose: () => void }) {
   const navLinks = role === 'worker' ? WORKER_NAV : ENTERPRISE_NAV;
@@ -158,6 +318,7 @@ function TopBar({ role, onMenuToggle }: { role: string; onMenuToggle: () => void
       </div>
 
       <div className="topbar-right">
+        <NotificationBell />
         <div className="user-menu">
           <button className="user-menu-btn" onClick={() => setMenuOpen(!menuOpen)}>
             <span className="user-avatar">{initials}</span>
@@ -200,6 +361,27 @@ function TopBar({ role, onMenuToggle }: { role: string; onMenuToggle: () => void
 function AuthedApp({ role }: { role: string }) {
   const isWorker = role === 'worker';
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const fetchNotifications = useNotificationStore((s) => s.fetch);
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
+  const prevUnreadRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    fetchNotifications();
+    const id = setInterval(fetchNotifications, 30_000);
+    return () => clearInterval(id);
+  }, [fetchNotifications]);
+
+  useEffect(() => {
+    if (prevUnreadRef.current === null) {
+      prevUnreadRef.current = unreadCount;
+      return;
+    }
+    if (unreadCount > prevUnreadRef.current) {
+      const delta = unreadCount - prevUnreadRef.current;
+      toast.info(`${delta} new notification${delta === 1 ? '' : 's'}`, { duration: 4000 });
+    }
+    prevUnreadRef.current = unreadCount;
+  }, [unreadCount]);
 
   return (
     <div className="app-shell">

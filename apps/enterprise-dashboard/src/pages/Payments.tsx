@@ -153,13 +153,12 @@ export default function Payments() {
 
   async function handleSendBatch(e: FormEvent) {
     e.preventDefault();
-    setBatchError('');
     setBatchResult(null);
     const items = batchRows
       .filter((r) => r.workerId && r.amount && Number(r.amount) > 0)
       .map((r) => ({ workerId: r.workerId, amount: Number(r.amount) }));
     if (items.length === 0) {
-      setBatchError('Add at least one worker with a positive amount.');
+      toast.error('Add at least one worker with a positive amount.');
       return;
     }
     setSubmitting(true);
@@ -201,10 +200,10 @@ export default function Payments() {
               <HiOutlineArrowDownTray size={14} /> {exporting ? 'Exporting…' : 'PDF'}
             </button>
           </div>
-          <button className="btn-secondary" onClick={() => { setBatchOpen(true); setBatchResult(null); setBatchError(''); setBatchRows([{ workerId: '', amount: '' }]); }}>
+          <button className="btn-secondary" onClick={() => { setBatchOpen(true); setBatchResult(null); setBatchRows([{ workerId: '', amount: '' }]); }}>
             Batch Payout
           </button>
-          <button className="btn-primary" onClick={() => { setFormOpen(true); setFormSuccess(''); setFormError(''); }}>
+          <button className="btn-primary" onClick={() => setFormOpen(true)}>
             + New Payment
           </button>
         </div>

@@ -105,8 +105,9 @@ export default function Workers() {
       const data = await api.get<KYCDetail>(`/compliance/${workerId}`);
       setSelectedKYC(data.data);
       setKycModalOpen(true);
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to load KYC details');
+    } catch (err: any) {
+      const status = err?.response?.status;
+      toast.error(status === 404 ? 'No KYC documents on file for this worker.' : (err?.response?.data?.error ?? 'Failed to load KYC details'));
     }
   }
 
@@ -262,7 +263,7 @@ export default function Workers() {
                 </td>
                 <td>{new Date(w.created_at).toLocaleDateString()}</td>
                 <td>
-                  {w.kyc?.status && w.kyc.status !== 'none' ? (
+                  {w.kyc?.submitted_at ? (
                     <button
                       className="btn-secondary"
                       style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}

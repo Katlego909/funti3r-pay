@@ -413,10 +413,11 @@ async function executePayout(opts: {
 
   // Worker destination (+ secret for trustline setup on issued assets).
   const wkrRes = await query(
-    'SELECT stellar_public_key, stellar_secret_key FROM users WHERE id = $1',
+    'SELECT stellar_public_key, stellar_secret_key, email FROM users WHERE id = $1',
     [workerId],
   );
   const destination: string | undefined = wkrRes.rows[0]?.stellar_public_key;
+  const workerEmail: string = wkrRes.rows[0]?.email ?? 'your worker';
   const workerStoredSecret: string | undefined = wkrRes.rows[0]?.stellar_secret_key;
   if (!destination) {
     return { ...base, error: 'Worker Stellar account not found' };
@@ -496,6 +497,41 @@ async function executePayout(opts: {
       [paymentStatus, txHash, paymentId],
     );
     logger.info('Payment settled', { paymentId, txHash, status: paymentStatus, amount: amountNum, currency: asset, workerId });
+
+    // Emit notifications (best-effort — never block the payment result)
+    try {
+      if (paymentStatus === 'completed') {
+        await Promise.all([
+          query(
+            `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
+             VALUES ($1, 'payment_completed', 'Payment sent', $2, 'payment', $3)`,
+            [enterpriseId, `Payment of ${amountNum} ${asset} to ${workerEmail} was settled.`, paymentId],
+          ),
+          query(
+            `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
+             VALUES ($1, 'payment_received', 'Payment received', $2, 'payment', $3)`,
+            [workerId, `You received ${amountNum} ${asset} from your employer.`, paymentId],
+          ),
+        ]);
+      } else {
+        // pending_claim
+        await Promise.all([
+          query(
+            `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
+             VALUES ($1, 'payment_pending_claim', 'Payment pending claim', $2, 'payment', $3)`,
+            [enterpriseId, `Payment to ${workerEmail} is pending — they need to set up a trustline to receive ${asset}.`, paymentId],
+          ),
+          query(
+            `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
+             VALUES ($1, 'payment_pending_claim', 'Payment waiting for you', $2, 'payment', $3)`,
+            [workerId, `A payment of ${amountNum} XLM is held for you. Set up your wallet to claim it.`, paymentId],
+          ),
+        ]);
+      }
+    } catch (notifErr) {
+      logger.warn('Failed to emit payment notification', { paymentId, error: String(notifErr) });
+    }
+
     return { ...base, paymentId, status: paymentStatus, stellarTxHash: txHash, ...(feePaidXlm ? { sourceAmountXlm: feePaidXlm } : {}) };
   } catch (err: any) {
     const resultCodes = err?.response?.data?.extras?.result_codes;
@@ -505,6 +541,17 @@ async function executePayout(opts: {
       [detail, paymentId],
     );
     logger.error('Stellar payment failed', { paymentId, detail });
+
+    try {
+      await query(
+        `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
+         VALUES ($1, 'payment_failed', 'Payment failed', $2, 'payment', $3)`,
+        [enterpriseId, `Payment of ${amountNum} ${asset} to ${workerEmail} failed: ${detail.slice(0, 120)}`, paymentId],
+      );
+    } catch (notifErr) {
+      logger.warn('Failed to emit payment_failed notification', { paymentId, error: String(notifErr) });
+    }
+
     return { ...base, paymentId, error: detail };
   }
 }

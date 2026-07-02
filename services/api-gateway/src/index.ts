@@ -184,6 +184,8 @@ app.all('/users*', proxy(USER_SERVICE));
 app.all('/api/users*', proxy(USER_SERVICE, { '^/api/users': '/users' }));
 app.all('/invites*', proxy(USER_SERVICE));
 app.all('/api/invites*', proxy(USER_SERVICE, { '^/api/invites': '/invites' }));
+app.all('/notifications*', proxy(USER_SERVICE));
+app.all('/api/notifications*', proxy(USER_SERVICE, { '^/api/notifications': '/notifications' }));
 
 // Wallets & Payouts → payment-service
 app.all('/wallets*', proxy(PAYMENT_SERVICE));
