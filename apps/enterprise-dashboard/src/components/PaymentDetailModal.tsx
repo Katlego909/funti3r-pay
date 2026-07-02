@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { HiOutlineArrowTopRightOnSquare, HiXMark, HiOutlineClipboard, HiCheck, HiOutlineArrowPath } from 'react-icons/hi2';
+import { HiOutlineArrowTopRightOnSquare, HiXMark, HiOutlineClipboard, HiCheck, HiOutlineArrowPath, HiOutlineArrowDownTray } from 'react-icons/hi2';
 import { api } from '../api/client.js';
+import { generatePayslip } from '../utils/export.js';
 
 interface PaymentDetail {
   id: string;
@@ -242,6 +243,32 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
                 </a>
                 <button onClick={() => copy(p.stellar_tx_hash!, 'tx')} className="btn-secondary" style={{ marginLeft: '8px' }}>
                   {copied === 'tx' ? 'Copied ✓' : 'Copy tx hash'}
+                </button>
+              </div>
+            )}
+
+            {p.status === 'completed' && (
+              <div style={{ marginTop: '16px' }}>
+                <button
+                  onClick={() => generatePayslip({
+                    id: p.id,
+                    workerEmail: p.worker_email ?? p.worker_id,
+                    enterpriseEmail: p.enterprise_email ?? p.enterprise_id.slice(0, 8),
+                    amount: p.amount,
+                    currency: p.currency,
+                    usdValue: p.usd_value,
+                    fxRate: p.fx_rate,
+                    stellarTxHash: p.stellar_tx_hash,
+                    stellarDestination: p.stellar_destination,
+                    feePaidXlm: p.fee_paid_xlm,
+                    memo: p.memo,
+                    createdAt: p.created_at,
+                    completedAt: p.completed_at,
+                  })}
+                  className="btn-secondary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <HiOutlineArrowDownTray size={15} /> Download Payslip
                 </button>
               </div>
             )}

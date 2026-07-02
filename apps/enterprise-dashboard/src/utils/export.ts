@@ -44,29 +44,28 @@ export function exportPDF(
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
 
-  // Header bar
-  doc.setFillColor(66, 10, 99); // --primary
-  doc.rect(0, 0, pageW, 48, 'F');
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
-  doc.text('Funti3rPay', 32, 30);
-
-  doc.setFontSize(11);
+  doc.setFontSize(10);
+  doc.setTextColor(20, 20, 20);
+  doc.text('FUNTI3RPAY', 32, 32);
   doc.setFont('helvetica', 'normal');
-  doc.text(title, pageW / 2, 30, { align: 'center' });
-
-  doc.setFontSize(9);
-  doc.text(subtitle, pageW - 32, 30, { align: 'right' });
+  doc.setFontSize(10);
+  doc.setTextColor(80, 80, 80);
+  doc.text(title, pageW / 2, 32, { align: 'center' });
+  doc.setFontSize(8.5);
+  doc.setTextColor(140, 140, 140);
+  doc.text(subtitle, pageW - 32, 32, { align: 'right' });
+  doc.setDrawColor(210, 210, 210);
+  doc.setLineWidth(0.5);
+  doc.line(32, 40, pageW - 32, 40);
 
   autoTable(doc, {
-    startY: 64,
+    startY: 56,
     head: [headers],
     body: rows.map((r) => r.map((v) => (v == null ? '' : String(v)))),
     styles: { fontSize: 8.5, cellPadding: 5 },
-    headStyles: { fillColor: [66, 10, 99], textColor: 255, fontStyle: 'bold' },
-    alternateRowStyles: { fillColor: [248, 245, 252] },
+    headStyles: { fillColor: [245, 245, 245], textColor: [30, 30, 30], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [250, 250, 250] },
     margin: { left: 32, right: 32 },
   });
 
@@ -157,6 +156,134 @@ export function exportWorkersPDF(workers: ExportWorker[]) {
   exportPDF('Worker Report', new Date().toLocaleDateString(), WORKER_HEADERS, workers.map(workerRow), `funti3rpay-workers-${timestamp()}.pdf`);
 }
 
+// ── Payslip ───────────────────────────────────────────────────────────────────
+
+export interface PayslipData {
+  id: string;
+  workerEmail: string;
+  enterpriseEmail: string;
+  amount: string | number;
+  currency: string;
+  usdValue?: number | null;
+  fxRate?: number | null;
+  stellarTxHash?: string | null;
+  stellarDestination?: string | null;
+  feePaidXlm?: string | null;
+  memo?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+}
+
+export function generatePayslip(p: PayslipData) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+  const W = doc.internal.pageSize.getWidth();
+  const M = 56;
+  const inner = W - M * 2;
+
+  let y = 48;
+
+  // Header — plain text, thin rule
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(20, 20, 20);
+  doc.text('FUNTI3RPAY', M, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(120, 120, 120);
+  doc.text('PAYSLIP', W - M, y, { align: 'right' });
+  y += 10;
+  doc.setDrawColor(210, 210, 210);
+  doc.setLineWidth(0.5);
+  doc.line(M, y, W - M, y);
+  y += 32;
+
+  // Amount
+  const amtFormatted = Number(p.amount).toLocaleString(undefined, { maximumFractionDigits: 7 });
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(30);
+  doc.setTextColor(20, 20, 20);
+  doc.text(`${amtFormatted} ${p.currency}`, W / 2, y, { align: 'center' });
+  y += 18;
+  if (p.usdValue != null) {
+    const usdStr = p.usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(130, 130, 130);
+    doc.text(`$${usdStr} USD sent by employer`, W / 2, y, { align: 'center' });
+    y += 14;
+  }
+  y += 20;
+  doc.setDrawColor(225, 225, 225);
+  doc.line(M, y, W - M, y);
+  y += 22;
+
+  // Employer / Worker — two columns, no boxes
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(140, 140, 140);
+  doc.text('EMPLOYER', M, y);
+  doc.text('WORKER', W / 2 + 8, y);
+  y += 13;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text(p.enterpriseEmail, M, y, { maxWidth: inner / 2 - 12 });
+  doc.text(p.workerEmail, W / 2 + 8, y, { maxWidth: inner / 2 - 8 });
+  y += 30;
+  doc.setDrawColor(225, 225, 225);
+  doc.line(M, y, W - M, y);
+  y += 14;
+
+  // Details table
+  const fmtDate = (d: string) =>
+    new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  const fmtTime = (d: string) => new Date(d).toLocaleString();
+
+  const rows: [string, string][] = [['Payment Date', fmtDate(p.createdAt)]];
+  if (p.completedAt) rows.push(['Completed', fmtTime(p.completedAt)]);
+  rows.push(['Amount Received', `${amtFormatted} ${p.currency}`]);
+  if (p.usdValue != null) {
+    rows.push(['Employer Sent (USD)', `$${p.usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`]);
+  }
+  if (p.fxRate) {
+    rows.push(['Exchange Rate', `${p.fxRate.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${p.currency}/USD`]);
+    rows.push(['Exchange Method', 'Stellar DEX · auto-converted']);
+  }
+  if (p.feePaidXlm) rows.push(['Network Fee', `${p.feePaidXlm} XLM`]);
+  if (p.memo) rows.push(['Memo / Reference', p.memo]);
+  rows.push(['Payment ID', p.id]);
+  if (p.stellarTxHash) rows.push(['Stellar Tx Hash', p.stellarTxHash]);
+  if (p.stellarDestination) rows.push(['Worker Stellar Address', p.stellarDestination]);
+
+  autoTable(doc, {
+    startY: y,
+    body: rows,
+    styles: { fontSize: 9, cellPadding: { top: 7, bottom: 7, left: 0, right: 8 } },
+    columnStyles: {
+      0: { fontStyle: 'bold', textColor: [80, 80, 80], cellWidth: 160 },
+      1: { textColor: [20, 20, 20] },
+    },
+    alternateRowStyles: { fillColor: [249, 249, 249] },
+    margin: { left: M, right: M },
+  });
+
+  const afterTable = (doc as any).lastAutoTable.finalY + 20;
+
+  // Footer
+  doc.setLineWidth(0.5);
+  doc.setDrawColor(215, 215, 215);
+  doc.line(M, afterTable, W - M, afterTable);
+  doc.setFontSize(7.5);
+  doc.setTextColor(165, 165, 165);
+  doc.text(
+    'This is an official payment record generated by Funti3rPay. Retain for tax, visa, or loan applications.',
+    W / 2, afterTable + 14, { align: 'center', maxWidth: inner },
+  );
+  doc.text(`Generated ${new Date().toLocaleString()}`, W / 2, afterTable + 26, { align: 'center' });
+
+  const dateStr = new Date(p.createdAt).toISOString().slice(0, 10);
+  doc.save(`payslip-${p.currency}-${dateStr}-${p.id.slice(0, 8)}.pdf`);
+}
+
 // ── Analytics helpers ─────────────────────────────────────────────────────────
 
 export interface ExportSummary {
@@ -187,21 +314,23 @@ export function exportAnalyticsPDF(summary: ExportSummary, recentPayments: Expor
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
 
-  doc.setFillColor(66, 10, 99);
-  doc.rect(0, 0, pageW, 48, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
-  doc.text('Funti3rPay', 32, 30);
-  doc.setFontSize(11);
+  doc.setFontSize(10);
+  doc.setTextColor(20, 20, 20);
+  doc.text('FUNTI3RPAY', 32, 32);
   doc.setFont('helvetica', 'normal');
-  doc.text('Analytics Report', pageW / 2, 30, { align: 'center' });
-  doc.setFontSize(9);
-  doc.text(new Date().toLocaleDateString(), pageW - 32, 30, { align: 'right' });
+  doc.setTextColor(80, 80, 80);
+  doc.text('Analytics Report', pageW / 2, 32, { align: 'center' });
+  doc.setFontSize(8.5);
+  doc.setTextColor(140, 140, 140);
+  doc.text(new Date().toLocaleDateString(), pageW - 32, 32, { align: 'right' });
+  doc.setDrawColor(210, 210, 210);
+  doc.setLineWidth(0.5);
+  doc.line(32, 40, pageW - 32, 40);
 
   // Summary KPIs
   autoTable(doc, {
-    startY: 64,
+    startY: 56,
     head: [['Metric', 'Value']],
     body: [
       ['Total Payments', summary.totalCount],
@@ -212,15 +341,16 @@ export function exportAnalyticsPDF(summary: ExportSummary, recentPayments: Expor
       ...Object.entries(summary.byCurrency ?? {}).map(([k, v]) => [`Volume ${k}`, v]),
     ],
     styles: { fontSize: 9 },
-    headStyles: { fillColor: [66, 10, 99], textColor: 255, fontStyle: 'bold' },
-    columnStyles: { 0: { fontStyle: 'bold' } },
+    headStyles: { fillColor: [245, 245, 245], textColor: [30, 30, 30], fontStyle: 'bold' },
+    columnStyles: { 0: { fontStyle: 'bold', textColor: [60, 60, 60] } },
+    alternateRowStyles: { fillColor: [250, 250, 250] },
     margin: { left: 32, right: 32 },
   });
 
   const afterSummary = (doc as any).lastAutoTable.finalY + 20;
-  doc.setFontSize(11);
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(40, 40, 40);
+  doc.setTextColor(30, 30, 30);
   doc.text('Recent Payments', 32, afterSummary);
 
   autoTable(doc, {
@@ -228,8 +358,8 @@ export function exportAnalyticsPDF(summary: ExportSummary, recentPayments: Expor
     head: [PAYMENT_HEADERS],
     body: recentPayments.map(paymentRow).map((r) => r.map((v) => String(v))),
     styles: { fontSize: 8 },
-    headStyles: { fillColor: [66, 10, 99], textColor: 255, fontStyle: 'bold' },
-    alternateRowStyles: { fillColor: [248, 245, 252] },
+    headStyles: { fillColor: [245, 245, 245], textColor: [30, 30, 30], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [250, 250, 250] },
     margin: { left: 32, right: 32 },
   });
 
