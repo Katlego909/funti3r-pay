@@ -93,11 +93,9 @@ export default function RecoveryVerify() {
             <div className="auth-form">
               <button
                 onClick={handleEnroll}
-                className="btn-primary"
+                className="btn-cta"
                 disabled={enrolling}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
               >
-                <HiOutlineFingerPrint size={18} />
                 {enrolling ? 'Setting up passkey…' : 'Register passkey on this device'}
               </button>
 

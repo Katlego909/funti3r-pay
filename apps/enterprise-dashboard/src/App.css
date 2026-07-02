@@ -592,38 +592,73 @@ h6 {
 
 /* ── Buttons ──────────────────────────────────────────────────────────────── */
 
-.btn-primary {
-  background: var(--primary, #111);
-  color: white;
+/* Shared base */
+.btn,
+.btn-primary,
+.btn-cta,
+.btn-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border: none;
-  padding: 0.65rem 1.25rem;
-  border-radius: 7px;
+  border-radius: 12px;
   font-size: 0.9rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  transition: opacity 0.15s;
-}
-.btn-primary:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-.btn-primary:hover:not(:disabled) {
-  opacity: 0.88;
+  font-family: inherit;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: opacity 0.15s, background 0.15s, border-color 0.15s;
 }
 
+/* Dark pill — contextual submits, Done, etc. */
+.btn-primary {
+  background: var(--dark);
+  color: white;
+  padding: 13px 22px;
+}
+.btn-primary:hover:not(:disabled) { opacity: 0.85; }
+.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Dark pill with orange arrow circle — top-level forward CTAs */
+.btn-cta {
+  background: var(--dark);
+  color: white;
+  padding: 6px 6px 6px 22px;
+  justify-content: flex-start;
+}
+.btn-cta::after {
+  content: '';
+  display: inline-block;
+  min-width: 44px;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='M12 5l7 7-7 7'/%3E%3C/svg%3E") no-repeat center / 20px 20px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.btn-cta:hover:not(:disabled) { opacity: 0.85; }
+.btn-cta:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Light outlined — Cancel, secondary actions */
 .btn-secondary {
   background: white;
-  color: var(--primary, #111);
-  border: 1px solid #d1d5db;
-  padding: 0.65rem 1.25rem;
-  border-radius: 7px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
+  color: var(--gray-700);
+  border: 1.5px solid var(--gray-200);
+  padding: 11.5px 22px;
 }
-.btn-secondary:hover {
-  background: #f3f4f6;
+.btn-secondary:hover:not(:disabled) {
+  background: var(--gray-50);
+  border-color: var(--gray-300);
 }
+.btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Size modifier used by wallet/payment modals */
+.btn-large { padding: 15px 28px; font-size: 1rem; }
+.btn-cta.btn-large { padding: 8px 8px 8px 28px; }
+.btn-cta.btn-large::after { min-width: 50px; width: 50px; height: 50px; background-size: 22px 22px; }
 
 /* ── Dashboard header action row ────────────────────────────────────────── */
 

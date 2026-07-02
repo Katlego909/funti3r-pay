@@ -108,9 +108,7 @@ export default function Register() {
 
           {step !== 'form' && <p className="auth-status">{stepMessages[step]}</p>}
 
-          <button type="submit" className="btn-primary" disabled={loading || !email}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-            <HiOutlineFingerPrint size={18} />
+          <button type="submit" className="btn-cta" disabled={loading || !email}>
             {loading ? stepMessages[step] || 'Working…' : 'Create account with Passkey'}
           </button>
         </form>

@@ -61,9 +61,7 @@ export default function Login() {
             />
           </label>
 
-          <button type="submit" className="btn-primary" disabled={loading || !email}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-            <HiOutlineFingerPrint size={18} />
+          <button type="submit" className="btn-cta" disabled={loading || !email}>
             {loading ? 'Authenticating…' : 'Sign in with Passkey'}
           </button>
 

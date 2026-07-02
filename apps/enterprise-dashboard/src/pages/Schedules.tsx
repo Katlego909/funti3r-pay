@@ -135,9 +135,8 @@ export default function Schedules() {
           <h2>Schedules</h2>
           <p className="subtitle">Automate recurring payroll runs</p>
         </div>
-        <button className="btn-primary" onClick={openForm}
-          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <HiOutlinePlus size={16} /> New Schedule
+        <button className="btn-cta" onClick={openForm}>
+          New Schedule
         </button>
       </div>
 

@@ -172,8 +172,8 @@ export default function Workers() {
               <HiOutlineArrowDownTray size={14} /> PDF
             </button>
           </div>
-          <button className="btn-primary" onClick={() => setInviteOpen(true)}>
-            <HiOutlineEnvelope size={15} /> Invite Worker
+          <button className="btn-cta" onClick={() => setInviteOpen(true)}>
+            Invite Worker
           </button>
         </div>
       </div>

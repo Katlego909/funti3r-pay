@@ -203,8 +203,8 @@ export default function Payments() {
           <button className="btn-secondary" onClick={() => { setBatchOpen(true); setBatchResult(null); setBatchRows([{ workerId: '', amount: '' }]); }}>
             Batch Payout
           </button>
-          <button className="btn-primary" onClick={() => setFormOpen(true)}>
-            + New Payment
+          <button className="btn-cta" onClick={() => setFormOpen(true)}>
+            New Payment
           </button>
         </div>
       </div>

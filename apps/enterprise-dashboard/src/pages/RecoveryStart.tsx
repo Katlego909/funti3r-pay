@@ -71,11 +71,9 @@ export default function RecoveryStart() {
 
               <button
                 type="submit"
-                className="btn-primary"
+                className="btn-cta"
                 disabled={loading || !email}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
               >
-                <HiOutlineEnvelope size={17} />
                 {loading ? 'Sending…' : 'Send sign-in link'}
               </button>
             </form>

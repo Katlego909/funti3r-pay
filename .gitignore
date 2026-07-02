@@ -14,6 +14,7 @@ out/
 # Development
 .env
 .env.local
+.env.mainnet
 .env.*.local
 .env.*.example
 !.env.example
