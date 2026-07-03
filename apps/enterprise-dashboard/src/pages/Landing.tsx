@@ -128,9 +128,9 @@ function PayoutCard({
   return (
     <div className="hero-card">
       <div className="hero-card-head">
-        <span className="hc-title">Payout</span>
+        <span className="hc-title">Payroll</span>
         <span className="hc-status">
-          <span className="hc-dot" /> Settled · 4s
+          <span className="hc-dot" /> Settled ~5s
         </span>
       </div>
 
@@ -152,7 +152,7 @@ function PayoutCard({
         <span className="hc-avatar-wrap">
           <img
             className="hc-avatar"
-            src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=160&h=160&fit=crop&crop=faces&q=80"
+            src="https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=160&h=160&fit=crop&crop=faces&q=80"
             alt=""
             loading="lazy"
           />
@@ -164,7 +164,9 @@ function PayoutCard({
           />
         </span>
         <div>
-          <div className="hc-label">{recipientName} · receives</div>
+          <div className="hc-label">
+            {recipientName} · receives <span className="hc-batch">· 1 of 12</span>
+          </div>
           <div className="hc-amount hc-amount-green">
             {receiveAmount} <small>{receiveCurrency}</small>
           </div>
@@ -173,9 +175,7 @@ function PayoutCard({
 
       <div className="hc-foot">
         <StellarMark size={15} /> Settled on Stellar
-        <a href="#how" className="hc-link">
-          view on explorer →
-        </a>
+        <span className="hc-link">view on explorer →</span>
       </div>
     </div>
   );
