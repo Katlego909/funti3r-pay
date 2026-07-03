@@ -490,11 +490,11 @@ async function executePayout(opts: {
 
     await query(
       `UPDATE payments
-          SET status = $1::text, stellar_tx_hash = $2,
+          SET status = $1::text, stellar_tx_hash = $2, fee_paid_xlm = $3,
               completed_at = CASE WHEN $1::text = 'completed' THEN NOW() ELSE NULL END,
               updated_at = NOW()
-        WHERE id = $3`,
-      [paymentStatus, txHash, paymentId],
+        WHERE id = $4`,
+      [paymentStatus, txHash, feePaidXlm, paymentId],
     );
     logger.info('Payment settled', { paymentId, txHash, status: paymentStatus, amount: amountNum, currency: asset, workerId });
 

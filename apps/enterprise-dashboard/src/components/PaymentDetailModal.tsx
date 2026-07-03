@@ -220,7 +220,7 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
               </Row>
             )}
             {p.memo && <Row label="Memo">{p.memo}</Row>}
-            <Row label="Network fee">{p.fee_paid_xlm ? `${fmtAmt(p.fee_paid_xlm)} XLM` : '—'}</Row>
+            {p.fee_paid_xlm && <Row label="Conversion cost">{fmtAmt(p.fee_paid_xlm)} XLM</Row>}
             <Row label="Created">{fmtDate(p.created_at)}</Row>
             {p.completed_at && <Row label="Completed">{fmtDate(p.completed_at)}</Row>}
             {p.batch_id && <Row label="Batch">#{p.batch_id.slice(0, 8)}</Row>}

@@ -248,7 +248,7 @@ export function generatePayslip(p: PayslipData) {
     rows.push(['Exchange Rate', `${p.fxRate.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${p.currency}/USD`]);
     rows.push(['Exchange Method', 'Stellar DEX · auto-converted']);
   }
-  if (p.feePaidXlm) rows.push(['Network Fee', `${p.feePaidXlm} XLM`]);
+  if (p.feePaidXlm) rows.push(['Conversion Cost', `${p.feePaidXlm} XLM`]);
   if (p.memo) rows.push(['Memo / Reference', p.memo]);
   rows.push(['Payment ID', p.id]);
   if (p.stellarTxHash) rows.push(['Stellar Tx Hash', p.stellarTxHash]);
