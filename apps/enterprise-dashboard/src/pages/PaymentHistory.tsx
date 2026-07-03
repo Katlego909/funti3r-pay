@@ -54,40 +54,42 @@ export default function PaymentHistory() {
           </div>
         ) : (
           <>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Amount</th>
-                  <th>Status</th>
-                  <th>Date</th>
-                  <th>Transaction</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payments.map((p) => (
-                  <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
-                    <td style={{ fontWeight: 600 }}>{p.amount} {p.currency}</td>
-                    <td><span className={`status ${statusClass(p.status)}`}>{p.status}</span></td>
-                    <td>{new Date(p.created_at).toLocaleString()}</td>
-                    <td>
-                      {p.stellar_tx_hash ? (
-                        <a
-                          href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontFamily: 'monospace', fontSize: '0.8rem' }}
-                        >
-                          {p.stellar_tx_hash.slice(0, 8)}… <HiOutlineArrowTopRightOnSquare size={13} />
-                        </a>
-                      ) : (
-                        <span style={{ color: '#9ca3af' }}>—</span>
-                      )}
-                    </td>
+            <div className="table-responsive">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th>Transaction</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {payments.map((p) => (
+                    <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
+                      <td data-label="Amount" style={{ fontWeight: 600 }}>{p.amount} {p.currency}</td>
+                      <td data-label="Status"><span className={`status ${statusClass(p.status)}`}>{p.status}</span></td>
+                      <td data-label="Date">{new Date(p.created_at).toLocaleString()}</td>
+                      <td data-label="Transaction">
+                        {p.stellar_tx_hash ? (
+                          <a
+                            href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontFamily: 'monospace', fontSize: '0.8rem' }}
+                          >
+                            {p.stellar_tx_hash.slice(0, 8)}… <HiOutlineArrowTopRightOnSquare size={13} />
+                          </a>
+                        ) : (
+                          <span style={{ color: '#9ca3af' }}>—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
             <div className="pagination">
               <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>← Prev</button>

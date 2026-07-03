@@ -253,51 +253,53 @@ export default function Schedules() {
         </section>
       ) : (
         <section className="section">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Frequency</th>
-                <th>Workers</th>
-                <th>Total / run</th>
-                <th>Next run</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {schedules.map((s) => (
-                <tr key={s.id}>
-                  <td style={{ fontWeight: 600 }}>{s.name}</td>
-                  <td>{FREQUENCY_LABELS[s.frequency]}</td>
-                  <td>{s.items.length} worker{s.items.length !== 1 ? 's' : ''}</td>
-                  <td>${totalUsd(s.items).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                  <td>{formatNextRun(s.next_run_at)}</td>
-                  <td>{statusBadge(s)}</td>
-                  <td>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button
-                        title={s.status === 'active' ? 'Pause' : 'Resume'}
-                        onClick={() => handleToggle(s)}
-                        style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', color: '#6b7280' }}
-                      >
-                        {s.status === 'active'
-                          ? <HiOutlinePause size={15} />
-                          : <HiOutlinePlay size={15} />}
-                      </button>
-                      <button
-                        title="Delete"
-                        onClick={() => handleDelete(s)}
-                        style={{ background: 'none', border: '1px solid #fecaca', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', color: '#ef4444' }}
-                      >
-                        <HiOutlineTrash size={15} />
-                      </button>
-                    </div>
-                  </td>
+          <div className="table-responsive">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Frequency</th>
+                  <th>Workers</th>
+                  <th>Total / run</th>
+                  <th>Next run</th>
+                  <th>Status</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {schedules.map((s) => (
+                  <tr key={s.id}>
+                    <td data-label="Name" style={{ fontWeight: 600 }}>{s.name}</td>
+                    <td data-label="Frequency">{FREQUENCY_LABELS[s.frequency]}</td>
+                    <td data-label="Workers">{s.items.length} worker{s.items.length !== 1 ? 's' : ''}</td>
+                    <td data-label="Total / run">${totalUsd(s.items).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td data-label="Next run">{formatNextRun(s.next_run_at)}</td>
+                    <td data-label="Status">{statusBadge(s)}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          title={s.status === 'active' ? 'Pause' : 'Resume'}
+                          onClick={() => handleToggle(s)}
+                          style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', color: '#6b7280' }}
+                        >
+                          {s.status === 'active'
+                            ? <HiOutlinePause size={15} />
+                            : <HiOutlinePlay size={15} />}
+                        </button>
+                        <button
+                          title="Delete"
+                          onClick={() => handleDelete(s)}
+                          style={{ background: 'none', border: '1px solid #fecaca', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', color: '#ef4444' }}
+                        >
+                          <HiOutlineTrash size={15} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
     </div>

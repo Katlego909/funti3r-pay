@@ -201,7 +201,7 @@ export default function Dashboard() {
             </span>
             <h3>Wallet Balance</h3>
           </div>
-          <div className="metric-value" style={{ whiteSpace: 'nowrap' }}>
+          <div className="metric-value">
             {walletBalance ? (
               <>
                 {fmtXlm(balanceXlm)}
@@ -216,7 +216,7 @@ export default function Dashboard() {
               <div
                 key={b.code}
                 className="metric-value"
-                style={{ color: 'var(--success)', fontSize: '1rem', whiteSpace: 'nowrap' }}
+                style={{ color: 'var(--success)', fontSize: '1rem' }}
               >
                 {fmtXlm(parseFloat(b.balance))}
                 {unit(b.code)}
@@ -233,7 +233,7 @@ export default function Dashboard() {
             </span>
             <h3>{isEnterprise ? 'Total Payments' : 'Total Received'}</h3>
           </div>
-          <div className="metric-value" style={{ whiteSpace: 'nowrap' }}>
+          <div className="metric-value">
             {summary ? `$${fmtMoney(summary.completedVolumeUsd)}` : '—'}
           </div>
           <div className="metric-change">{summary?.totalCount ?? 0} transactions</div>
@@ -316,48 +316,50 @@ export default function Dashboard() {
           {recent.length === 0 ? (
             <p className="empty-state">No transactions yet.</p>
           ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>{isEnterprise ? 'Worker' : 'From'}</th>
-                  <th>Amount</th>
-                  <th>Rail</th>
-                  <th>Status</th>
-                  <th>Date</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map((p) => (
-                  <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
-                    <td>#{p.id.slice(0, 8)}</td>
-                    <td>{p.worker_email ?? p.worker_id.slice(0, 8)}</td>
-                    <td>
-                      {p.amount} {p.currency}
-                    </td>
-                    <td>{p.rail ?? 'stellar'}</td>
-                    <td>
-                      <span className={`status ${statusClass(p.status)}`}>{p.status}</span>
-                    </td>
-                    <td>{new Date(p.created_at).toLocaleDateString()}</td>
-                    <td>
-                      {p.stellar_tx_hash && (
-                        <a
-                          href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="View on Stellar Explorer"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <HiOutlineArrowTopRightOnSquare size={14} />
-                        </a>
-                      )}
-                    </td>
+            <div className="table-responsive">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>{isEnterprise ? 'Worker' : 'From'}</th>
+                    <th>Amount</th>
+                    <th>Rail</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {recent.map((p) => (
+                    <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
+                      <td data-label="ID">#{p.id.slice(0, 8)}</td>
+                      <td data-label={isEnterprise ? 'Worker' : 'From'}>{p.worker_email ?? p.worker_id.slice(0, 8)}</td>
+                      <td data-label="Amount">
+                        {p.amount} {p.currency}
+                      </td>
+                      <td data-label="Rail">{p.rail ?? 'stellar'}</td>
+                      <td data-label="Status">
+                        <span className={`status ${statusClass(p.status)}`}>{p.status}</span>
+                      </td>
+                      <td data-label="Date">{new Date(p.created_at).toLocaleDateString()}</td>
+                      <td>
+                        {p.stellar_tx_hash && (
+                          <a
+                            href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="View on Stellar Explorer"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <HiOutlineArrowTopRightOnSquare size={14} />
+                          </a>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
 

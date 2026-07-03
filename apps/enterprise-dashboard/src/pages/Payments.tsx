@@ -337,22 +337,24 @@ export default function Payments() {
                 <p style={{ fontWeight: 600 }}>
                   Batch {batchResult.status} — {batchResult.completedCount} sent, {batchResult.failedCount} failed
                 </p>
-                <table className="data-table" style={{ marginTop: '0.5rem' }}>
-                  <thead><tr><th>Worker</th><th>Amount</th><th>Status</th></tr></thead>
-                  <tbody>
-                    {batchResult.results.map((r, i) => (
-                      <tr key={i}>
-                        <td>{workerEmail(r.workerId)}</td>
-                        <td>{r.amount} {r.currency}</td>
-                        <td>
-                          {r.status === 'completed'
-                            ? <a href={`https://stellar.expert/explorer/testnet/tx/${r.stellarTxHash}`} target="_blank" rel="noopener noreferrer"><span className="status completed">completed</span></a>
-                            : <span className="status failed" title={r.error}>failed</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="table-responsive" style={{ marginTop: '0.5rem' }}>
+                  <table className="data-table">
+                    <thead><tr><th>Worker</th><th>Amount</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {batchResult.results.map((r, i) => (
+                        <tr key={i}>
+                          <td data-label="Worker">{workerEmail(r.workerId)}</td>
+                          <td data-label="Amount">{r.amount} {r.currency}</td>
+                          <td data-label="Status">
+                            {r.status === 'completed'
+                              ? <a href={`https://stellar.expert/explorer/testnet/tx/${r.stellarTxHash}`} target="_blank" rel="noopener noreferrer"><span className="status completed">completed</span></a>
+                              : <span className="status failed" title={r.error}>failed</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
                 <div className="form-actions">
                   <button type="button" className="btn-primary" onClick={() => setBatchOpen(false)}>Done</button>
                 </div>
@@ -397,33 +399,35 @@ export default function Payments() {
         <div className="error-banner">{error}</div>
       ) : (
         <section className="section">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>ID</th><th>Worker</th><th>Amount</th><th>Status</th><th>Date</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {visiblePayments.length === 0 ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>No payments found.</td></tr>
-              ) : visiblePayments.map((p) => (
-                <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
-                  <td>#{p.id.slice(0, 8)}</td>
-                  <td>{p.worker_email ?? p.worker_id.slice(0, 8)}</td>
-                  <td>{p.amount} {p.currency}</td>
-                  <td><span className={`status ${statusClass(p.status)}`}>{p.status}</span></td>
-                  <td>{new Date(p.created_at).toLocaleDateString()}</td>
-                  <td>
-                    {p.stellar_tx_hash && (
-                      <a href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
-                        <HiOutlineArrowTopRightOnSquare size={14} />
-                      </a>
-                    )}
-                  </td>
+          <div className="table-responsive">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th><th>Worker</th><th>Amount</th><th>Status</th><th>Date</th><th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {visiblePayments.length === 0 ? (
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>No payments found.</td></tr>
+                ) : visiblePayments.map((p) => (
+                  <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
+                    <td data-label="ID">#{p.id.slice(0, 8)}</td>
+                    <td data-label="Worker">{p.worker_email ?? p.worker_id.slice(0, 8)}</td>
+                    <td data-label="Amount">{p.amount} {p.currency}</td>
+                    <td data-label="Status"><span className={`status ${statusClass(p.status)}`}>{p.status}</span></td>
+                    <td data-label="Date">{new Date(p.created_at).toLocaleDateString()}</td>
+                    <td>
+                      {p.stellar_tx_hash && (
+                        <a href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                          <HiOutlineArrowTopRightOnSquare size={14} />
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <div className="pagination">
             <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>← Prev</button>
             <span>{offset + 1}–{Math.min(offset + PAGE, total)} of {total}</span>

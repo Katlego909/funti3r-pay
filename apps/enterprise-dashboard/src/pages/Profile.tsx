@@ -60,7 +60,7 @@ export default function Profile() {
           <tbody>
             <tr>
               <td style={{ color: 'var(--gray-600)', width: 160, fontWeight: 600, fontSize: 13 }}>Email</td>
-              <td>{user.email}</td>
+              <td style={{ wordBreak: 'break-word' }}>{user.email}</td>
             </tr>
             <tr>
               <td style={{ color: 'var(--gray-600)', fontWeight: 600, fontSize: 13 }}>Account type</td>
@@ -68,7 +68,7 @@ export default function Profile() {
             </tr>
             <tr style={{ cursor: 'default' }}>
               <td style={{ color: 'var(--gray-600)', fontWeight: 600, fontSize: 13 }}>User ID</td>
-              <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--gray-700)' }}>{user.userId}</td>
+              <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--gray-700)', wordBreak: 'break-all' }}>{user.userId}</td>
             </tr>
           </tbody>
         </table>

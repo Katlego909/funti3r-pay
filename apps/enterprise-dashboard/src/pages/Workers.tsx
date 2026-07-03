@@ -163,7 +163,7 @@ export default function Workers() {
           <h2>Workers</h2>
           <p className="subtitle">Registered workers, wallets, and KYC status</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <div className="export-btn-group">
             <button className="btn-export" onClick={() => exportWorkersCSV(workers)}>
               <HiOutlineArrowDownTray size={14} /> CSV
@@ -235,50 +235,52 @@ export default function Workers() {
       )}
 
       <section className="section">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Email</th>
-              <th>Status</th>
-              <th>KYC</th>
-              <th>Wallet</th>
-              <th>Joined</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {workers.length === 0 ? (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>No workers registered yet.</td></tr>
-            ) : workers.map((w) => (
-              <tr key={w.id} onClick={() => setSelectedWorker(w.id)} style={{ cursor: 'pointer' }}>
-                <td>{w.email}</td>
-                <td><span className={`status ${w.status === 'active' ? 'completed' : 'pending'}`}>{w.status}</span></td>
-                <td>{kycBadge(w.kyc?.status)}</td>
-                <td>
-                  {w.wallet?.address
-                    ? <a href={`https://stellar.expert/explorer/testnet/account/${w.wallet.address}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                        {w.wallet.address.slice(0, 8)}…
-                      </a>
-                    : <span className="status pending">{w.wallet?.status ?? 'None'}</span>}
-                </td>
-                <td>{new Date(w.created_at).toLocaleDateString()}</td>
-                <td>
-                  {w.kyc?.submitted_at ? (
-                    <button
-                      className="btn-secondary"
-                      style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
-                      onClick={(e) => { e.stopPropagation(); viewKYC(w.id); }}
-                    >
-                      View KYC
-                    </button>
-                  ) : (
-                    <span className="status pending">No submission</span>
-                  )}
-                </td>
+        <div className="table-responsive">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Status</th>
+                <th>KYC</th>
+                <th>Wallet</th>
+                <th>Joined</th>
+                <th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {workers.length === 0 ? (
+                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>No workers registered yet.</td></tr>
+              ) : workers.map((w) => (
+                <tr key={w.id} onClick={() => setSelectedWorker(w.id)} style={{ cursor: 'pointer' }}>
+                  <td data-label="Email">{w.email}</td>
+                  <td data-label="Status"><span className={`status ${w.status === 'active' ? 'completed' : 'pending'}`}>{w.status}</span></td>
+                  <td data-label="KYC">{kycBadge(w.kyc?.status)}</td>
+                  <td data-label="Wallet">
+                    {w.wallet?.address
+                      ? <a href={`https://stellar.expert/explorer/testnet/account/${w.wallet.address}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                          {w.wallet.address.slice(0, 8)}…
+                        </a>
+                      : <span className="status pending">{w.wallet?.status ?? 'None'}</span>}
+                  </td>
+                  <td data-label="Joined">{new Date(w.created_at).toLocaleDateString()}</td>
+                  <td data-label="Actions">
+                    {w.kyc?.submitted_at ? (
+                      <button
+                        className="btn-secondary"
+                        style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
+                        onClick={(e) => { e.stopPropagation(); viewKYC(w.id); }}
+                      >
+                        View KYC
+                      </button>
+                    ) : (
+                      <span className="status pending">No submission</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       {kycModalOpen && selectedKYC && (
