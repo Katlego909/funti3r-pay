@@ -1399,14 +1399,14 @@ h6 {
 
   .nav-actions {
     position: absolute;
-    top: 88px;
-    left: 0;
-    right: 0;
+    top: calc(100% + 12px);
+    left: 24px;
+    right: 24px;
     background: white;
     border: 1px solid #e8edf3;
     border-radius: 20px;
     flex-direction: column;
-    gap: 0;
+    gap: 8px;
     padding: 16px 24px;
     display: none;
   }
@@ -1428,10 +1428,11 @@ h6 {
   }
 
   .nav-btn {
-    padding: 12px 0;
+    padding: 12px 16px;
     border-bottom: 1px solid #f3f4f6;
     width: 100%;
     text-align: left;
+    box-sizing: border-box;
   }
 
   .nav-btn:last-child {
@@ -1525,7 +1526,7 @@ h6 {
   }
 
   .nav-btn {
-    padding: 6px 12px;
+    padding: 12px 16px;
     font-size: 13px;
   }
 
@@ -1584,8 +1585,8 @@ h6 {
   }
 
   .trust-stats {
-    grid-template-columns: 1fr;
-    gap: 30px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 30px 20px;
   }
 
   .cta-final {
@@ -2257,7 +2258,7 @@ h6 {
 }
 @media (max-width: 768px) {
   .hero-bg {
-    padding: 0 16px 32px;
+    padding: 20px 16px 32px;
   }
   .hero {
     border-radius: 20px;

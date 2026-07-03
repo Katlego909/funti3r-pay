@@ -31,7 +31,11 @@
 }
 
 html {
-  overflow-x: hidden;
+  /* clip, not hidden — "hidden" forces the other axis (overflow-y) to compute
+     as auto per spec, turning html/body into their own scroll container and
+     breaking position:sticky (e.g. the landing page nav) app-wide. clip has
+     no such side effect. */
+  overflow-x: clip;
 }
 
 body {
@@ -41,7 +45,7 @@ body {
   background: #0d1520;
   color: var(--gray-900);
   min-height: 100vh;
-  overflow-x: hidden; /* the only element allowed to scroll horizontally is .table-responsive around each table — this is a hard backstop so a wide table can never drag the whole page sideways */
+  overflow-x: clip; /* the only element allowed to scroll horizontally is .table-responsive around each table — this is a hard backstop so a wide table can never drag the whole page sideways */
   width: 100%;
 }
 
