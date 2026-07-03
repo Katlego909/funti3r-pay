@@ -6,8 +6,8 @@ import {
   HiOutlineChatBubbleLeftRight,
   HiOutlineSignal,
 } from 'react-icons/hi2';
+import { Helmet } from 'react-helmet-async';
 import { FAQAccordion } from '../components/FAQAccordion.js';
-import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 
 const FAQS = [
   {
@@ -113,10 +113,12 @@ function Card({
 }
 
 export default function Support() {
-  useDocumentTitle('Support');
-
   return (
     <div style={{ maxWidth: '820px', margin: '0 auto', padding: '40px 24px' }}>
+      <Helmet>
+        <title>Support | Funti3rPay</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
 
       {/* Header */}
       <div style={{ marginBottom: '48px' }}>

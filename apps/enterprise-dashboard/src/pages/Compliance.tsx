@@ -1,5 +1,5 @@
+import { Helmet } from 'react-helmet-async';
 import LegalLayout from '../components/LegalLayout.js';
-import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 
 const UPDATED = 'July 2, 2026';
 
@@ -147,13 +147,18 @@ const sections = [
 ];
 
 export default function Compliance() {
-  useDocumentTitle('AML & Compliance Policy');
   return (
-    <LegalLayout
-      title="AML & Compliance Policy"
-      updated={UPDATED}
-      intro="Funti3rPay is built on the belief that financial infrastructure for African workers must be both accessible and trustworthy. This policy sets out our obligations and controls to prevent financial crime, protect our users, and comply with anti-money laundering and counter-terrorism financing laws across our operating jurisdictions."
-      sections={sections}
-    />
+    <>
+      <Helmet>
+        <title>AML & Compliance Policy | Funti3rPay</title>
+        <meta name="description" content="Funti3rPay's Anti-Money Laundering, Counter-Financing of Terrorism, and sanctions compliance policy for our cross-border payroll platform." />
+      </Helmet>
+      <LegalLayout
+        title="AML & Compliance Policy"
+        updated={UPDATED}
+        intro="Funti3rPay is built on the belief that financial infrastructure for African workers must be both accessible and trustworthy. This policy sets out our obligations and controls to prevent financial crime, protect our users, and comply with anti-money laundering and counter-terrorism financing laws across our operating jurisdictions."
+        sections={sections}
+      />
+    </>
   );
 }

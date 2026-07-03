@@ -1,15 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { HiOutlineFingerPrint, HiOutlineCheckCircle, HiOutlineExclamationCircle } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { verifyRecoveryToken, registerPasskey } from '../api/auth.js';
 import { useAuthStore } from '../store/authStore.js';
-import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 
 type Stage = 'verifying' | 'enroll' | 'done' | 'error';
 
 export default function RecoveryVerify() {
-  useDocumentTitle('Sign in');
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
@@ -58,6 +57,10 @@ export default function RecoveryVerify() {
 
   return (
     <div className="auth-page">
+      <Helmet>
+        <title>Sign in | Funti3rPay</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
       <div className="auth-card">
         <img src="/images/logo.png" alt="Funti3rPay" className="auth-logo" />
 

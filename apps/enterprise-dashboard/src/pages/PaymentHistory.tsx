@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Helmet } from 'react-helmet-async';
 import {
   HiOutlineArrowDownOnSquare,
   HiOutlineArrowTopRightOnSquare,
@@ -83,6 +84,10 @@ export default function PaymentHistory() {
 
   return (
     <div className="dashboard">
+      <Helmet>
+        <title>Payment History | Funti3rPay</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
       <div className="dashboard-header">
         <div>
           <h2>Payment History</h2>

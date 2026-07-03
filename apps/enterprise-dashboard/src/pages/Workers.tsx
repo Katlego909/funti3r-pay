@@ -1,4 +1,5 @@
 import { useEffect, useState, FormEvent } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { HiOutlineArrowDownTray, HiOutlineEnvelope, HiOutlineClipboard, HiCheck, HiOutlineXMark } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { useAuthStore } from '../store/authStore.js';
@@ -158,6 +159,10 @@ export default function Workers() {
 
   return (
     <div className="dashboard">
+      <Helmet>
+        <title>Workers | Funti3rPay</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
       <div className="dashboard-header">
         <div>
           <h2>Workers</h2>

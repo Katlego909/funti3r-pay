@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { HiOutlineShieldCheck } from 'react-icons/hi2';
 import { KYCForm } from '../components/KYCForm';
 import { KYCStatus } from '../components/KYCStatus';
@@ -9,6 +10,10 @@ export default function KYCPage() {
 
   return (
     <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto' }}>
+      <Helmet>
+        <title>KYC | Funti3rPay</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
         <HiOutlineShieldCheck size={32} style={{ color: '#3b82f6' }} />
         <h2 style={{ margin: 0, fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>Know Your Customer (KYC)</h2>

@@ -1,12 +1,11 @@
 import { useState, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { HiOutlineEnvelope, HiOutlineCheckCircle } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { requestRecoveryLink } from '../api/auth.js';
-import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 
 export default function RecoveryStart() {
-  useDocumentTitle('Sign in on a new device');
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -26,6 +25,10 @@ export default function RecoveryStart() {
 
   return (
     <div className="auth-page">
+      <Helmet>
+        <title>Sign in on a new device | Funti3rPay</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
       <div className="auth-card">
         <img src="/images/logo.png" alt="Funti3rPay" className="auth-logo" />
 

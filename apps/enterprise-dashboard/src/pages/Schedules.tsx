@@ -1,4 +1,5 @@
 import { useEffect, useState, FormEvent } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { HiOutlineClock, HiOutlinePause, HiOutlinePlay, HiOutlineTrash, HiOutlinePlus, HiOutlineXMark } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { api } from '../api/client.js';
@@ -130,6 +131,10 @@ export default function Schedules() {
 
   return (
     <div className="dashboard">
+      <Helmet>
+        <title>Schedules | Funti3rPay</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
       <div className="dashboard-header">
         <div>
           <h2>Schedules</h2>

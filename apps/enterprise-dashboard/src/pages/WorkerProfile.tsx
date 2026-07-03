@@ -1,5 +1,6 @@
 import { useAuthStore } from '../store/authStore.js';
 import { useNavigate } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { logout } from '../api/auth.js';
 import { HiOutlineArrowRightOnRectangle, HiOutlineCheckCircle } from 'react-icons/hi2';
 import WalletInfo from '../components/WalletInfo.js';
@@ -34,6 +35,10 @@ export default function Profile() {
 
   return (
     <div style={{ maxWidth: '700px', margin: '0 auto', padding: '40px 20px' }}>
+      <Helmet>
+        <title>Profile | Funti3rPay</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
       {/* Header Section */}
       <div
         style={{

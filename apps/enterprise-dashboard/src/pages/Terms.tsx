@@ -1,5 +1,5 @@
+import { Helmet } from 'react-helmet-async';
 import LegalLayout from '../components/LegalLayout.js';
-import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 
 const UPDATED = 'July 2, 2026';
 
@@ -219,13 +219,18 @@ const sections = [
 ];
 
 export default function Terms() {
-  useDocumentTitle('Terms of Service');
   return (
-    <LegalLayout
-      title="Terms of Service"
-      updated={UPDATED}
-      intro="Please read these Terms of Service carefully before using the Funti3rPay platform. These Terms form a legally binding agreement between you and Funti3r Technologies governing your access to and use of our cross-border payroll and payment services."
-      sections={sections}
-    />
+    <>
+      <Helmet>
+        <title>Terms of Service | Funti3rPay</title>
+        <meta name="description" content="Read Funti3rPay's Terms of Service — the legally binding agreement governing use of our cross-border payroll and payment platform." />
+      </Helmet>
+      <LegalLayout
+        title="Terms of Service"
+        updated={UPDATED}
+        intro="Please read these Terms of Service carefully before using the Funti3rPay platform. These Terms form a legally binding agreement between you and Funti3r Technologies governing your access to and use of our cross-border payroll and payment services."
+        sections={sections}
+      />
+    </>
   );
 }

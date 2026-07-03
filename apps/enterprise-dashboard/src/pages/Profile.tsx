@@ -1,5 +1,6 @@
 import { useAuthStore } from '../store/authStore.js';
 import { useNavigate } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { logout } from '../api/auth.js';
 import {
   HiOutlineArrowRightOnRectangle,
@@ -30,6 +31,10 @@ export default function Profile() {
 
   return (
     <div className="dashboard" style={{ maxWidth: 720, margin: '0 auto' }}>
+      <Helmet>
+        <title>Profile | Funti3rPay</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
 
       {/* Header */}
       <div className="dashboard-header">

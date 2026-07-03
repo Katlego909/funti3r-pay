@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
+import { Helmet } from 'react-helmet-async';
 import {
   HiOutlineUsers,
   HiOutlineBanknotes,
@@ -160,6 +161,10 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard">
+      <Helmet>
+        <title>Dashboard | Funti3rPay</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
       {/* Header */}
       <div className="dashboard-header">
         <div className="dashboard-greeting">

@@ -1,4 +1,5 @@
 import { useEffect, useState, FormEvent, useMemo } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMark, HiOutlineArrowDownTray } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
@@ -186,6 +187,10 @@ export default function Payments() {
 
   return (
     <div className="dashboard">
+      <Helmet>
+        <title>Payments | Funti3rPay</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
       <div className="dashboard-header">
         <div>
           <h2>Payments</h2>

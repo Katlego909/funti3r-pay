@@ -1,5 +1,5 @@
+import { Helmet } from 'react-helmet-async';
 import LegalLayout from '../components/LegalLayout.js';
-import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 
 const UPDATED = 'July 2, 2026';
 
@@ -192,13 +192,18 @@ const sections = [
 ];
 
 export default function Privacy() {
-  useDocumentTitle('Privacy Policy');
   return (
-    <LegalLayout
-      title="Privacy Policy"
-      updated={UPDATED}
-      intro="Your privacy is fundamental to how we operate. This Privacy Policy describes how Funti3r Technologies collects, uses, stores, and protects your personal information in connection with the Funti3rPay cross-border payroll platform."
-      sections={sections}
-    />
+    <>
+      <Helmet>
+        <title>Privacy Policy | Funti3rPay</title>
+        <meta name="description" content="How Funti3r Technologies collects, uses, stores, and protects your personal information on the Funti3rPay cross-border payroll platform." />
+      </Helmet>
+      <LegalLayout
+        title="Privacy Policy"
+        updated={UPDATED}
+        intro="Your privacy is fundamental to how we operate. This Privacy Policy describes how Funti3r Technologies collects, uses, stores, and protects your personal information in connection with the Funti3rPay cross-border payroll platform."
+        sections={sections}
+      />
+    </>
   );
 }

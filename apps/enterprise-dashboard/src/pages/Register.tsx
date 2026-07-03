@@ -1,6 +1,6 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
+import { Helmet } from 'react-helmet-async';
 import { toast } from 'sonner';
 import { HiOutlineFingerPrint } from 'react-icons/hi2';
 import { registerPasskey } from '../api/auth.js';
@@ -10,7 +10,6 @@ import { useAuthStore } from '../store/authStore.js';
 type Role = 'enterprise' | 'worker';
 
 export default function Register() {
-  useDocumentTitle('Create Account');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const setSession = useAuthStore((s) => s.setSession);
@@ -68,6 +67,10 @@ export default function Register() {
 
   return (
     <div className="auth-page">
+      <Helmet>
+        <title>Create Account | Funti3rPay</title>
+        <meta name="description" content="Create a Funti3rPay account to pay African workers instantly in local currencies, or to receive payroll via passkey-secured Stellar wallets." />
+      </Helmet>
       <div className="auth-card">
         <img src="/images/logo.png" alt="Funti3rPay" className="auth-logo" />
 

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { toast } from 'sonner';
 import { useAuthStore } from '../store/authStore.js';
 import { api } from '../api/client.js';
@@ -138,6 +139,10 @@ export default function Settings() {
 
   return (
     <div style={{ maxWidth: '720px', margin: '0 auto', padding: '40px 24px' }}>
+      <Helmet>
+        <title>Settings | Funti3rPay</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
       <div style={{ marginBottom: '40px' }}>
         <h2 style={{ fontSize: '32px', fontWeight: 900, color: 'var(--gray-900)', fontFamily: "'Archivo Black', sans-serif", letterSpacing: '-1px', marginBottom: '6px' }}>
           Settings

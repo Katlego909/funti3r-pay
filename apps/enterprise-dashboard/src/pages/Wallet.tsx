@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Helmet } from 'react-helmet-async';
 import {
   HiOutlineBanknotes,
   HiOutlineClipboard,
@@ -106,6 +107,10 @@ export default function Wallet() {
 
   return (
     <div className="dashboard" style={{ maxWidth: 720, margin: '0 auto' }}>
+      <Helmet>
+        <title>Wallet | Funti3rPay</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
       <div className="dashboard-header">
         <div>
           <h2>Wallet</h2>
