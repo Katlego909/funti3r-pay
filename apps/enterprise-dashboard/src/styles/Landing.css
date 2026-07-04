@@ -76,7 +76,7 @@ h6 {
 }
 
 .logo-img {
-  height: 40px;
+  height: 30px;
   width: auto;
   display: block;
   object-fit: contain;
@@ -1360,7 +1360,7 @@ h6 {
 }
 
 .footer-logo {
-  height: 28px;
+  height: 22px;
   width: auto;
   display: block;
   margin-bottom: 12px;
@@ -1461,7 +1461,7 @@ h6 {
   }
 
   .logo-img {
-    height: 40px;
+    height: 28px;
   }
 
   .nav-container {
@@ -1471,7 +1471,7 @@ h6 {
 
 @media (max-width: 480px) {
   .logo-img {
-    height: 36px;
+    height: 26px;
   }
 
   .nav-container {
