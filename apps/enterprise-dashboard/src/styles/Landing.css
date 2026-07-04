@@ -2553,3 +2553,217 @@ h6 {
 .flow-tag svg {
   flex-shrink: 0;
 }
+
+/* ============================================================
+   Waitlist
+   ============================================================ */
+.waitlist {
+  width: 100%;
+  padding: 100px 48px;
+  box-sizing: border-box;
+}
+
+.waitlist-card {
+  max-width: 1100px;
+  margin: 0 auto;
+  background: var(--dark);
+  border-radius: 28px;
+  padding: 64px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  align-items: center;
+  gap: 56px;
+}
+
+.waitlist-content h3 {
+  font-size: 42px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0 0 12px;
+  letter-spacing: -1px;
+}
+
+.waitlist-content > p {
+  font-size: 18px;
+  color: #94a3b8;
+  line-height: 1.6;
+  margin: 0 0 36px;
+  max-width: 460px;
+}
+
+.waitlist-form {
+  display: flex;
+  gap: 12px;
+}
+
+.waitlist-input {
+  flex: 1;
+  max-width: 320px;
+  padding: 12px 18px;
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  font-size: 16px;
+  font-family: inherit;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  box-sizing: border-box;
+}
+
+.waitlist-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.waitlist-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.waitlist-input.error {
+  border-color: #f87171;
+}
+
+.waitlist-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 32px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.waitlist-submit:hover {
+  background: var(--accent-dark);
+}
+
+.waitlist-error-text {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: #f87171;
+}
+
+.waitlist-success {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+  padding: 12px 18px;
+  border-radius: 8px;
+}
+
+/* Upcoming-corridors mockup — mirrors the .hero-card language */
+.waitlist-mock {
+  width: 100%;
+  max-width: 400px;
+  margin-left: auto;
+  background: #fff;
+  border: 1px solid #e8edf3;
+  border-radius: 18px;
+  padding: 22px;
+  box-sizing: border-box;
+}
+
+.wm-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.wm-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 0;
+  border-bottom: 1px solid #f1f4f8;
+}
+
+.wm-cur {
+  flex: 1;
+}
+
+.wm-code {
+  font-weight: 700;
+  font-size: 14.5px;
+  color: var(--dark);
+}
+
+.wm-label {
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+.wm-tag {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 3px 9px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.wm-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #64748b;
+  padding-top: 14px;
+}
+
+.wm-foot svg {
+  color: var(--primary);
+}
+
+@media (max-width: 768px) {
+  .waitlist {
+    padding: 60px 24px;
+  }
+  .waitlist-card {
+    grid-template-columns: 1fr;
+    padding: 40px 28px;
+    border-radius: 20px;
+    gap: 32px;
+  }
+  .waitlist-content h3 {
+    font-size: 28px;
+  }
+  .waitlist-content > p {
+    font-size: 16px;
+    margin-bottom: 32px;
+  }
+  .waitlist-form {
+    flex-direction: column;
+  }
+  .waitlist-input {
+    max-width: 100%;
+  }
+  .waitlist-submit {
+    justify-content: center;
+  }
+  .waitlist-mock {
+    max-width: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .waitlist {
+    padding: 40px 16px;
+  }
+  .waitlist-content h3 {
+    font-size: 22px;
+  }
+}
