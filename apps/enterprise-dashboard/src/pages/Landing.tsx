@@ -561,27 +561,35 @@ export default function Landing() {
           <p>From startups to global enterprises</p>
         </div>
         <div className="use-cases-grid">
-          <div className="use-case-card">
-            <div className="use-case-icon">
-              <HiOutlineRocketLaunch size={30} />
+          {[
+            {
+              img: '/images/remote-team.jpg',
+              icon: <HiOutlineRocketLaunch size={24} />,
+              t: 'Remote teams',
+              d: 'Pay distributed developers and contractors worldwide — in their own currency.',
+            },
+            {
+              img: '/images/agencies.jpg',
+              icon: <HiOutlineBriefcase size={24} />,
+              t: 'Agencies',
+              d: 'Manage payouts to freelancers across regions from one dashboard.',
+            },
+            {
+              img: '/images/marketplace.jpg',
+              icon: <HiOutlineUsers size={24} />,
+              t: 'Gig & marketplaces',
+              d: 'Settle to workers in real time as tasks and projects complete.',
+            },
+          ].map((c) => (
+            <div key={c.t} className="use-case-card uc-photo">
+              <img className="uc-img" src={c.img} alt="" loading="lazy" />
+              <div className="use-case-icon">{c.icon}</div>
+              <div className="uc-body">
+                <h4>{c.t}</h4>
+                <p>{c.d}</p>
+              </div>
             </div>
-            <h4>Remote teams</h4>
-            <p>Pay distributed developers and contractors worldwide — in their own currency.</p>
-          </div>
-          <div className="use-case-card">
-            <div className="use-case-icon">
-              <HiOutlineBriefcase size={30} />
-            </div>
-            <h4>Agencies</h4>
-            <p>Manage payouts to freelancers across regions from one dashboard.</p>
-          </div>
-          <div className="use-case-card">
-            <div className="use-case-icon">
-              <HiOutlineUsers size={30} />
-            </div>
-            <h4>Gig & marketplaces</h4>
-            <p>Settle to workers in real time as tasks and projects complete.</p>
-          </div>
+          ))}
         </div>
       </section>
 

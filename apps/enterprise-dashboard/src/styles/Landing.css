@@ -3036,3 +3036,69 @@ select.cm-input option[value=''] {
     display: none;
   }
 }
+
+/* ============================================================
+   Use cases — photo cards
+   ============================================================ */
+.use-case-card.uc-photo {
+  position: relative;
+  min-height: 340px;
+  padding: 26px;
+  border-left: none;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.uc-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+/* Navy tint unifies the photos' color grading; the bottom-heavy
+   gradient is the scrim that keeps the copy legible */
+.uc-photo::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    to top,
+    rgba(10, 17, 28, 0.92) 0%,
+    rgba(10, 17, 28, 0.5) 45%,
+    rgba(10, 17, 28, 0.25) 100%
+  );
+}
+
+.uc-photo .use-case-icon,
+.uc-photo .uc-body {
+  position: relative;
+  z-index: 2;
+}
+
+.uc-photo .use-case-icon {
+  background: #fff;
+  color: var(--dark);
+  margin-bottom: 0;
+}
+
+.uc-photo h4 {
+  color: #fff;
+  margin-bottom: 8px;
+}
+
+.uc-photo p {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+@media (max-width: 768px) {
+  .use-case-card.uc-photo {
+    border-top: none;
+    min-height: 280px;
+  }
+}
