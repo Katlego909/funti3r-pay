@@ -2784,3 +2784,255 @@ h6 {
     font-size: 22px;
   }
 }
+
+/* ============================================================
+   Contact modal (demo / sales lead capture)
+   ============================================================ */
+
+/* CTA classes now sit on <button> too — buttons don't inherit font by default */
+button.btn-hero,
+button.btn-final {
+  font-family: inherit;
+}
+
+.waitlist-submit:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.cm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 17, 28, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 24px;
+  animation: cmFade 0.18s ease-out;
+}
+
+@keyframes cmFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.cm-panel {
+  position: relative;
+  background: #fff;
+  border-radius: 20px;
+  padding: 36px;
+  width: 100%;
+  max-width: 440px;
+  box-sizing: border-box;
+  font-family: 'DM Sans', sans-serif;
+  animation: cmRise 0.22s ease-out;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+@keyframes cmRise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cm-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #94a3b8;
+  padding: 6px;
+  line-height: 0;
+}
+
+.cm-close:hover {
+  color: var(--dark);
+}
+
+.cm-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding-right: 32px;
+}
+
+.cm-eyebrow {
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: #94a3b8;
+}
+
+.cm-head .hc-status {
+  margin-left: auto;
+}
+
+.cm-panel h4 {
+  font-size: 24px;
+  color: var(--dark);
+  margin: 0 0 6px;
+}
+
+.cm-sub {
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.5;
+  margin: 0 0 22px;
+}
+
+.cm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.cm-field {
+  margin-bottom: 14px;
+}
+
+.cm-field label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 6px;
+}
+
+.cm-input,
+.cm-textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14.5px;
+  font-family: inherit;
+  color: var(--dark);
+  background: #f8fafc;
+  box-sizing: border-box;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.cm-input::placeholder,
+.cm-textarea::placeholder {
+  color: #94a3b8;
+}
+
+.cm-input:focus,
+.cm-textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  background-color: #fff;
+}
+
+select.cm-input {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 14px;
+  padding-right: 36px;
+  cursor: pointer;
+}
+
+select.cm-input:invalid,
+select.cm-input option[value=''] {
+  color: #94a3b8;
+}
+
+.cm-textarea {
+  resize: vertical;
+  min-height: 84px;
+}
+
+.cm-hp {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.cm-submit {
+  width: 100%;
+  margin-top: 6px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.cm-submit:hover {
+  background: var(--accent-dark);
+}
+
+.cm-submit:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.cm-error {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: #dc2626;
+}
+
+.cm-success {
+  text-align: center;
+  padding: 12px 0 4px;
+}
+
+.cm-success svg {
+  color: #16a34a;
+  margin-bottom: 10px;
+}
+
+.cm-success h4 {
+  margin-bottom: 6px;
+}
+
+.cm-success p {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0 0 22px;
+}
+
+@media (max-width: 480px) {
+  .cm-panel {
+    padding: 28px 22px;
+  }
+  .cm-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .cm-head .hc-status {
+    display: none;
+  }
+}

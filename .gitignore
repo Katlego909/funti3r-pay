@@ -125,3 +125,6 @@ AppData/
 **/Temp/**
 **/temp/**
 **/.cache/**
+
+# Deploy artifacts
+*.zip

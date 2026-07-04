@@ -20,6 +20,8 @@ import {
   HiOutlineCheckCircle,
 } from 'react-icons/hi2';
 import { Flag, UsdcMark, XlmMark } from '../components/CurrencyIcon.js';
+import ContactModal from '../components/ContactModal.js';
+import { submitLead } from '../lib/leads.js';
 import '../styles/Landing.css';
 
 const logoImg = '/images/logo.png';
@@ -201,17 +203,28 @@ export default function Landing() {
   const [userType, setUserType] = useState<'enterprise' | 'worker'>('enterprise');
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [waitlistEmail, setWaitlistEmail] = useState('');
-  const [waitlistStatus, setWaitlistStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [waitlistStatus, setWaitlistStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
+  const [waitlistError, setWaitlistError] = useState('');
+  const [contactIntent, setContactIntent] = useState<'demo' | 'sales' | null>(null);
   const { state } = useLocation();
 
-  function handleWaitlistSubmit(e: React.FormEvent) {
+  async function handleWaitlistSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (waitlistStatus === 'submitting') return;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(waitlistEmail)) {
+      setWaitlistError('Enter a valid email address.');
       setWaitlistStatus('error');
       return;
     }
-    // TODO: POST to a waitlist endpoint once one exists
-    setWaitlistStatus('success');
+    setWaitlistStatus('submitting');
+    const result = await submitLead({ type: 'waitlist', email: waitlistEmail.trim() });
+    if (result === 'error') {
+      setWaitlistError('Something went wrong — please try again.');
+      setWaitlistStatus('error');
+    } else {
+      // 'duplicate' means they're already on the list — that's still a success to the visitor
+      setWaitlistStatus('success');
+    }
   }
 
   useEffect(() => {
@@ -249,13 +262,15 @@ export default function Landing() {
               {userType === 'worker' ? 'For Enterprise' : 'For Workers'}
             </button>
             {MARKETING_ONLY ? (
-              <a
-                href="mailto:sales@funti3r.xyz?subject=Enterprise%20Demo"
+              <button
                 className="nav-btn nav-btn-secondary"
-                onClick={() => setMenuOpen(false)}
+                onClick={() => {
+                  setContactIntent('sales');
+                  setMenuOpen(false);
+                }}
               >
                 Talk to Sales
-              </a>
+              </button>
             ) : (
               <Link
                 to="/login"
@@ -292,12 +307,12 @@ export default function Landing() {
                   <CtaLink to="/register" className="btn-hero btn-hero-primary">
                     Get Started <HiOutlineArrowRight size={18} />
                   </CtaLink>
-                  <a
-                    href="mailto:sales@funti3r.xyz?subject=Enterprise%20Dashboard%20Access"
+                  <button
                     className="btn-hero btn-hero-secondary"
+                    onClick={() => setContactIntent('sales')}
                   >
                     Talk to Sales
-                  </a>
+                  </button>
                 </>
               ) : (
                 <>
@@ -626,12 +641,12 @@ export default function Landing() {
               {userType === 'enterprise' ? (
                 MARKETING_ONLY ? (
                   <>
-                    <a
-                      href="mailto:sales@funti3r.xyz?subject=Enterprise%20Demo"
+                    <button
                       className="btn-final btn-final-primary"
+                      onClick={() => setContactIntent('demo')}
                     >
                       Schedule a Demo <HiOutlineArrowRight size={18} />
-                    </a>
+                    </button>
                     <a href="#waitlist" className="btn-final btn-final-secondary">
                       Join the Waitlist
                     </a>
@@ -641,12 +656,12 @@ export default function Landing() {
                     <Link to="/register" className="btn-final btn-final-primary">
                       Get Started <HiOutlineArrowRight size={18} />
                     </Link>
-                    <a
-                      href="mailto:sales@funti3r.xyz?subject=Enterprise%20Demo"
+                    <button
                       className="btn-final btn-final-secondary"
+                      onClick={() => setContactIntent('demo')}
                     >
                       Schedule a Demo
-                    </a>
+                    </button>
                   </>
                 )
               ) : MARKETING_ONLY ? (
@@ -736,13 +751,17 @@ export default function Landing() {
                   className={`waitlist-input ${waitlistStatus === 'error' ? 'error' : ''}`}
                   aria-label="Email address"
                 />
-                <button type="submit" className="waitlist-submit">
-                  Notify Me
+                <button
+                  type="submit"
+                  className="waitlist-submit"
+                  disabled={waitlistStatus === 'submitting'}
+                >
+                  {waitlistStatus === 'submitting' ? 'Joining…' : 'Notify Me'}
                 </button>
               </form>
             )}
             {waitlistStatus === 'error' && (
-              <p className="waitlist-error-text">Enter a valid email address.</p>
+              <p className="waitlist-error-text">{waitlistError}</p>
             )}
           </div>
 
@@ -820,6 +839,8 @@ export default function Landing() {
           <p>&copy; 2026 Funti3rPay. All rights reserved.</p>
         </div>
       </footer>
+
+      <ContactModal intent={contactIntent} onClose={() => setContactIntent(null)} />
     </div>
   );
 }
