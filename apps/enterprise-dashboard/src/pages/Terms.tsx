@@ -49,7 +49,7 @@ const sections = [
         <p>
           You must register using passkey-based authentication (WebAuthn). You are responsible for maintaining the
           security of your registered devices and authentication credentials. You must notify us immediately at{' '}
-          <a href="mailto:security@funti3rpay.com" style={{ color: '#374151' }}>security@funti3rpay.com</a> if you
+          <a href="mailto:legal@funti3r.xyz" style={{ color: '#374151' }}>legal@funti3r.xyz</a> if you
           suspect unauthorised access to your account.
         </p>
         <p style={{ marginTop: '10px' }}>

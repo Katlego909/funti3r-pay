@@ -138,7 +138,7 @@ const sections = [
       <p>
         If you become aware of activity on the Funti3rPay platform that you suspect may be fraudulent, illegal, or
         in breach of our compliance policies, please report it immediately to our compliance team at{' '}
-        <a href="mailto:compliance@funti3rpay.com" style={{ color: '#374151' }}>compliance@funti3rpay.com</a>.
+        <a href="mailto:legal@funti3r.xyz" style={{ color: '#374151' }}>legal@funti3r.xyz</a>.
         Reports can be made anonymously. We take all reports seriously and will investigate promptly. Retaliation
         against persons who report compliance concerns in good faith is strictly prohibited.
       </p>

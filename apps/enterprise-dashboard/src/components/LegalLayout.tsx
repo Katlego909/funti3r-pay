@@ -56,7 +56,7 @@ export default function LegalLayout({
 
         <div style={{ marginTop: '56px', paddingTop: '24px', borderTop: '1px solid #e5e7eb', fontSize: '0.82rem', color: '#9ca3af' }}>
           Questions? Contact us at{' '}
-          <a href="mailto:legal@funti3rpay.com" style={{ color: '#6b7280' }}>legal@funti3rpay.com</a>
+          <a href="mailto:legal@funti3r.xyz" style={{ color: '#6b7280' }}>legal@funti3r.xyz</a>
         </div>
       </div>
     </div>

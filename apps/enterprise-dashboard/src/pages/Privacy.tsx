@@ -140,7 +140,7 @@ const sections = [
         </ul>
         <p style={{ marginTop: '12px' }}>
           To exercise any of these rights, contact us at{' '}
-          <a href="mailto:privacy@funti3rpay.com" style={{ color: '#374151' }}>privacy@funti3rpay.com</a>.
+          <a href="mailto:legal@funti3r.xyz" style={{ color: '#374151' }}>legal@funti3r.xyz</a>.
           We will respond within 30 days.
         </p>
       </>

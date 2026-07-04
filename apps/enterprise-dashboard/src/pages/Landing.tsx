@@ -241,14 +241,22 @@ export default function Landing() {
             <button
               className="nav-btn nav-btn-secondary"
               onClick={() => {
-                setUserType('worker');
+                setUserType(userType === 'worker' ? 'enterprise' : 'worker');
                 setMenuOpen(false);
                 window.scrollTo({ top: 0 });
               }}
             >
-              For Workers
+              {userType === 'worker' ? 'For Enterprise' : 'For Workers'}
             </button>
-            {!MARKETING_ONLY && (
+            {MARKETING_ONLY ? (
+              <a
+                href="mailto:sales@funti3r.xyz?subject=Enterprise%20Demo"
+                className="nav-btn nav-btn-secondary"
+                onClick={() => setMenuOpen(false)}
+              >
+                Talk to Sales
+              </a>
+            ) : (
               <Link
                 to="/login"
                 className="nav-btn nav-btn-secondary"
@@ -285,7 +293,7 @@ export default function Landing() {
                     Get Started <HiOutlineArrowRight size={18} />
                   </CtaLink>
                   <a
-                    href="mailto:sales@funti3rpay.com?subject=Enterprise%20Dashboard%20Access"
+                    href="mailto:sales@funti3r.xyz?subject=Enterprise%20Dashboard%20Access"
                     className="btn-hero btn-hero-secondary"
                   >
                     Talk to Sales
@@ -619,7 +627,7 @@ export default function Landing() {
                 MARKETING_ONLY ? (
                   <>
                     <a
-                      href="mailto:sales@funti3rpay.com?subject=Enterprise%20Demo"
+                      href="mailto:sales@funti3r.xyz?subject=Enterprise%20Demo"
                       className="btn-final btn-final-primary"
                     >
                       Schedule a Demo <HiOutlineArrowRight size={18} />
@@ -634,7 +642,7 @@ export default function Landing() {
                       Get Started <HiOutlineArrowRight size={18} />
                     </Link>
                     <a
-                      href="mailto:sales@funti3rpay.com?subject=Enterprise%20Demo"
+                      href="mailto:sales@funti3r.xyz?subject=Enterprise%20Demo"
                       className="btn-final btn-final-secondary"
                     >
                       Schedule a Demo
@@ -646,7 +654,7 @@ export default function Landing() {
                   <a href="#waitlist" className="btn-final btn-final-primary">
                     Join the Waitlist <HiOutlineArrowRight size={18} />
                   </a>
-                  <a href="mailto:support@funti3rpay.com" className="btn-final btn-final-secondary">
+                  <a href="mailto:support@funti3r.xyz" className="btn-final btn-final-secondary">
                     Need Help?
                   </a>
                 </>
@@ -655,7 +663,7 @@ export default function Landing() {
                   <Link to="/register?role=worker" className="btn-final btn-final-primary">
                     Create Wallet Free
                   </Link>
-                  <a href="mailto:support@funti3rpay.com" className="btn-final btn-final-secondary">
+                  <a href="mailto:support@funti3r.xyz" className="btn-final btn-final-secondary">
                     Need Help?
                   </a>
                 </>
@@ -797,7 +805,7 @@ export default function Landing() {
             <h5>Support</h5>
             <ul>
               <li>
-                <a href="mailto:support@funti3rpay.com">Email Support</a>
+                <a href="mailto:support@funti3r.xyz">Email Support</a>
               </li>
               <li>
                 <a href="#help">Help Center</a>
