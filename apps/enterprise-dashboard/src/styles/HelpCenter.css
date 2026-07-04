@@ -1,0 +1,178 @@
+/* Help Center — builds on Landing.css (fonts, faq-*, cm-* modal) */
+
+.help-center {
+  min-height: 100vh;
+  background: #fff;
+}
+
+/* Dark hero band with search */
+.help-hero {
+  max-width: 1200px;
+  margin: 12px auto 0;
+  background: var(--dark);
+  border-radius: 28px;
+  padding: 72px 48px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.help-hero h1 {
+  font-family: 'Archivo Black', sans-serif;
+  font-size: 40px;
+  color: #fff;
+  margin: 0 0 10px;
+  letter-spacing: -1px;
+}
+
+.help-hero > p {
+  font-size: 16px;
+  color: #94a3b8;
+  margin: 0 0 28px;
+}
+
+.help-search {
+  position: relative;
+  max-width: 540px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.help-search-icon {
+  position: absolute;
+  left: 18px;
+  color: rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+}
+
+.help-search input {
+  width: 100%;
+  padding: 14px 18px 14px 46px;
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  font-size: 15px;
+  font-family: inherit;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  box-sizing: border-box;
+}
+
+.help-search input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.help-search input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.help-search-count {
+  font-size: 13px;
+  color: #94a3b8;
+  margin: 14px 0 0;
+}
+
+/* Body */
+.help-body {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 56px 24px 96px;
+}
+
+.help-category {
+  margin-bottom: 44px;
+}
+
+.help-cat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.help-cat-head h3 {
+  font-size: 20px;
+  color: var(--dark);
+  margin: 0;
+}
+
+.help-cat-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--dark);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Contact cards */
+.help-contact {
+  margin-top: 64px;
+  padding-top: 40px;
+  border-top: 1px solid #e8edf3;
+}
+
+.help-contact h3 {
+  font-size: 20px;
+  color: var(--dark);
+  margin: 0 0 16px;
+}
+
+.help-contact-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.help-contact-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px;
+  background: #fff;
+  border: 1px solid #e8edf3;
+  border-radius: 14px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.help-contact-card:hover {
+  border-color: #cbd5e1;
+}
+
+.hcc-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--dark);
+  margin-bottom: 3px;
+}
+
+.hcc-sub {
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+  .help-hero {
+    margin: 8px 16px 0;
+    max-width: none;
+    padding: 48px 24px;
+    border-radius: 20px;
+  }
+  .help-hero h1 {
+    font-size: 28px;
+  }
+  .help-body {
+    padding: 40px 20px 72px;
+  }
+  .help-contact-grid {
+    grid-template-columns: 1fr;
+  }
+}

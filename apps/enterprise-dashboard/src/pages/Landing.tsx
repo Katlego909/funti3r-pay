@@ -827,7 +827,7 @@ export default function Landing() {
                 <a href="mailto:support@funti3r.xyz">Email Support</a>
               </li>
               <li>
-                <a href="#help">Help Center</a>
+                <Link to="/help">Help Center</Link>
               </li>
               <li>
                 <a href="#status">Status Page</a>

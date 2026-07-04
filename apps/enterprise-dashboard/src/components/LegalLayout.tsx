@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import PublicPageNav from './PublicPageNav.js';
 
 interface Section {
   heading: string;
@@ -21,14 +21,7 @@ export default function LegalLayout({
 
   return (
     <div style={{ minHeight: '100vh', background: '#fafafa', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      <div style={{ borderBottom: '1px solid #e5e7eb', background: '#fff' }}>
-        <div style={{ maxWidth: 900, margin: '0 auto', padding: '14px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Link to="/" style={{ textDecoration: 'none' }}>
-            <img src="/images/logo.png" alt="Funti3rPay" style={{ height: 32, width: 'auto', imageRendering: '-webkit-optimize-contrast' }} />
-          </Link>
-          <Link to="/" state={{ scrollToFooter: true }} style={{ fontSize: '0.85rem', color: '#6b7280', textDecoration: 'none' }}>← Back to home</Link>
-        </div>
-      </div>
+      <PublicPageNav />
 
       <div style={{ maxWidth: 760, margin: '0 auto', padding: '52px 24px 96px' }}>
         <p style={{ fontSize: '0.78rem', color: '#9ca3af', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
