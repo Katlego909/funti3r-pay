@@ -22,8 +22,37 @@ import {
 import { Flag, UsdcMark, XlmMark } from '../components/CurrencyIcon.js';
 import '../styles/Landing.css';
 
-const logoImg = '../public/images/logo.png';
-const logoWhtImg = '../public/images/logo-wht.png';
+const logoImg = '/images/logo.png';
+const logoWhtImg = '/images/logo-wht.png';
+
+/** Marketing-only deploys (VITE_MARKETING_ONLY=true): auth CTAs point at the waitlist instead. */
+const MARKETING_ONLY = import.meta.env.VITE_MARKETING_ONLY === 'true';
+
+/** Renders a router Link normally, or an anchor to the waitlist section on marketing-only builds. */
+function CtaLink({
+  to,
+  className,
+  onClick,
+  children,
+}: {
+  to: string;
+  className?: string;
+  onClick?: () => void;
+  children: React.ReactNode;
+}) {
+  if (MARKETING_ONLY) {
+    return (
+      <a href="#waitlist" className={className} onClick={onClick}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <Link to={to} className={className} onClick={onClick}>
+      {children}
+    </Link>
+  );
+}
 
 /** Supported payout currencies — coin mark for USDC/XLM, real flags for fiat. */
 const CURRENCIES: Array<{ code: string; label?: string; cc?: string; coin?: boolean; xlm?: boolean }> = [
@@ -219,20 +248,22 @@ export default function Landing() {
             >
               For Workers
             </button>
-            <Link
-              to="/login"
-              className="nav-btn nav-btn-secondary"
-              onClick={() => setMenuOpen(false)}
-            >
-              Sign In
-            </Link>
-            <Link
+            {!MARKETING_ONLY && (
+              <Link
+                to="/login"
+                className="nav-btn nav-btn-secondary"
+                onClick={() => setMenuOpen(false)}
+              >
+                Sign In
+              </Link>
+            )}
+            <CtaLink
               to="/register"
               className="nav-btn nav-btn-primary"
               onClick={() => setMenuOpen(false)}
             >
               Get Started
-            </Link>
+            </CtaLink>
           </div>
         </div>
       </nav>
@@ -250,9 +281,9 @@ export default function Landing() {
             <div className="hero-cta">
               {userType === 'enterprise' ? (
                 <>
-                  <Link to="/register" className="btn-hero btn-hero-primary">
+                  <CtaLink to="/register" className="btn-hero btn-hero-primary">
                     Get Started <HiOutlineArrowRight size={18} />
-                  </Link>
+                  </CtaLink>
                   <a
                     href="mailto:sales@funti3rpay.com?subject=Enterprise%20Dashboard%20Access"
                     className="btn-hero btn-hero-secondary"
@@ -262,12 +293,14 @@ export default function Landing() {
                 </>
               ) : (
                 <>
-                  <Link to="/register?role=worker" className="btn-hero btn-hero-primary">
+                  <CtaLink to="/register?role=worker" className="btn-hero btn-hero-primary">
                     Start for Free <HiOutlineArrowRight size={18} />
-                  </Link>
-                  <Link to="/login" className="btn-hero btn-hero-secondary">
-                    Sign In
-                  </Link>
+                  </CtaLink>
+                  {!MARKETING_ONLY && (
+                    <Link to="/login" className="btn-hero btn-hero-secondary">
+                      Sign In
+                    </Link>
+                  )}
                 </>
               )}
             </div>
@@ -567,7 +600,7 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Final CTA */}
+      {/* Final CTA — on marketing-only builds the demo becomes the primary action */}
       <section className="cta-final">
         <div className="cta-final-card">
           <div className="cta-final-content">
@@ -583,15 +616,38 @@ export default function Landing() {
             </p>
             <div className="cta-buttons">
               {userType === 'enterprise' ? (
+                MARKETING_ONLY ? (
+                  <>
+                    <a
+                      href="mailto:sales@funti3rpay.com?subject=Enterprise%20Demo"
+                      className="btn-final btn-final-primary"
+                    >
+                      Schedule a Demo <HiOutlineArrowRight size={18} />
+                    </a>
+                    <a href="#waitlist" className="btn-final btn-final-secondary">
+                      Join the Waitlist
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    <Link to="/register" className="btn-final btn-final-primary">
+                      Get Started <HiOutlineArrowRight size={18} />
+                    </Link>
+                    <a
+                      href="mailto:sales@funti3rpay.com?subject=Enterprise%20Demo"
+                      className="btn-final btn-final-secondary"
+                    >
+                      Schedule a Demo
+                    </a>
+                  </>
+                )
+              ) : MARKETING_ONLY ? (
                 <>
-                  <Link to="/register" className="btn-final btn-final-primary">
-                    Get Started <HiOutlineArrowRight size={18} />
-                  </Link>
-                  <a
-                    href="mailto:sales@funti3rpay.com?subject=Enterprise%20Demo"
-                    className="btn-final btn-final-secondary"
-                  >
-                    Schedule a Demo
+                  <a href="#waitlist" className="btn-final btn-final-primary">
+                    Join the Waitlist <HiOutlineArrowRight size={18} />
+                  </a>
+                  <a href="mailto:support@funti3rpay.com" className="btn-final btn-final-secondary">
+                    Need Help?
                   </a>
                 </>
               ) : (
@@ -645,7 +701,7 @@ export default function Landing() {
       </section>
 
       {/* Waitlist */}
-      <section className="waitlist">
+      <section className="waitlist" id="waitlist">
         <div className="waitlist-card">
           <div className="waitlist-content">
             <h3>Your currency, next.</h3>

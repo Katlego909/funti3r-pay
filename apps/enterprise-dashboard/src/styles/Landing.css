@@ -1,6 +1,23 @@
 /* Landing Page Styles - Full Width with 1200px Content */
 @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
 
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* Anchor targets stop clear of the sticky nav (96px tall + breathing room) */
+.how-it-works,
+.features,
+.waitlist {
+  scroll-margin-top: 110px;
+}
+
 .landing {
   background: white;
   font-family: 'DM Sans', sans-serif;
