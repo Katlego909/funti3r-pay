@@ -1,4 +1,4 @@
-import { useEffect, useState, FormEvent, useMemo } from 'react';
+import { useEffect, useState, useRef, FormEvent, useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMark, HiOutlineArrowDownTray } from 'react-icons/hi2';
 import { toast } from 'sonner';
@@ -42,12 +42,18 @@ export default function Payments() {
   const [memo, setMemo] = useState('');
   const [fxRates, setFxRates] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
+  // Idempotency key for the in-flight (or about-to-be-sent) payment. A ref, not
+  // state: a fast double-click can fire handleSend twice before a `disabled`
+  // state update paints, but a ref read is synchronous so both invocations see
+  // the same value. Cleared on success/failure so the next attempt gets a fresh key.
+  const sendKeyRef = useRef<string | null>(null);
 
   // Batch payment form state
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchCurrency, setBatchCurrency] = useState<'XLM' | 'USDC'>('XLM');
   const [batchRows, setBatchRows] = useState<BatchRow[]>([{ workerId: '', amount: '' }]);
   const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
+  const batchKeyRef = useRef<string | null>(null);
 
   // Payment detail modal
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -124,24 +130,28 @@ export default function Payments() {
   async function handleSend(e: FormEvent) {
     e.preventDefault();
     setSubmitting(true);
+    if (!sendKeyRef.current) sendKeyRef.current = crypto.randomUUID();
     try {
       const result = await initiatePayment({
         enterpriseId: user!.userId,
         workerId: workerId.trim(),
         amountUsd: Number(amount),
         memo: memo.trim() || undefined,
+        idempotencyKey: sendKeyRef.current,
       });
 
       const got = result.amount != null
         ? `${Number(result.amount).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${result.currency}`
         : result.currency;
       toast.success(`Sent $${Number(amount).toFixed(2)} — worker receives ${got}`);
+      sendKeyRef.current = null;
       setFormOpen(false);
       setWorkerId('');
       setAmount('');
       setMemo('');
       loadPayments();
     } catch (err: any) {
+      sendKeyRef.current = null;
       toast.error(err?.response?.data?.error ?? err?.message ?? 'Payment failed');
     } finally {
       setSubmitting(false);
@@ -163,12 +173,15 @@ export default function Payments() {
       return;
     }
     setSubmitting(true);
+    if (!batchKeyRef.current) batchKeyRef.current = crypto.randomUUID();
     try {
       const result = await initiateBatchPayment({
         enterpriseId: user!.userId,
         currency: batchCurrency,
         items,
+        idempotencyKey: batchKeyRef.current,
       });
+      batchKeyRef.current = null;
       setBatchResult(result);
       loadPayments();
       if (result.failedCount === 0) {
@@ -177,6 +190,7 @@ export default function Payments() {
         toast.warning(`Batch partial — ${result.completedCount} sent, ${result.failedCount} failed`);
       }
     } catch (err: any) {
+      batchKeyRef.current = null;
       toast.error(err?.response?.data?.error ?? err?.message ?? 'Batch failed');
     } finally {
       setSubmitting(false);

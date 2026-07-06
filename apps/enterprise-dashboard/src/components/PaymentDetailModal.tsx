@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { HiOutlineArrowTopRightOnSquare, HiXMark, HiOutlineClipboard, HiCheck, HiOutlineArrowPath, HiOutlineArrowDownTray } from 'react-icons/hi2';
 import { api } from '../api/client.js';
+import { initiatePayment } from '../api/payments.js';
 import { generatePayslip } from '../utils/export.js';
 
 interface PaymentDetail {
@@ -16,6 +17,7 @@ interface PaymentDetail {
   failure_reason?: string | null;
   fee_paid_xlm?: string | null;
   batch_id?: string | null;
+  idempotency_key?: string | null;
   created_at: string;
   completed_at?: string | null;
   failed_at?: string | null;
@@ -110,11 +112,15 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
     setRetryError('');
     setRetrySuccess(false);
     try {
-      await api.post('/payouts', {
+      // Reuse the original idempotency key so this hits the backend's
+      // resume-a-failed-payment path (same paymentId) rather than creating a
+      // second real payment; legacy rows predating the column get a fresh key.
+      await initiatePayment({
         enterpriseId: p.enterprise_id,
         workerId: p.worker_id,
-        amount: p.amount,
+        amount: Number(p.amount),
         currency: p.currency,
+        idempotencyKey: p.idempotency_key ?? crypto.randomUUID(),
       });
       setRetrySuccess(true);
       // Reload payment details after short delay

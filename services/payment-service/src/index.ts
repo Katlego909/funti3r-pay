@@ -374,6 +374,13 @@ interface PayoutResult {
   stellarTxHash?: string;
   sourceAmountXlm?: string;
   error?: string;
+  /** Set for idempotency conflicts/mismatches so the route can return the right HTTP code. */
+  httpStatus?: number;
+}
+
+/** sha256 of the fields that define "the same logical payout request". */
+function payoutPayloadHash(workerId: string, amountNum: number, asset: string): string {
+  return crypto.createHash('sha256').update(JSON.stringify({ workerId, amountNum, asset })).digest('hex');
 }
 
 /**
@@ -394,14 +401,58 @@ async function executePayout(opts: {
   asset: string;
   memo?: string;
   batchId?: string | null;
+  idempotencyKey?: string;
 }): Promise<PayoutResult> {
-  const { enterpriseId, sourceSecret, workerId, amountNum, asset, memo, batchId } = opts;
+  const { enterpriseId, sourceSecret, workerId, amountNum, asset, memo, batchId, idempotencyKey } = opts;
   const base: PayoutResult = { workerId, amount: amountNum, currency: asset, status: 'failed' };
 
   const def = getCurrency(asset);
   if (!def) return { ...base, error: `Unsupported currency: ${asset}` };
   if (def.kind !== 'native' && !def.issuer) {
     return { ...base, error: `Issuer not configured for ${asset}` };
+  }
+
+  // ── Idempotency ────────────────────────────────────────────────────────────
+  // A key lets a replayed request (double-click, client retry) short-circuit
+  // instead of submitting a second real Stellar payment. No key → today's
+  // exact behavior (fully backward compatible for callers not yet passing one).
+  const payloadHash = payoutPayloadHash(workerId, amountNum, asset);
+  let resumingPaymentId: string | undefined;
+
+  if (idempotencyKey) {
+    const existing = await query(
+      `SELECT id, status, payload_hash, stellar_tx_hash, fee_paid_xlm
+         FROM payments WHERE enterprise_id = $1 AND idempotency_key = $2`,
+      [enterpriseId, idempotencyKey],
+    );
+    const row = existing.rows[0];
+    if (row) {
+      if (row.payload_hash !== payloadHash) {
+        return { ...base, error: 'Idempotency key already used for a different payment request', httpStatus: 422 };
+      }
+      if (row.status === 'completed' || row.status === 'pending_claim') {
+        return {
+          ...base, paymentId: row.id, status: row.status, stellarTxHash: row.stellar_tx_hash ?? undefined,
+          ...(row.fee_paid_xlm ? { sourceAmountXlm: row.fee_paid_xlm } : {}),
+        };
+      }
+      if (row.status === 'failed') {
+        // Legitimate retry — atomic compare-and-swap, not check-then-update, so two
+        // concurrent retries can't both resurrect the same row and double-submit.
+        const cas = await query(
+          `UPDATE payments SET status = 'initiated', failure_reason = NULL, updated_at = NOW()
+             WHERE id = $1 AND status = 'failed' RETURNING id`,
+          [row.id],
+        );
+        if (cas.rows.length === 0) {
+          return { ...base, error: 'Payment with this idempotency key is already being processed', httpStatus: 409 };
+        }
+        resumingPaymentId = row.id;
+      } else {
+        // 'initiated', or any other CHECK-legal-but-unused status — treat as in-flight.
+        return { ...base, error: 'Payment with this idempotency key is already being processed', httpStatus: 409 };
+      }
+    }
   }
 
   // KYC gate (auto-approves on testnet).
@@ -423,19 +474,29 @@ async function executePayout(opts: {
     return { ...base, error: 'Worker Stellar account not found' };
   }
 
-  // Record as initiated (linked to the batch when present).
+  // Record as initiated (linked to the batch when present), unless we're
+  // resuming a previously-failed row under the same idempotency key.
   let paymentId: string;
-  try {
-    const ins = await query(
-      `INSERT INTO payments (enterprise_id, worker_id, amount, currency, status, stellar_destination, description, batch_id)
-         VALUES ($1, $2, $3, $4, 'initiated', $5, $6, $7)
-       RETURNING id`,
-      [enterpriseId, workerId, amountNum, asset, destination, memo ?? null, batchId ?? null],
-    );
-    paymentId = ins.rows[0].id;
-  } catch (err) {
-    logger.error('Failed to record payment', { error: String(err) });
-    return { ...base, error: 'Failed to record payment' };
+  if (resumingPaymentId) {
+    paymentId = resumingPaymentId;
+  } else {
+    try {
+      const ins = await query(
+        `INSERT INTO payments (enterprise_id, worker_id, amount, currency, status, stellar_destination, description, batch_id, idempotency_key, payload_hash)
+           VALUES ($1, $2, $3, $4, 'initiated', $5, $6, $7, $8, $9)
+         RETURNING id`,
+        [enterpriseId, workerId, amountNum, asset, destination, memo ?? null, batchId ?? null, idempotencyKey ?? null, idempotencyKey ? payloadHash : null],
+      );
+      paymentId = ins.rows[0].id;
+    } catch (err: any) {
+      if (err?.code === '23505' && idempotencyKey) {
+        // Lost the insert race to a concurrent identical request — re-fetch and
+        // report the same conflict a slightly-later lookup would have found.
+        return { ...base, error: 'Payment with this idempotency key is already being processed', httpStatus: 409 };
+      }
+      logger.error('Failed to record payment', { error: String(err) });
+      return { ...base, error: 'Failed to record payment' };
+    }
   }
 
   // Submit to Stellar.
@@ -573,9 +634,10 @@ async function resolveEnterpriseSecret(enterpriseId: string): Promise<{ secret?:
  *            receives their PREFERRED currency, converted at the live FX rate.
  */
 app.post('/payouts', async (req, res) => {
-  const { enterpriseId, workerId, amount, amountUsd, currency, memo } = req.body as {
+  const { enterpriseId, workerId, amount, amountUsd, currency, memo, idempotencyKey } = req.body as {
     enterpriseId: string; workerId: string;
     amount?: number | string; amountUsd?: number | string; currency?: string; memo?: string;
+    idempotencyKey?: string;
   };
 
   const requesterId = req.headers['x-user-id'];
@@ -615,7 +677,7 @@ app.post('/payouts', async (req, res) => {
   const { secret, error } = await resolveEnterpriseSecret(enterpriseId);
   if (error) return res.status(400).json({ error });
 
-  const result = await executePayout({ enterpriseId, sourceSecret: secret!, workerId, amountNum, asset, memo });
+  const result = await executePayout({ enterpriseId, sourceSecret: secret!, workerId, amountNum, asset, memo, idempotencyKey });
 
   if (result.status === 'completed') {
     return res.status(201).json({
@@ -624,7 +686,7 @@ app.post('/payouts', async (req, res) => {
       stellarTxHash: result.stellarTxHash, ...(result.sourceAmountXlm ? { sourceAmountXlm: result.sourceAmountXlm } : {}),
     });
   }
-  const code = /not found/i.test(result.error ?? '') ? 404 : /kyc/i.test(result.error ?? '') ? 403 : 502;
+  const code = result.httpStatus ?? (/not found/i.test(result.error ?? '') ? 404 : /kyc/i.test(result.error ?? '') ? 403 : 502);
   return res.status(code).json({ paymentId: result.paymentId, status: 'failed', error: result.error });
 });
 
@@ -634,10 +696,11 @@ app.post('/payouts', async (req, res) => {
  * Payments execute sequentially (one Stellar source account → one sequence).
  */
 app.post('/payouts/batch', async (req, res) => {
-  const { enterpriseId, currency = 'XLM', items } = req.body as {
+  const { enterpriseId, currency = 'XLM', items, idempotencyKey } = req.body as {
     enterpriseId: string;
     currency?: string;
     items: Array<{ workerId: string; amount: number | string; memo?: string }>;
+    idempotencyKey?: string;
   };
 
   const requesterId = req.headers['x-user-id'];
@@ -669,13 +732,58 @@ app.post('/payouts/batch', async (req, res) => {
 
   const totalRequested = normalized.reduce((s, i) => s + i.amountNum, 0);
 
+  // ── Idempotency ────────────────────────────────────────────────────────────
+  // Deliberately no item-level auto-resume of partial/failed batches — an
+  // enterprise that wants to pay a failed subset submits a NEW batch (new key)
+  // with just those workers. Keeps replay semantics simple and unambiguous.
+  const batchPayloadHash = crypto.createHash('sha256')
+    .update(JSON.stringify({ asset, items: normalized }))
+    .digest('hex');
+
+  if (idempotencyKey) {
+    const existing = await query(
+      `SELECT id, status, payload_hash FROM payment_batches WHERE enterprise_id = $1 AND idempotency_key = $2`,
+      [enterpriseId, idempotencyKey],
+    );
+    const row = existing.rows[0];
+    if (row) {
+      if (row.payload_hash !== batchPayloadHash) {
+        return res.status(422).json({ error: 'Idempotency key already used for a different batch request' });
+      }
+      if (row.status === 'processing') {
+        return res.status(409).json({ error: 'Batch with this idempotency key is already being processed', batchId: row.id });
+      }
+      // Terminal (completed/partial/failed) — replay from ground truth, no re-execution.
+      const cached = await query(
+        `SELECT id AS "paymentId", worker_id AS "workerId", amount, currency, status,
+                stellar_tx_hash AS "stellarTxHash", fee_paid_xlm AS "sourceAmountXlm"
+           FROM payments WHERE batch_id = $1 ORDER BY created_at`,
+        [row.id],
+      );
+      const cachedCompleted = cached.rows.filter((r: any) => r.status === 'completed');
+      const cachedFailed = cached.rows.filter((r: any) => r.status === 'failed');
+      return res.status(cachedFailed.length === 0 ? 201 : 207).json({
+        batchId: row.id, status: row.status, currency: asset, totalRequested,
+        completedCount: cachedCompleted.length, failedCount: cachedFailed.length, results: cached.rows,
+      });
+    }
+  }
+
   // Create the batch record.
-  const batchRes = await query(
-    `INSERT INTO payment_batches (enterprise_id, total_amount, payment_count, status)
-       VALUES ($1, $2, $3, 'processing') RETURNING id`,
-    [enterpriseId, totalRequested, normalized.length],
-  );
-  const batchId = batchRes.rows[0].id as string;
+  let batchId: string;
+  try {
+    const batchRes = await query(
+      `INSERT INTO payment_batches (enterprise_id, total_amount, payment_count, status, idempotency_key, payload_hash, heartbeat_at)
+         VALUES ($1, $2, $3, 'processing', $4, $5, NOW()) RETURNING id`,
+      [enterpriseId, totalRequested, normalized.length, idempotencyKey ?? null, idempotencyKey ? batchPayloadHash : null],
+    );
+    batchId = batchRes.rows[0].id as string;
+  } catch (err: any) {
+    if (err?.code === '23505' && idempotencyKey) {
+      return res.status(409).json({ error: 'Batch with this idempotency key is already being processed' });
+    }
+    throw err;
+  }
 
   // Execute sequentially (shared source account → strictly ordered sequence numbers).
   const results: PayoutResult[] = [];
@@ -685,6 +793,10 @@ app.post('/payouts/batch', async (req, res) => {
       amountNum: item.amountNum, asset, memo: item.memo, batchId,
     });
     results.push(r);
+    // Heartbeat: lets the reconciliation watchdog tell "still legitimately
+    // running" from "crashed" — without it, a large sequential batch is
+    // indistinguishable from a dead one once enough time has passed.
+    await query(`UPDATE payment_batches SET heartbeat_at = NOW() WHERE id = $1`, [batchId]);
   }
 
   const completed = results.filter((r) => r.status === 'completed');
@@ -983,7 +1095,7 @@ app.get('/payouts/:id', async (req, res) => {
     const result = await query(
       `SELECT p.id, p.enterprise_id, p.worker_id, p.amount, p.currency, p.status,
               p.stellar_tx_hash, p.stellar_destination, p.description AS memo,
-              p.failure_reason, p.fee_paid_xlm, p.batch_id,
+              p.failure_reason, p.fee_paid_xlm, p.batch_id, p.idempotency_key,
               p.created_at, p.completed_at, p.failed_at, p.updated_at,
               w.email AS worker_email, e.email AS enterprise_email
          FROM payments p

@@ -80,6 +80,7 @@ export async function initiatePayment(payload: {
   amountUsd?: number;
   currency?: string;
   memo?: string;
+  idempotencyKey?: string;
 }): Promise<{ paymentId: string; status: string; currency?: string; amount?: number; usdAmount?: number; stellarTxHash?: string }> {
   const { data } = await api.post('/payouts', payload);
   return data;
@@ -118,6 +119,7 @@ export async function initiateBatchPayment(payload: {
   enterpriseId: string;
   currency?: string;
   items: Array<{ workerId: string; amount: number; memo?: string }>;
+  idempotencyKey?: string;
 }): Promise<BatchResult> {
   // 207 (partial) is a non-2xx the axios client would reject; accept it.
   const { data } = await api.post('/payouts/batch', payload, {
