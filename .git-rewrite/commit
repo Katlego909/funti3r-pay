@@ -1,6 +1,0 @@
-tree 5f2b6f078cb14cefd00488ab8374524e7e85a029
-parent 49bb0ffc2a9c46def1e342c97a9d0a6fcbaf851c
-author Funti3r <katlego.h@funti3r.xyz> 1782656978 +0200
-committer Funti3r <katlego.h@funti3r.xyz> 1782656978 +0200
-
-fix: allow CORS for all dashboard ports (3100, 3101, 3102)

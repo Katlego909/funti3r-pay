@@ -129,3 +129,4 @@ AppData/
 # Deploy artifacts
 *.zip
 *.xml
+.git-rewrite/
