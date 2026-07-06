@@ -49,6 +49,7 @@ export default function FaqSection() {
             <button
               className={`faq-question ${openFaq === index ? 'open' : ''}`}
               onClick={() => setOpenFaq(openFaq === index ? null : index)}
+              aria-expanded={openFaq === index}
             >
               <span>{faq.question}</span>
               <span className="faq-toggle">{openFaq === index ? '−' : '+'}</span>

@@ -46,7 +46,7 @@ export default function PayoutCard({
         <span className="hc-avatar-wrap">
           <img
             className="hc-avatar"
-            src="https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=160&h=160&fit=crop&crop=faces&q=80"
+            src="/images/payout-avatar.jpg"
             alt=""
             loading="lazy"
           />

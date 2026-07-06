@@ -21,7 +21,12 @@ export default function LandingNav({ userType, onToggleUserType, onTalkToSales }
         <div className="logo" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} style={{ cursor: 'pointer' }}>
           <img src={logoImg} alt="Funti3rPay" className="logo-img" />
         </div>
-        <button className="mobile-menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>
+        <button
+          className="mobile-menu-toggle"
+          onClick={() => setMenuOpen(!menuOpen)}
+          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={menuOpen}
+        >
           {menuOpen ? <HiOutlineXMark size={24} /> : <HiOutlineBars3 size={24} />}
         </button>
         <div className={`nav-actions ${menuOpen ? 'open' : ''}`}>

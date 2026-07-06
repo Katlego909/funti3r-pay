@@ -58,8 +58,6 @@ export default function Dashboard() {
     if (!user?.userId) return;
     const userId = user.userId;
 
-    console.log('[Dashboard] Mounting, loading data...');
-
     async function fetchWalletBalance() {
       try {
         // Use the gateway api client (adds auth token). The wallet endpoint
@@ -82,7 +80,6 @@ export default function Dashboard() {
 
     Promise.all([getSummary(), getRecentPayments(8)])
       .then(([pSummary, payments]) => {
-        console.log('[Dashboard] Data loaded:', { pSummary, payments });
         setSummary(pSummary);
         setRecent(payments);
       })
