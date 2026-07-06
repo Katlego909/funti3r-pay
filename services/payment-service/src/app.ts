@@ -1094,10 +1094,11 @@ app.get('/payouts/:id', async (req, res) => {
               p.stellar_tx_hash, p.stellar_destination, p.description AS memo,
               p.failure_reason, p.fee_paid_xlm, p.batch_id, p.idempotency_key,
               p.created_at, p.completed_at, p.failed_at, p.updated_at,
-              w.email AS worker_email, e.email AS enterprise_email
+              w.email AS worker_email, e.email AS enterprise_email, comp.company_name
          FROM payments p
          LEFT JOIN users w ON w.id = p.worker_id
          LEFT JOIN users e ON e.id = p.enterprise_id
+         LEFT JOIN enterprises comp ON comp.user_id = p.enterprise_id
         WHERE p.id = $1`,
       [req.params.id],
     );

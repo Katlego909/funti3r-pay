@@ -30,6 +30,19 @@ export async function getWorker(id: string): Promise<Worker> {
   return data;
 }
 
+export interface WorkerInvite {
+  id: string;
+  email: string;
+  status: 'pending' | 'accepted' | 'expired';
+  created_at: string;
+  expires_at: string;
+}
+
+export async function getInvites(): Promise<WorkerInvite[]> {
+  const { data } = await api.get<{ invites: WorkerInvite[] }>('/invites');
+  return data.invites;
+}
+
 export async function getUserSummary(): Promise<{ total: number; byRole: Record<string, number> }> {
   const { data } = await api.get('/users/summary');
   return data;

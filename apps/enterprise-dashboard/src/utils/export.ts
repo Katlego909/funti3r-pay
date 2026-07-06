@@ -158,10 +158,16 @@ export function exportWorkersPDF(workers: ExportWorker[]) {
 
 // ── Payslip ───────────────────────────────────────────────────────────────────
 
+/** "Company Name — email", falling back to just the email when no company name is set. */
+export function formatCompanyLabel(companyName: string | null | undefined, email: string): string {
+  return companyName ? `${companyName} — ${email}` : email;
+}
+
 export interface PayslipData {
   id: string;
   workerEmail: string;
   enterpriseEmail: string;
+  companyName?: string | null;
   amount: string | number;
   currency: string;
   usdValue?: number | null;
@@ -226,7 +232,7 @@ export function generatePayslip(p: PayslipData) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
   doc.setTextColor(30, 30, 30);
-  doc.text(p.enterpriseEmail, M, y, { maxWidth: inner / 2 - 12 });
+  doc.text(formatCompanyLabel(p.companyName, p.enterpriseEmail), M, y, { maxWidth: inner / 2 - 12 });
   doc.text(p.workerEmail, W / 2 + 8, y, { maxWidth: inner / 2 - 8 });
   y += 30;
   doc.setDrawColor(225, 225, 225);

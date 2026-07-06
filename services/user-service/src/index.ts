@@ -532,11 +532,49 @@ app.post('/api/auth/logout', logoutHandler);
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
-app.get('/users/summary', async (_req, res) => {
+/** Resolves the `enterprises.id` for a user, or null if they have no company profile yet. */
+async function enterpriseIdFor(userId: string): Promise<string | null> {
+  const r = await query('SELECT id FROM enterprises WHERE user_id = $1', [userId]);
+  return r.rows[0]?.id ?? null;
+}
+
+/** True if `workerId` is an active worker of the enterprise identified by `enterpriseUserId`. */
+async function isOwnWorker(enterpriseUserId: string, workerId: string): Promise<boolean> {
+  const r = await query(
+    `SELECT 1 FROM enterprise_workers ew
+       JOIN enterprises e ON e.id = ew.enterprise_id
+      WHERE e.user_id = $1 AND ew.worker_id = $2 AND ew.status = 'active'`,
+    [enterpriseUserId, workerId],
+  );
+  return r.rows.length > 0;
+}
+
+/**
+ * GET /users/summary — the calling enterprise's own team size, by role.
+ * (Not a platform-wide count — every caller here is the enterprise dashboard's
+ * own overview stat, so scoping to "my workers" is the correct contract.)
+ */
+app.get('/users/summary', async (req, res) => {
+  const requesterId = req.headers['x-user-id'] as string | undefined;
+  const requesterRole = req.headers['x-user-role'] as string | undefined;
+  if (requesterRole !== 'enterprise' || !requesterId) {
+    return res.status(403).json({ error: 'Enterprise role required' });
+  }
+
   try {
-    const total = await query('SELECT COUNT(*) AS total FROM users');
+    const enterpriseId = await enterpriseIdFor(requesterId);
+    if (!enterpriseId) return res.json({ total: 0, byRole: {} });
+
+    const total = await query(
+      `SELECT COUNT(*) AS total FROM enterprise_workers WHERE enterprise_id = $1 AND status = 'active'`,
+      [enterpriseId],
+    );
     const byRole = await query(
-      `SELECT role, COUNT(*) AS count FROM users GROUP BY role`,
+      `SELECT u.role, COUNT(*) AS count
+         FROM enterprise_workers ew JOIN users u ON u.id = ew.worker_id
+        WHERE ew.enterprise_id = $1 AND ew.status = 'active'
+        GROUP BY u.role`,
+      [enterpriseId],
     );
     res.json({
       total: Number(total.rows[0].total),
@@ -548,28 +586,40 @@ app.get('/users/summary', async (_req, res) => {
   }
 });
 
+/** GET /users — the calling enterprise's own workers (optionally filtered by search). */
 app.get('/users', async (req, res) => {
+  const requesterId = req.headers['x-user-id'] as string | undefined;
+  const requesterRole = req.headers['x-user-role'] as string | undefined;
+  if (requesterRole !== 'enterprise' || !requesterId) {
+    return res.status(403).json({ error: 'Enterprise role required' });
+  }
+
   try {
-    const role = req.query.role as string | undefined;
+    const enterpriseId = await enterpriseIdFor(requesterId);
+    if (!enterpriseId) return res.json({ users: [], total: 0 });
+
     const search = req.query.search as string | undefined;
     const limit = Math.min(Number(req.query.limit ?? 50), 500);
     const offset = Number(req.query.offset ?? 0);
 
-    let sql = 'SELECT id, email, role, status, country, preferred_currency, stellar_public_key, created_at FROM users';
-    const params: any[] = [];
-    const conditions: string[] = [];
+    let sql = `SELECT u.id, u.email, u.role, u.status, u.country, u.preferred_currency, u.stellar_public_key, u.created_at
+                 FROM enterprise_workers ew JOIN users u ON u.id = ew.worker_id
+                WHERE ew.enterprise_id = $1 AND ew.status = 'active'`;
+    const params: any[] = [enterpriseId];
 
-    if (role) { conditions.push(`role = $${params.length + 1}`); params.push(role); }
-    if (search) { conditions.push(`(email ILIKE $${params.length + 1} OR first_name ILIKE $${params.length + 1} OR last_name ILIKE $${params.length + 1})`); params.push(`%${search}%`); }
-    if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
+    if (search) {
+      sql += ` AND (u.email ILIKE $${params.length + 1} OR u.first_name ILIKE $${params.length + 1} OR u.last_name ILIKE $${params.length + 1})`;
+      params.push(`%${search}%`);
+    }
 
-    sql += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
+    const countSql = sql;
+    const countParams = [...params];
+
+    sql += ` ORDER BY u.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(limit, offset);
 
     const result = await query(sql, params);
-    const countParams = [...params.slice(0, params.length - 2)];
-    const countWhere = conditions.length ? ' WHERE ' + conditions.join(' AND ') : '';
-    const total = await query(`SELECT COUNT(*) AS total FROM users${countWhere}`, countParams);
+    const total = await query(`SELECT COUNT(*) AS total FROM (${countSql}) t`, countParams);
 
     res.json({
       users: result.rows,
@@ -581,11 +631,23 @@ app.get('/users', async (req, res) => {
   }
 });
 
+/** GET /users/:id — self-lookup, or an enterprise looking up one of its own workers. */
 app.get('/users/:id', async (req, res) => {
+  const requesterId = req.headers['x-user-id'] as string | undefined;
+  const requesterRole = req.headers['x-user-role'] as string | undefined;
+
   try {
+    const isSelf = requesterId === req.params.id;
+    const isOwner = !isSelf && requesterRole === 'enterprise' && requesterId
+      ? await isOwnWorker(requesterId, req.params.id)
+      : false;
+    if (!isSelf && !isOwner) {
+      return res.status(403).json({ error: 'Not authorized to view this user' });
+    }
+
     const result = await query(
       `SELECT u.id, u.email, u.role, u.status, u.country, u.preferred_currency, u.created_at,
-              e.company_name
+              e.company_name, e.company_registration, e.country AS company_country
          FROM users u
          LEFT JOIN enterprises e ON e.user_id = u.id
         WHERE u.id = $1`,
@@ -628,14 +690,17 @@ app.put('/api/users/me/preferred-currency', setPreferredCurrencyHandler);
 
 /**
  * PATCH /users/me — update mutable profile fields for the authenticated user.
- * Enterprise: updates company_name in the enterprises table.
+ * Enterprise: updates company_name/company_registration/company_country in
+ * the enterprises table (company_country is the company's country of
+ * incorporation — distinct from the account holder's personal `country`).
  * Any role: updates first_name, last_name, phone, country in users.
  */
 const patchMeHandler = async (req: express.Request, res: express.Response) => {
   const userId = req.headers['x-user-id'] as string | undefined;
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
-  const { company_name, first_name, last_name, phone, country } = req.body as Record<string, string | undefined>;
+  const { company_name, company_registration, company_country, first_name, last_name, phone, country } =
+    req.body as Record<string, string | undefined>;
 
   try {
     const userCols: string[] = [];
@@ -652,12 +717,24 @@ const patchMeHandler = async (req: express.Request, res: express.Response) => {
       );
     }
 
-    if (company_name !== undefined) {
+    if (company_name !== undefined || company_registration !== undefined || company_country !== undefined) {
+      // company_name is NOT NULL on enterprises — resolve it from the request
+      // or an existing row before inserting, since this save might only be
+      // touching company_registration/company_country.
+      const existing = await query('SELECT company_name FROM enterprises WHERE user_id = $1', [userId]);
+      const resolvedName = company_name ?? existing.rows[0]?.company_name;
+      if (!resolvedName) {
+        return res.status(400).json({ error: 'company_name is required before setting other company fields' });
+      }
       await query(
-        `INSERT INTO enterprises (user_id, company_name)
-         VALUES ($2, $1)
-         ON CONFLICT (user_id) DO UPDATE SET company_name = EXCLUDED.company_name, updated_at = NOW()`,
-        [company_name, userId],
+        `INSERT INTO enterprises (user_id, company_name, company_registration, country)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id) DO UPDATE SET
+           company_name = EXCLUDED.company_name,
+           company_registration = COALESCE($3, enterprises.company_registration),
+           country = COALESCE($4, enterprises.country),
+           updated_at = NOW()`,
+        [userId, resolvedName, company_registration ?? null, company_country ?? null],
       );
     }
 
@@ -761,15 +838,44 @@ app.post('/invites', async (req, res) => {
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: 'Valid email required' });
   }
+  const normalizedEmail = email.toLowerCase();
 
-  const token = randomBytes(32).toString('hex');
   try {
-    await query(
-      `INSERT INTO worker_invites (enterprise_id, email, token)
-       VALUES ($1, $2, $3)
-       ON CONFLICT DO NOTHING`,
-      [requesterId, email.toLowerCase(), token],
+    // Don't re-invite someone already an active worker of THIS enterprise —
+    // a worker can legitimately work for multiple companies, so this is
+    // scoped to the requester, not a global "already a worker" check.
+    const existingWorker = await query(
+      `SELECT 1 FROM enterprise_workers ew
+         JOIN enterprises e ON e.id = ew.enterprise_id
+         JOIN users u ON u.id = ew.worker_id
+        WHERE e.user_id = $1 AND u.email = $2 AND ew.status = 'active'`,
+      [requesterId, normalizedEmail],
     );
+    if (existingWorker.rows.length > 0) {
+      return res.status(409).json({ error: 'This person is already part of your team' });
+    }
+
+    // Reuse/refresh an existing pending invite instead of piling up duplicate
+    // rows for the same email — a re-invite reads as "resend", so old copies
+    // of the link correctly stop working once the token is regenerated.
+    const existingInvite = await query(
+      `SELECT id FROM worker_invites WHERE enterprise_id = $1 AND email = $2 AND status = 'pending'`,
+      [requesterId, normalizedEmail],
+    );
+
+    const token = randomBytes(32).toString('hex');
+    if (existingInvite.rows.length > 0) {
+      await query(
+        `UPDATE worker_invites SET token = $1, expires_at = NOW() + INTERVAL '7 days' WHERE id = $2`,
+        [token, existingInvite.rows[0].id],
+      );
+    } else {
+      await query(
+        `INSERT INTO worker_invites (enterprise_id, email, token) VALUES ($1, $2, $3)`,
+        [requesterId, normalizedEmail, token],
+      );
+    }
+
     const baseUrl = process.env.APP_URL || 'http://localhost:3100';
     const inviteUrl = `${baseUrl}/register?role=worker&invite=${token}&email=${encodeURIComponent(email)}`;
     return res.status(201).json({ token, inviteUrl });
@@ -785,9 +891,22 @@ app.get('/invites', async (req, res) => {
   if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
 
   try {
+    // Exclude invites whose email is already an active worker of this
+    // enterprise, regardless of the invite row's own `status` — an older
+    // invite can be left 'pending' in the DB even after the person joined
+    // through a separate, later invite. Ground truth is enterprise_workers,
+    // not this row's status column.
     const result = await query(
-      `SELECT id, email, status, created_at, expires_at FROM worker_invites
-       WHERE enterprise_id = $1 ORDER BY created_at DESC`,
+      `SELECT wi.id, wi.email, wi.status, wi.created_at, wi.expires_at
+         FROM worker_invites wi
+        WHERE wi.enterprise_id = $1
+          AND NOT EXISTS (
+            SELECT 1 FROM enterprise_workers ew
+              JOIN enterprises e ON e.id = ew.enterprise_id
+              JOIN users u ON u.id = ew.worker_id
+             WHERE e.user_id = wi.enterprise_id AND u.email = wi.email AND ew.status = 'active'
+          )
+        ORDER BY wi.created_at DESC`,
       [requesterId],
     );
     return res.json({ invites: result.rows });
@@ -799,7 +918,10 @@ app.get('/invites', async (req, res) => {
 app.get('/invites/:token', async (req, res) => {
   try {
     const result = await query(
-      `SELECT id, enterprise_id, email, status, expires_at FROM worker_invites WHERE token = $1`,
+      `SELECT wi.id, wi.enterprise_id, wi.email, wi.status, wi.expires_at, e.company_name
+         FROM worker_invites wi
+         LEFT JOIN enterprises e ON e.user_id = wi.enterprise_id
+        WHERE wi.token = $1`,
       [req.params.token],
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Invite not found' });
@@ -807,7 +929,7 @@ app.get('/invites/:token', async (req, res) => {
     if (invite.status !== 'pending' || new Date(invite.expires_at) < new Date()) {
       return res.status(410).json({ error: 'Invite has expired or already been used' });
     }
-    return res.json({ email: invite.email, enterpriseId: invite.enterprise_id });
+    return res.json({ email: invite.email, enterpriseId: invite.enterprise_id, companyName: invite.company_name });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to validate invite' });
   }

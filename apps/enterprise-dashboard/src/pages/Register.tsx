@@ -22,11 +22,15 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'form' | 'passkey' | 'wallet'>('form');
   const [inviteValid, setInviteValid] = useState<boolean | null>(inviteToken ? null : true);
+  const [inviteCompanyName, setInviteCompanyName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!inviteToken) return;
-    api.get(`/invites/${inviteToken}`)
-      .then(() => setInviteValid(true))
+    api.get<{ companyName?: string | null }>(`/invites/${inviteToken}`)
+      .then((r) => {
+        setInviteValid(true);
+        setInviteCompanyName(r.data.companyName ?? null);
+      })
       .catch(() => setInviteValid(false));
   }, [inviteToken]);
 
@@ -84,7 +88,9 @@ export default function Register() {
         )}
         {inviteToken && inviteValid === true && (
           <p style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '10px 14px', fontSize: '0.85rem', color: '#065f46', margin: '0 0 1.25rem' }}>
-            You've been invited to join as a worker. Your account will be linked to your employer automatically.
+            {inviteCompanyName
+              ? <>You've been invited to join <strong>{inviteCompanyName}</strong> as a worker. Your account will be linked automatically.</>
+              : "You've been invited to join as a worker. Your account will be linked to your employer automatically."}
           </p>
         )}
 

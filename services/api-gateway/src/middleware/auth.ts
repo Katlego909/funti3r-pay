@@ -12,22 +12,23 @@ const PUBLIC_PATHS = new Set([
   '/auth/logout',
 ]);
 
-// Allow access to payment/user data (compliance requires auth for approve/reject)
-const PUBLIC_READ_PATTERNS = [
-  /^\/users\/summary/,
-  /^\/api\/users\/summary/,
-];
+// GET /invites/:token is a read-only invite preview shown to a brand-new
+// visitor who has no session yet (they clicked a link from an email) —
+// possession of the unguessable token is the authorization, same as a
+// password-reset link. Only the GET is public; creating/accepting an invite
+// still requires a real session.
+const PUBLIC_GET_PATTERNS = [/^\/invites\/[^/]+$/, /^\/api\/invites\/[^/]+$/];
 
-function isPublic(path: string): boolean {
+function isPublic(path: string, method: string): boolean {
   if (PUBLIC_PATHS.has(path)) return true;
   if (path.startsWith('/auth/')) return true;
   if (path.startsWith('/api/auth/')) return true;
-  if (PUBLIC_READ_PATTERNS.some((p) => p.test(path))) return true;
+  if (method === 'GET' && PUBLIC_GET_PATTERNS.some((p) => p.test(path))) return true;
   return false;
 }
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
-  if (isPublic(req.path)) return next();
+  if (isPublic(req.path, req.method)) return next();
 
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {

@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import { HiOutlineArrowDownTray, HiOutlineEnvelope, HiOutlineClipboard, HiCheck, HiOutlineXMark } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { useAuthStore } from '../store/authStore.js';
-import { getWorkerWallet, getKYCStatus, type Worker, type WorkerWallet, type KYCStatus } from '../api/workers.js';
+import { getWorkerWallet, getKYCStatus, getInvites, type Worker, type WorkerWallet, type KYCStatus, type WorkerInvite } from '../api/workers.js';
 import { api } from '../api/client.js';
 import WorkerDetailDrawer from '../components/WorkerDetailDrawer.js';
 import { exportWorkersCSV, exportWorkersPDF } from '../utils/export.js';
@@ -50,6 +50,11 @@ export default function Workers() {
   const [inviteLink, setInviteLink] = useState('');
   const [inviteSending, setInviteSending] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [invites, setInvites] = useState<WorkerInvite[]>([]);
+
+  function loadInvites() {
+    getInvites().then(setInvites).catch(() => {});
+  }
 
   async function handleInvite(e: FormEvent) {
     e.preventDefault();
@@ -58,6 +63,7 @@ export default function Workers() {
     try {
       const res = await api.post<{ inviteUrl: string }>('/invites', { email: inviteEmail });
       setInviteLink(res.data.inviteUrl);
+      loadInvites();
     } catch (err: any) {
       toast.error(err?.response?.data?.error ?? 'Failed to create invite');
     } finally {
@@ -99,6 +105,7 @@ export default function Workers() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+    loadInvites();
   }, []);
 
   async function viewKYC(workerId: string) {
@@ -237,6 +244,41 @@ export default function Workers() {
             )}
           </div>
         </div>
+      )}
+
+      {invites.some((i) => i.status === 'pending') && (
+        <section className="section" style={{ marginBottom: '1.5rem' }}>
+          <h3 style={{ marginTop: 0 }}>Pending Invites</h3>
+          <div className="table-responsive">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Sent</th>
+                  <th>Expires</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invites
+                  .filter((i) => i.status === 'pending')
+                  .map((i) => {
+                    const expired = new Date(i.expires_at) < new Date();
+                    return (
+                      <tr key={i.id}>
+                        <td data-label="Email">{i.email}</td>
+                        <td data-label="Sent">{new Date(i.created_at).toLocaleDateString()}</td>
+                        <td data-label="Expires">
+                          {expired
+                            ? <span className="status failed">Expired</span>
+                            : new Date(i.expires_at).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       <section className="section">

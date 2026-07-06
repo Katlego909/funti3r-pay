@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { HiOutlineArrowTopRightOnSquare, HiXMark, HiOutlineClipboard, HiCheck, HiOutlineArrowPath, HiOutlineArrowDownTray } from 'react-icons/hi2';
 import { api } from '../api/client.js';
 import { initiatePayment } from '../api/payments.js';
-import { generatePayslip } from '../utils/export.js';
+import { generatePayslip, formatCompanyLabel } from '../utils/export.js';
 
 interface PaymentDetail {
   id: string;
@@ -18,6 +18,7 @@ interface PaymentDetail {
   fee_paid_xlm?: string | null;
   batch_id?: string | null;
   idempotency_key?: string | null;
+  company_name?: string | null;
   created_at: string;
   completed_at?: string | null;
   failed_at?: string | null;
@@ -216,7 +217,7 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
               <div className="error-banner" style={{ marginBottom: '14px', fontSize: '0.82rem' }}>{p.failure_reason}</div>
             )}
 
-            <Row label="From">{p.enterprise_email ?? p.enterprise_id.slice(0, 8)}</Row>
+            <Row label="From">{formatCompanyLabel(p.company_name, p.enterprise_email ?? p.enterprise_id.slice(0, 8))}</Row>
             <Row label="To">{p.worker_email ?? p.worker_id.slice(0, 8)}</Row>
             {p.stellar_destination && (
               <Row label="Worker address">
@@ -260,6 +261,7 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
                     id: p.id,
                     workerEmail: p.worker_email ?? p.worker_id,
                     enterpriseEmail: p.enterprise_email ?? p.enterprise_id.slice(0, 8),
+                    companyName: p.company_name,
                     amount: p.amount,
                     currency: p.currency,
                     usdValue: p.usd_value,

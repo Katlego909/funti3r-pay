@@ -109,17 +109,23 @@ export default function Settings() {
   const isEnterprise = user?.role !== 'worker';
 
   const [companyName, setCompanyName] = useState('');
+  const [companyRegistration, setCompanyRegistration] = useState('');
+  const [companyCountry, setCompanyCountry] = useState('');
   const [notifyCompleted, setNotifyCompleted] = useState(true);
   const [notifyFailed, setNotifyFailed] = useState(true);
   const [notifyWeekly, setNotifyWeekly] = useState(false);
 
   const [saving, setSaving] = useState(false);
 
-  // Load existing company name for enterprise users
+  // Load existing company profile for enterprise users
   useEffect(() => {
     if (!isEnterprise || !user?.userId) return;
-    api.get<{ company_name?: string }>(`/users/${user.userId}`)
-      .then((r) => { if (r.data.company_name) setCompanyName(r.data.company_name); })
+    api.get<{ company_name?: string; company_registration?: string; company_country?: string }>(`/users/${user.userId}`)
+      .then((r) => {
+        if (r.data.company_name) setCompanyName(r.data.company_name);
+        if (r.data.company_registration) setCompanyRegistration(r.data.company_registration);
+        if (r.data.company_country) setCompanyCountry(r.data.company_country);
+      })
       .catch(() => {});
   }, [isEnterprise, user?.userId]);
 
@@ -127,7 +133,11 @@ export default function Settings() {
     setSaving(true);
     try {
       const body: Record<string, unknown> = {};
-      if (isEnterprise) body.company_name = companyName;
+      if (isEnterprise) {
+        body.company_name = companyName;
+        body.company_registration = companyRegistration;
+        body.company_country = companyCountry;
+      }
       await api.patch('/users/me', body);
       toast.success('Settings saved');
     } catch {
@@ -180,6 +190,27 @@ export default function Settings() {
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
               />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '16px' }}>
+              <div>
+                <label style={labelStyle}>Registration number</label>
+                <input
+                  style={{ ...field, background: '#fff' }}
+                  placeholder="Company registration number"
+                  value={companyRegistration}
+                  onChange={(e) => setCompanyRegistration(e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>Country of incorporation</label>
+                <input
+                  style={{ ...field, background: '#fff' }}
+                  placeholder="e.g. ZA, NG, US"
+                  maxLength={2}
+                  value={companyCountry}
+                  onChange={(e) => setCompanyCountry(e.target.value.toUpperCase())}
+                />
+              </div>
             </div>
           </>
         )}
