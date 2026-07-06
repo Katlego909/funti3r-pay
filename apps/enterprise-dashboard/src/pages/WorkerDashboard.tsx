@@ -56,6 +56,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user?.userId) return;
+    const userId = user.userId;
 
     console.log('[Dashboard] Mounting, loading data...');
 
@@ -64,7 +65,7 @@ export default function Dashboard() {
         // Use the gateway api client (adds auth token). The wallet endpoint
         // returns { userId, walletType, address }; balance defaults to 0
         // until on-chain balance lookup is wired up.
-        const { data } = await api.get(`/wallets/${user.userId}`);
+        const { data } = await api.get(`/wallets/${userId}`);
         const all: any[] = data.balances ?? [];
         const xlmBalance = all.find((b) => b.asset_type === 'native')?.balance;
         // Any issued asset (USDC, NGN, KES, …) with a non-zero balance.
@@ -95,7 +96,7 @@ export default function Dashboard() {
     getXlmPrice().then(setXlmUsd);
     getFxRates().then(setFxRates);
     // More rows for the charts than the 8-row recent table.
-    listPayments({ workerId: user.userId, limit: 200 })
+    listPayments({ workerId: userId, limit: 200 })
       .then(({ payments }) => setChartPayments(payments))
       .catch(() => setChartPayments([]));
   }, [user]);
