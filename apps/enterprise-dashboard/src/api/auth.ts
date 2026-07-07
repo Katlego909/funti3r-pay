@@ -7,7 +7,7 @@ import { useAuthStore } from '../store/authStore.js';
 
 const base = '/auth';
 
-export async function registerPasskey(email: string, role = 'enterprise', inviteToken?: string) {
+export async function registerPasskey(email: string, role = 'enterprise', inviteToken?: string, companyInviteToken?: string) {
   try {
     // 1. Get options from server
     console.log('[WebAuthn] Requesting registration options...');
@@ -20,8 +20,9 @@ export async function registerPasskey(email: string, role = 'enterprise', invite
     console.log('[WebAuthn] Registration response received:', registrationResponse);
     console.log('[WebAuthn] Credential created:', registrationResponse.id);
 
-    // 3. Verify with server and receive JWT. inviteToken (if present) is linked
-    // server-side in this same request — see registerFinishHandler.
+    // 3. Verify with server and receive JWT. inviteToken/companyInviteToken
+    // (if present) are linked server-side in this same request — see
+    // registerFinishHandler.
     console.log('[WebAuthn] Verifying credential with server...');
     const { data } = await api.post<{
       accessToken: string;
@@ -30,7 +31,9 @@ export async function registerPasskey(email: string, role = 'enterprise', invite
       role: string;
       companyId?: string | null;
       inviteLinked?: boolean;
-    }>(`${base}/register/finish`, { email, credential: registrationResponse, origin: window.location.origin, inviteToken });
+      companyInviteLinked?: boolean;
+      companyInviteError?: string;
+    }>(`${base}/register/finish`, { email, credential: registrationResponse, origin: window.location.origin, inviteToken, companyInviteToken });
 
     useAuthStore.getState().setSession(
       { userId: data.userId, email: data.email, role: data.role, companyId: data.companyId ?? undefined },

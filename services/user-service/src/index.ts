@@ -20,7 +20,7 @@ import {
   NotFoundError,
 } from '@funti3r/shared-utils';
 import { sendRecoveryEmail } from './lib/email.js';
-import { initPostgres, runInitialMigrations, initRedis, query, setJSON, getJSON, deleteKey } from '@funti3r/database';
+import { initPostgres, runInitialMigrations, initRedis, query, transaction, setJSON, getJSON, deleteKey } from '@funti3r/database';
 import { UserRole } from '@funti3r/shared-types';
 
 const logger = createLogger('UserService');
@@ -198,6 +198,97 @@ async function acceptWorkerInvite(token: string, workerId: string): Promise<bool
   return true;
 }
 
+/**
+ * Resolves the requester's active company membership AND role in one query.
+ * Deliberately separate from resolveActiveCompanyId: that helper swallows
+ * all errors (must never fail login/registration over a non-critical JWT
+ * claim), whereas authorization for company-invite routes must surface a
+ * real 500 on a DB failure rather than silently falling through as "no
+ * company." Company-role authorization is re-derived here on every request —
+ * there is no company_role JWT/session claim by design (see companyAuth
+ * notes in the plan); never trust a cached claim for this decision.
+ */
+async function resolveActiveMembership(userId: string): Promise<{ companyId: string; companyRole: string } | null> {
+  const r = await query(
+    `SELECT enterprise_id, company_role FROM enterprise_members WHERE user_id = $1 AND status = 'active'`,
+    [userId],
+  );
+  if (!r.rows.length) return null;
+  return { companyId: r.rows[0].enterprise_id, companyRole: r.rows[0].company_role };
+}
+
+/**
+ * Marks a pending, unexpired company invite as accepted and adds the user to
+ * enterprise_members. Diverges from acceptWorkerInvite's "mark accepted, then
+ * link" order: linking a worker is unconditionally idempotent (ON CONFLICT DO
+ * NOTHING can't fail), but joining a company CAN legitimately fail — the v1
+ * "no company-switcher" partial unique index forbids a second active
+ * membership. So this checks BEFORE consuming the token: if the token were
+ * marked accepted first and the join then failed, it would strand the
+ * invitee with a dead link and no way to retry short of a brand-new invite.
+ * The whole thing runs in one transaction so a lost race (23505 from a
+ * concurrent accept) rolls back the invite-accepted UPDATE too, leaving the
+ * token usable for a genuine retry.
+ */
+async function acceptCompanyInvite(
+  token: string,
+  userId: string,
+): Promise<'accepted' | 'invalid' | 'already_member'> {
+  return transaction(async (client) => {
+    const invRes = await client.query(
+      `SELECT id, enterprise_id, company_role, invited_by
+         FROM enterprise_member_invites
+        WHERE token = $1 AND status = 'pending' AND expires_at > NOW()
+        FOR UPDATE`,
+      [token],
+    );
+    if (!invRes.rows.length) return 'invalid';
+    const { id: inviteId, enterprise_id: companyId, company_role: companyRole, invited_by: inviterId } = invRes.rows[0];
+
+    // Must check BEFORE consuming the token — see doc comment above. This
+    // catches ANY existing active membership, even in a different company
+    // than the one this invite is for — that's the intended v1 boundary.
+    const activeRes = await client.query(
+      `SELECT 1 FROM enterprise_members WHERE user_id = $1 AND status = 'active'`,
+      [userId],
+    );
+    if (activeRes.rows.length) return 'already_member';
+
+    await client.query(`UPDATE enterprise_member_invites SET status = 'accepted' WHERE id = $1`, [inviteId]);
+
+    try {
+      // ON CONFLICT DO UPDATE (not DO NOTHING) so re-inviting a previously
+      // removed member (status='removed') reactivates their existing row
+      // instead of hitting the UNIQUE(enterprise_id, user_id) violation a
+      // bare INSERT would throw.
+      await client.query(
+        `INSERT INTO enterprise_members (enterprise_id, user_id, company_role, status)
+         VALUES ($1, $2, $3, 'active')
+         ON CONFLICT (enterprise_id, user_id) DO UPDATE
+           SET status = 'active', company_role = EXCLUDED.company_role, updated_at = NOW()`,
+        [companyId, userId, companyRole],
+      );
+    } catch (err: any) {
+      if (err?.code === '23505') return 'already_member'; // lost a race; transaction rolls back the UPDATE above too
+      throw err;
+    }
+
+    try {
+      const joined = await client.query('SELECT email FROM users WHERE id = $1', [userId]);
+      const joinedEmail = joined.rows[0]?.email ?? 'A teammate';
+      await client.query(
+        `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
+         VALUES ($1, 'member_joined', 'New team member joined', $2, 'enterprise_member', $3)`,
+        [inviterId, `${joinedEmail} accepted your invite and joined your company.`, userId],
+      );
+    } catch (notifErr) {
+      logger.warn('Failed to emit member_joined notification', { error: String(notifErr) });
+    }
+
+    return 'accepted';
+  });
+}
+
 // ── Health ────────────────────────────────────────────────────────────────────
 
 app.get('/health', (_, res) => {
@@ -265,11 +356,12 @@ app.post('/api/auth/register/start', registerStartHandler);
  */
 const registerFinishHandler = async (req: express.Request, res: express.Response) => {
   try {
-    const { email, credential, origin, inviteToken } = req.body as {
+    const { email, credential, origin, inviteToken, companyInviteToken } = req.body as {
       email: string;
       credential: Record<string, unknown>;
       origin?: string;
       inviteToken?: string;
+      companyInviteToken?: string;
     };
     if (!email || !credential) throw new ValidationError('email and credential are required');
 
@@ -371,6 +463,26 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
       }
     }
 
+    // Same atomic-linking principle as the worker invite above, for joining
+    // an existing company as a teammate.
+    let companyInviteLinked: boolean | undefined;
+    let companyInviteError: string | undefined;
+    if (companyInviteToken && session.role === 'enterprise') {
+      try {
+        const result = await acceptCompanyInvite(companyInviteToken, userId);
+        companyInviteLinked = result === 'accepted';
+        if (result === 'already_member') {
+          companyInviteError = 'already_member';
+          logger.info('register/finish: company invite skipped, already in a company', { email });
+        } else if (result === 'invalid') {
+          logger.warn('register/finish: company invite token invalid/expired', { email, companyInviteToken });
+        }
+      } catch (err) {
+        companyInviteLinked = false;
+        logger.error('register/finish: company invite acceptance failed', { email, error: String(err) });
+      }
+    }
+
     await deleteKey(`reg:${email}`);
 
     const companyId = await resolveActiveCompanyId(userId);
@@ -391,6 +503,8 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
       role: session.role,
       companyId,
       ...(inviteLinked !== undefined ? { inviteLinked } : {}),
+      ...(companyInviteLinked !== undefined ? { companyInviteLinked } : {}),
+      ...(companyInviteError !== undefined ? { companyInviteError } : {}),
     });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
@@ -992,6 +1106,243 @@ app.post('/invites/:token/accept', async (req, res) => {
   } catch (err) {
     logger.error('Accept invite failed', { error: String(err) });
     return res.status(500).json({ error: 'Failed to accept invite' });
+  }
+});
+
+// ── Company invites ───────────────────────────────────────────────────────────
+
+app.post('/company/invites', async (req, res) => {
+  const requesterId = req.headers['x-user-id'] as string;
+  if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { email, companyRole = 'member' } = req.body as { email?: string; companyRole?: string };
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Valid email required' });
+  }
+  if (!['admin', 'member'].includes(companyRole)) {
+    return res.status(400).json({ error: "companyRole must be 'admin' or 'member'" });
+  }
+  const normalizedEmail = email.toLowerCase();
+
+  try {
+    // Diverges from worker invites: authorization here is NOT the platform
+    // x-user-role header (any logged-in enterprise user could send worker
+    // invites) — it's a fresh enterprise_members lookup, since only
+    // owner/admin may invite, and company_role is never cached in the JWT.
+    const membership = await resolveActiveMembership(requesterId);
+    if (!membership) return res.status(403).json({ error: 'You do not belong to a company' });
+    if (!['owner', 'admin'].includes(membership.companyRole)) {
+      return res.status(403).json({ error: 'Only company owners and admins can invite teammates' });
+    }
+    const { companyId } = membership;
+
+    const existingMember = await query(
+      `SELECT 1 FROM enterprise_members em
+         JOIN users u ON u.id = em.user_id
+        WHERE em.enterprise_id = $1 AND u.email = $2 AND em.status = 'active'`,
+      [companyId, normalizedEmail],
+    );
+    if (existingMember.rows.length > 0) {
+      return res.status(409).json({ error: 'This person is already part of your company' });
+    }
+
+    const existingInvite = await query(
+      `SELECT id FROM enterprise_member_invites WHERE enterprise_id = $1 AND email = $2 AND status = 'pending'`,
+      [companyId, normalizedEmail],
+    );
+
+    const token = randomBytes(32).toString('hex');
+    if (existingInvite.rows.length > 0) {
+      // Also refresh company_role — a re-invite with a different intended
+      // role must not silently keep the stale one (no equivalent concern in
+      // the worker flow, which has no per-invite role).
+      await query(
+        `UPDATE enterprise_member_invites
+            SET token = $1, company_role = $2, expires_at = NOW() + INTERVAL '7 days'
+          WHERE id = $3`,
+        [token, companyRole, existingInvite.rows[0].id],
+      );
+    } else {
+      await query(
+        `INSERT INTO enterprise_member_invites (enterprise_id, invited_by, email, company_role, token)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [companyId, requesterId, normalizedEmail, companyRole, token],
+      );
+    }
+
+    const baseUrl = process.env.APP_URL || 'http://localhost:3100';
+    const inviteUrl = `${baseUrl}/register?role=enterprise&teamInvite=${token}&email=${encodeURIComponent(email)}`;
+    return res.status(201).json({ token, inviteUrl });
+  } catch (err) {
+    logger.error('Create company invite failed', { error: String(err) });
+    return res.status(500).json({ error: 'Failed to create invite' });
+  }
+});
+
+app.get('/company/invites', async (req, res) => {
+  const requesterId = req.headers['x-user-id'] as string;
+  if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
+
+  try {
+    const membership = await resolveActiveMembership(requesterId);
+    if (!membership) return res.status(403).json({ error: 'You do not belong to a company' });
+    if (!['owner', 'admin'].includes(membership.companyRole)) {
+      return res.status(403).json({ error: 'Only company owners and admins can view invites' });
+    }
+
+    // Same "ground truth is the members table, not this row's own status"
+    // pattern as GET /invites.
+    const result = await query(
+      `SELECT emi.id, emi.email, emi.company_role, emi.status, emi.created_at, emi.expires_at
+         FROM enterprise_member_invites emi
+        WHERE emi.enterprise_id = $1
+          AND NOT EXISTS (
+            SELECT 1 FROM enterprise_members em
+              JOIN users u ON u.id = em.user_id
+             WHERE em.enterprise_id = emi.enterprise_id AND u.email = emi.email AND em.status = 'active'
+          )
+        ORDER BY emi.created_at DESC`,
+      [membership.companyId],
+    );
+    return res.json({ invites: result.rows });
+  } catch (err) {
+    logger.error('List company invites failed', { error: String(err) });
+    return res.status(500).json({ error: 'Failed to list invites' });
+  }
+});
+
+// Public (see api-gateway PUBLIC_GET_PATTERNS) — same possession-of-token
+// authorization model as GET /invites/:token.
+app.get('/company/invites/:token', async (req, res) => {
+  try {
+    // INNER JOIN, not LEFT — enterprise_member_invites.enterprise_id
+    // correctly FKs enterprises.id from day one, unlike worker_invites'
+    // LEFT JOIN which exists only to tolerate its users.id/enterprises.id
+    // naming mismatch.
+    const result = await query(
+      `SELECT emi.email, emi.enterprise_id, emi.company_role, emi.status, emi.expires_at, e.company_name
+         FROM enterprise_member_invites emi
+         JOIN enterprises e ON e.id = emi.enterprise_id
+        WHERE emi.token = $1`,
+      [req.params.token],
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Invite not found' });
+    const invite = result.rows[0];
+    if (invite.status !== 'pending' || new Date(invite.expires_at) < new Date()) {
+      return res.status(410).json({ error: 'Invite has expired or already been used' });
+    }
+    return res.json({
+      email: invite.email,
+      companyId: invite.enterprise_id,
+      companyName: invite.company_name,
+      companyRole: invite.company_role,
+    });
+  } catch (err) {
+    logger.error('Validate company invite failed', { error: String(err) });
+    return res.status(500).json({ error: 'Failed to validate invite' });
+  }
+});
+
+// Kept for an already-registered enterprise user accepting a standalone
+// invite (edge case, not the primary path). Unlike POST /invites/:token/accept
+// (worker), which trusts a client-supplied `workerId` body param, this uses
+// the gateway-authenticated x-user-id header — do not copy that worker-route
+// pattern, it's a pre-existing gap, not something to propagate.
+app.post('/company/invites/:token/accept', async (req, res) => {
+  const requesterId = req.headers['x-user-id'] as string;
+  if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
+
+  try {
+    const result = await acceptCompanyInvite(req.params.token, requesterId);
+    if (result === 'invalid') return res.status(410).json({ error: 'Invite expired or already used' });
+    if (result === 'already_member') return res.status(409).json({ error: 'This account already belongs to a company' });
+    return res.json({ ok: true });
+  } catch (err) {
+    logger.error('Accept company invite failed', { error: String(err) });
+    return res.status(500).json({ error: 'Failed to accept invite' });
+  }
+});
+
+// One endpoint serves both "show the team list" and "know my own role" —
+// deliberately avoids adding a company_role JWT/session claim for v1.
+app.get('/company/members', async (req, res) => {
+  const requesterId = req.headers['x-user-id'] as string;
+  if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
+
+  try {
+    const membership = await resolveActiveMembership(requesterId);
+    if (!membership) return res.json({ members: [], myRole: null });
+
+    const result = await query(
+      `SELECT em.user_id, u.email, em.company_role, em.created_at
+         FROM enterprise_members em
+         JOIN users u ON u.id = em.user_id
+        WHERE em.enterprise_id = $1 AND em.status = 'active'
+        ORDER BY em.created_at ASC`,
+      [membership.companyId],
+    );
+    return res.json({
+      members: result.rows.map((r) => ({
+        userId: r.user_id,
+        email: r.email,
+        companyRole: r.company_role,
+        joinedAt: r.created_at,
+      })),
+      myRole: membership.companyRole,
+    });
+  } catch (err) {
+    logger.error('List company members failed', { error: String(err) });
+    return res.status(500).json({ error: 'Failed to list members' });
+  }
+});
+
+// Soft-delete only — never a hard delete, matches the invite-status pattern
+// and keeps a history/audit trail. Permission matrix mirrors common SaaS
+// conventions: owners can remove anyone but themselves/other owners, admins
+// can remove members but not other admins (prevents admins removing each
+// other). Self-removal ("leave a company") is a distinct feature, not this one.
+app.delete('/company/members/:userId', async (req, res) => {
+  const requesterId = req.headers['x-user-id'] as string;
+  if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
+
+  const targetUserId = req.params.userId;
+  if (targetUserId === requesterId) {
+    return res.status(400).json({ error: 'You cannot remove yourself' });
+  }
+
+  try {
+    const membership = await resolveActiveMembership(requesterId);
+    if (!membership) return res.status(403).json({ error: 'You do not belong to a company' });
+    if (!['owner', 'admin'].includes(membership.companyRole)) {
+      return res.status(403).json({ error: 'Only company owners and admins can remove teammates' });
+    }
+
+    const targetRes = await query(
+      `SELECT company_role FROM enterprise_members
+        WHERE enterprise_id = $1 AND user_id = $2 AND status = 'active'`,
+      [membership.companyId, targetUserId],
+    );
+    if (!targetRes.rows.length) {
+      return res.status(404).json({ error: 'This person is not part of your company' });
+    }
+    const targetRole = targetRes.rows[0].company_role;
+
+    if (targetRole === 'owner') {
+      return res.status(403).json({ error: 'The company owner cannot be removed' });
+    }
+    if (membership.companyRole === 'admin' && targetRole === 'admin') {
+      return res.status(403).json({ error: 'Only the owner can remove another admin' });
+    }
+
+    await query(
+      `UPDATE enterprise_members SET status = 'removed', updated_at = NOW()
+        WHERE enterprise_id = $1 AND user_id = $2`,
+      [membership.companyId, targetUserId],
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    logger.error('Remove company member failed', { error: String(err) });
+    return res.status(500).json({ error: 'Failed to remove teammate' });
   }
 });
 

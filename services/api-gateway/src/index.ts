@@ -183,6 +183,8 @@ app.all('/users*', proxy(USER_SERVICE));
 app.all('/api/users*', proxy(USER_SERVICE, { '^/api/users': '/users' }));
 app.all('/invites*', proxy(USER_SERVICE));
 app.all('/api/invites*', proxy(USER_SERVICE, { '^/api/invites': '/invites' }));
+app.all('/company*', proxy(USER_SERVICE));
+app.all('/api/company*', proxy(USER_SERVICE, { '^/api/company': '/company' }));
 app.all('/notifications*', proxy(USER_SERVICE));
 app.all('/api/notifications*', proxy(USER_SERVICE, { '^/api/notifications': '/notifications' }));
 

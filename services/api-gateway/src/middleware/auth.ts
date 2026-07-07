@@ -12,12 +12,18 @@ const PUBLIC_PATHS = new Set([
   '/auth/logout',
 ]);
 
-// GET /invites/:token is a read-only invite preview shown to a brand-new
-// visitor who has no session yet (they clicked a link from an email) —
-// possession of the unguessable token is the authorization, same as a
-// password-reset link. Only the GET is public; creating/accepting an invite
-// still requires a real session.
-const PUBLIC_GET_PATTERNS = [/^\/invites\/[^/]+$/, /^\/api\/invites\/[^/]+$/];
+// GET /invites/:token (and its company-invite equivalent) is a read-only
+// invite preview shown to a brand-new visitor who has no session yet (they
+// clicked a link from an email) — possession of the unguessable token is the
+// authorization, same as a password-reset link. Only the single-segment
+// token GET is public; creating/listing/accepting an invite still requires a
+// real session.
+const PUBLIC_GET_PATTERNS = [
+  /^\/invites\/[^/]+$/,
+  /^\/api\/invites\/[^/]+$/,
+  /^\/company\/invites\/[^/]+$/,
+  /^\/api\/company\/invites\/[^/]+$/,
+];
 
 function isPublic(path: string, method: string): boolean {
   if (PUBLIC_PATHS.has(path)) return true;
