@@ -124,9 +124,8 @@ currency each worker actually wants:
 - **Worker Mobile App** (React Native)
 
 **Data:**
-- PostgreSQL - Transactional data
+- PostgreSQL - Transactional data & analytics
 - Redis - Caching & sessions
-- MongoDB - Analytics
 
 **Blockchain:**
 - Stellar Network (testnet & mainnet)
@@ -164,7 +163,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 - **Backend**: Node.js + TypeScript + Express
 - **Frontend**: React + TypeScript (Enterprise Dashboard)
 - **Mobile**: React Native + TypeScript (Worker App)
-- **Databases**: PostgreSQL 16, Redis 7, MongoDB 7
+- **Databases**: PostgreSQL 16, Redis 7
 - **Blockchain**: Rust + Soroban (Smart Contracts)
 - **Infrastructure**: AWS + Docker + Kubernetes
 - **CI/CD**: GitHub Actions

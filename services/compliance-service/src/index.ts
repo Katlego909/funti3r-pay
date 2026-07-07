@@ -108,6 +108,53 @@ app.get('/:userId/status', statusHandler);
 app.get('/compliance/:userId/status', statusHandler);
 app.get('/api/compliance/:userId/status', statusHandler);
 
+// ── Bulk status check ──────────────────────────────────────────────────────────
+// Used by list views (e.g. the Workers page) to avoid an N+1 request pattern —
+// one call for all worker ids instead of one per worker.
+
+const statusBulkHandler = async (req: any, res: any) => {
+  const { userIds } = req.body as { userIds?: string[] };
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    return res.status(400).json({ error: 'userIds must be a non-empty array' });
+  }
+
+  try {
+    const result = await query(
+      `SELECT user_id, status, verified_at, created_at, updated_at
+         FROM kyc_records WHERE user_id = ANY($1::uuid[])`,
+      [userIds],
+    );
+
+    const statuses: Record<string, unknown> = {};
+    for (const row of result.rows) {
+      statuses[row.user_id] = {
+        id: row.id,
+        status: toFrontendStatus(row.status),
+        verified_at: row.verified_at,
+        submitted_at: row.created_at,
+        updated_at: row.updated_at,
+      };
+    }
+
+    // Same default the single-user statusHandler uses for "no submission yet".
+    for (const userId of userIds) {
+      if (statuses[userId]) continue;
+      statuses[userId] = AUTO_APPROVE
+        ? { status: 'verified', verified_at: new Date().toISOString(), submitted_at: null }
+        : { status: 'pending', submitted_at: null };
+    }
+
+    res.json({ statuses });
+  } catch (err) {
+    logger.error('Bulk status check failed', { error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+app.post('/status/bulk', statusBulkHandler);
+app.post('/compliance/status/bulk', statusBulkHandler);
+app.post('/api/compliance/status/bulk', statusBulkHandler);
+
 // ── Full KYC details (owner, admin, or enterprise) ────────────────────────────
 
 const getKycHandler = async (req: any, res: any) => {

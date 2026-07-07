@@ -130,3 +130,8 @@ AppData/
 *.zip
 *.xml
 .git-rewrite/
+
+# Playwright/browser verification artifacts - scratch outputs, not app assets
+# (tracked PNG assets live under apps/*/public/, so this is root-scoped only)
+/*.png
+.playwright-mcp/

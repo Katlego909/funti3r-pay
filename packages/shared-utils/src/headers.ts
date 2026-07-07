@@ -24,11 +24,13 @@ export function getUserIdentity(req: Request): {
   userId: string | undefined;
   role: string | undefined;
   email: string | undefined;
+  companyId: string | undefined;
 } {
   return {
     userId: getHeaderAsString(req, 'x-user-id'),
     role: getHeaderAsString(req, 'x-user-role'),
     email: getHeaderAsString(req, 'x-user-email'),
+    companyId: getHeaderAsString(req, 'x-company-id'),
   };
 }
 
@@ -40,8 +42,9 @@ export function requireUserIdentity(req: Request): {
   userId: string;
   role: string;
   email: string;
+  companyId: string | undefined;
 } {
-  const { userId, role, email } = getUserIdentity(req);
+  const { userId, role, email, companyId } = getUserIdentity(req);
 
   if (!userId) {
     throw new Error('Missing x-user-id header. Request must be authenticated.');
@@ -53,5 +56,5 @@ export function requireUserIdentity(req: Request): {
     throw new Error('Missing x-user-email header. Request must be authenticated.');
   }
 
-  return { userId, role, email };
+  return { userId, role, email, companyId };
 }

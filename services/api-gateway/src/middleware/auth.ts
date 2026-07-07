@@ -39,10 +39,18 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   try {
     const token = authHeader.slice(7);
     const payload = verifyToken(token);
-    // Forward user identity to downstream services
+    // Forward user identity to downstream services. x-company-id is always
+    // set-or-cleared (never left as whatever the client sent) so a caller
+    // can't spoof company scope by attaching their own header when their
+    // JWT carries no companyId.
     req.headers['x-user-id'] = payload.userId;
     req.headers['x-user-role'] = payload.role;
     req.headers['x-user-email'] = payload.email;
+    if (payload.companyId) {
+      req.headers['x-company-id'] = payload.companyId;
+    } else {
+      delete req.headers['x-company-id'];
+    }
     next();
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });

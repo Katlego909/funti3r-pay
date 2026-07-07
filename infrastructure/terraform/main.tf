@@ -51,21 +51,3 @@ resource "aws_elasticache_cluster" "redis" {
     Environment = var.environment
   }
 }
-
-# DocumentDB for MongoDB compatibility
-resource "aws_docdb_cluster" "mongodb" {
-  cluster_identifier      = "funti3r-mongodb-${var.environment}"
-  engine                  = "docdb"
-  master_username         = var.db_username
-  master_password         = var.db_password
-  backup_retention_period = 5
-  preferred_backup_window = "03:00-04:00"
-
-  skip_final_snapshot       = var.environment != "production"
-  final_snapshot_identifier = "funti3r-mongodb-snapshot-${formatdate("YYYY-MM-DD-hhmm", timestamp())}"
-
-  tags = {
-    Name        = "funti3r-mongodb-${var.environment}"
-    Environment = var.environment
-  }
-}

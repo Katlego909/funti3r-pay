@@ -7,10 +7,13 @@ const JWT_EXPIRATION: string = process.env.JWT_EXPIRATION || '24h';
 export function generateToken(
   userId: string,
   email: string,
-  role: UserRole
+  role: UserRole,
+  companyId?: string
 ): string {
+  // jwt.sign's payload is JSON-serialized, which drops undefined-valued keys
+  // the same way JSON.stringify does — no need to branch on companyId here.
   return jwt.sign(
-    { userId, email, role },
+    { userId, email, role, companyId },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRATION } as SignOptions
   );

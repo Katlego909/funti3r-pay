@@ -196,6 +196,11 @@ export interface JwtPayload {
   userId: string;
   email: string;
   role: UserRole;
+  // The company (enterprises.id) this login belongs to — distinct from the
+  // pre-existing "enterpriseId" naming used elsewhere in the codebase
+  // (payment-service's payments/payment_schedules.enterprise_id, which is
+  // actually a users.id). Named companyId specifically to avoid that clash.
+  companyId?: string;
   iat: number;
   exp: number;
 }

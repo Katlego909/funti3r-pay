@@ -1,6 +1,9 @@
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
+import cron from 'node-cron';
 import { createLogger } from '@funti3r/shared-utils';
-import { initMongoDB, getCollection } from '@funti3r/database';
+import { initPostgres, runInitialMigrations, query } from '@funti3r/database';
 
 const logger = createLogger('AnalyticsService');
 const app = express();
@@ -23,6 +26,10 @@ app.get('/health', (_, res) => {
  *   user.registered, user.login
  *   payment.initiated, payment.completed, payment.failed
  *   kyc.submitted, kyc.approved, kyc.rejected
+ *
+ * Not yet wired up to any caller — when it is, callers must treat this as
+ * fire-and-forget (don't await it on a payment/auth critical path); a slow or
+ * down analytics-service must never block a real request.
  */
 app.post('/events', async (req, res) => {
   const { type, userId, data, timestamp } = req.body as {
@@ -35,14 +42,11 @@ app.post('/events', async (req, res) => {
   if (!type) return res.status(400).json({ error: 'event type is required' });
 
   try {
-    const events = await getCollection('events');
-    await events.insertOne({
-      type,
-      userId: userId ?? null,
-      data: data ?? {},
-      timestamp: timestamp ? new Date(timestamp) : new Date(),
-      receivedAt: new Date(),
-    });
+    await query(
+      `INSERT INTO events (type, user_id, data, timestamp, received_at)
+       VALUES ($1, $2, $3, $4, NOW())`,
+      [type, userId ?? null, data ?? {}, timestamp ? new Date(timestamp) : new Date()],
+    );
 
     res.status(201).json({ received: true });
   } catch (err) {
@@ -62,14 +66,22 @@ app.get('/dashboard', async (req, res) => {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   try {
-    const events = await getCollection('events');
+    const result = await query(
+      `SELECT
+         COUNT(*) FILTER (WHERE type = 'user.registered')  AS registrations,
+         COUNT(*) FILTER (WHERE type = 'payment.completed') AS payments_completed,
+         COUNT(*) FILTER (WHERE type = 'payment.failed')    AS payments_failed,
+         COUNT(*) FILTER (WHERE type = 'user.login')        AS login_count
+       FROM events
+       WHERE timestamp >= $1`,
+      [since],
+    );
 
-    const [registrations, paymentsCompleted, paymentsFailed, loginCount] = await Promise.all([
-      events.countDocuments({ type: 'user.registered', timestamp: { $gte: since } }),
-      events.countDocuments({ type: 'payment.completed', timestamp: { $gte: since } }),
-      events.countDocuments({ type: 'payment.failed', timestamp: { $gte: since } }),
-      events.countDocuments({ type: 'user.login', timestamp: { $gte: since } }),
-    ]);
+    const row = result.rows[0];
+    const registrations = Number(row.registrations);
+    const paymentsCompleted = Number(row.payments_completed);
+    const paymentsFailed = Number(row.payments_failed);
+    const loginCount = Number(row.login_count);
 
     const totalPayments = paymentsCompleted + paymentsFailed;
     const successRate = totalPayments > 0
@@ -96,23 +108,22 @@ app.get('/dashboard', async (req, res) => {
  */
 app.get('/events', async (req, res) => {
   const { type, userId, limit = '20', offset = '0' } = req.query;
-  const filter: Record<string, unknown> = {};
-  if (type) filter['type'] = String(type);
-  if (userId) filter['userId'] = String(userId);
 
   try {
-    const events = await getCollection('events');
-    const [docs, total] = await Promise.all([
-      events
-        .find(filter)
-        .sort({ timestamp: -1 })
-        .skip(Number(offset))
-        .limit(Math.min(Number(limit), 100))
-        .toArray(),
-      events.countDocuments(filter),
-    ]);
+    const result = await query(
+      `SELECT id, type, user_id, data, timestamp, received_at, COUNT(*) OVER() AS total
+         FROM events
+        WHERE ($1::varchar IS NULL OR type = $1)
+          AND ($2::uuid IS NULL OR user_id = $2)
+        ORDER BY timestamp DESC
+        LIMIT $3 OFFSET $4`,
+      [type ? String(type) : null, userId ? String(userId) : null, Math.min(Number(limit), 100), Number(offset)],
+    );
 
-    res.json({ events: docs, total });
+    const total = result.rows.length > 0 ? Number(result.rows[0].total) : 0;
+    const events = result.rows.map(({ total: _total, ...rest }) => rest);
+
+    res.json({ events, total });
   } catch (err) {
     logger.error('Event query failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
@@ -126,28 +137,20 @@ app.get('/events', async (req, res) => {
 app.get('/events/timeseries', async (req, res) => {
   const { type, days = '30', granularity = 'day' } = req.query;
   const since = new Date(Date.now() - Number(days) * 24 * 60 * 60 * 1000);
-  const filter: Record<string, unknown> = { timestamp: { $gte: since } };
-  if (type) filter['type'] = String(type);
-
   const truncUnit = granularity === 'hour' ? 'hour' : 'day';
 
   try {
-    const events = await getCollection('events');
-    const series = await events
-      .aggregate([
-        { $match: filter },
-        {
-          $group: {
-            _id: {
-              $dateTrunc: { date: '$timestamp', unit: truncUnit },
-            },
-            count: { $sum: 1 },
-          },
-        },
-        { $sort: { _id: 1 } },
-        { $project: { _id: 0, timestamp: '$_id', count: 1 } },
-      ])
-      .toArray();
+    const result = await query(
+      `SELECT date_trunc($1, timestamp) AS bucket, COUNT(*) AS count
+         FROM events
+        WHERE timestamp >= $2
+          AND ($3::varchar IS NULL OR type = $3)
+        GROUP BY bucket
+        ORDER BY bucket ASC`,
+      [truncUnit, since, type ? String(type) : null],
+    );
+
+    const series = result.rows.map((r) => ({ timestamp: r.bucket, count: Number(r.count) }));
 
     res.json({ series, granularity: truncUnit, type: type ?? 'all' });
   } catch (err) {
@@ -156,16 +159,36 @@ app.get('/events/timeseries', async (req, res) => {
   }
 });
 
+// ── Partition maintenance ─────────────────────────────────────────────────────
+// events is RANGE-partitioned by month (see migrations/008_analytics_events.sql).
+// This keeps future partitions provisioned ahead of time; the migration's
+// `events_default` partition is the safety net if this ever falls behind.
+
+async function ensureFuturePartitions(monthsAhead = 3): Promise<void> {
+  const now = new Date();
+  for (let i = 0; i < monthsAhead; i++) {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1));
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i + 1, 1));
+    const suffix = `${start.getUTCFullYear()}m${String(start.getUTCMonth() + 1).padStart(2, '0')}`;
+    await query(
+      `CREATE TABLE IF NOT EXISTS events_y${suffix} PARTITION OF events
+       FOR VALUES FROM ('${start.toISOString().slice(0, 10)}') TO ('${end.toISOString().slice(0, 10)}')`,
+    );
+  }
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 async function start() {
-  await initMongoDB();
-  logger.info('MongoDB connected');
+  await initPostgres();
+  logger.info('PostgreSQL connected');
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  await runInitialMigrations(join(__dirname, '../../database/migrations'));
 
-  // Ensure index on common query fields
-  const events = await getCollection('events');
-  await events.createIndex({ type: 1, timestamp: -1 });
-  await events.createIndex({ userId: 1, timestamp: -1 });
+  await ensureFuturePartitions();
+  cron.schedule('0 0 1 * *', () => {
+    ensureFuturePartitions().catch((err) => logger.error('Partition maintenance failed', { error: String(err) }));
+  });
 
   const PORT = parseInt(process.env.ANALYTICS_SERVICE_PORT || '3004', 10);
   const server = app.listen(PORT, '0.0.0.0', () => {

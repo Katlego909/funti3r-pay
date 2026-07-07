@@ -8,6 +8,8 @@ import {
   listSchedules, createSchedule, updateScheduleStatus, deleteSchedule,
   type Schedule, type ScheduleItem,
 } from '../api/schedules.js';
+import ScheduleDetailModal from '../components/ScheduleDetailModal.js';
+import ConfirmDialog from '../components/ConfirmDialog.js';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string }
 interface ScheduleRow { workerId: string; amountUsd: string }
@@ -44,6 +46,8 @@ export default function Schedules() {
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Schedule | null>(null);
 
   // Form state
   const [name, setName] = useState('');
@@ -116,8 +120,10 @@ export default function Schedules() {
     }
   }
 
-  async function handleDelete(schedule: Schedule) {
-    if (!confirm(`Delete "${schedule.name}"? This cannot be undone.`)) return;
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    const schedule = pendingDelete;
+    setPendingDelete(null);
     try {
       await deleteSchedule(schedule.id);
       setSchedules((prev) => prev.filter((s) => s.id !== schedule.id));
@@ -273,7 +279,7 @@ export default function Schedules() {
               </thead>
               <tbody>
                 {schedules.map((s) => (
-                  <tr key={s.id}>
+                  <tr key={s.id} onClick={() => setSelectedSchedule(s)} style={{ cursor: 'pointer' }}>
                     <td data-label="Name" style={{ fontWeight: 600 }}>{s.name}</td>
                     <td data-label="Frequency">{FREQUENCY_LABELS[s.frequency]}</td>
                     <td data-label="Workers">{s.items.length} worker{s.items.length !== 1 ? 's' : ''}</td>
@@ -284,7 +290,7 @@ export default function Schedules() {
                       <div style={{ display: 'flex', gap: '6px' }}>
                         <button
                           title={s.status === 'active' ? 'Pause' : 'Resume'}
-                          onClick={() => handleToggle(s)}
+                          onClick={(e) => { e.stopPropagation(); handleToggle(s); }}
                           style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', color: '#6b7280' }}
                         >
                           {s.status === 'active'
@@ -293,7 +299,7 @@ export default function Schedules() {
                         </button>
                         <button
                           title="Delete"
-                          onClick={() => handleDelete(s)}
+                          onClick={(e) => { e.stopPropagation(); setPendingDelete(s); }}
                           style={{ background: 'none', border: '1px solid #fecaca', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', color: '#ef4444' }}
                         >
                           <HiOutlineTrash size={15} />
@@ -307,6 +313,22 @@ export default function Schedules() {
           </div>
         </section>
       )}
+
+      <ScheduleDetailModal
+        schedule={selectedSchedule}
+        workers={workers}
+        onClose={() => setSelectedSchedule(null)}
+      />
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Delete schedule"
+        message={`Delete "${pendingDelete?.name}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

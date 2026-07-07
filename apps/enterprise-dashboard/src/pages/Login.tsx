@@ -17,7 +17,7 @@ export default function Login() {
     setLoading(true);
     try {
       const session = await loginPasskey(email);
-      setSession({ userId: session.userId, email: session.email, role: session.role }, session.accessToken);
+      setSession({ userId: session.userId, email: session.email, role: session.role, companyId: session.companyId ?? undefined }, session.accessToken);
       navigate('/');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Login failed';

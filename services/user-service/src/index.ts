@@ -109,6 +109,95 @@ function setRefreshCookie(res: express.Response, token: string): void {
   });
 }
 
+/**
+ * Resolves the `enterprises.id` for a user's active company membership.
+ * Multi-tenancy Phase 1: populates the JWT/session `companyId` claim only —
+ * not yet read by any authorization logic. Returns null for workers, admins,
+ * or enterprise users who haven't created/joined a company yet.
+ *
+ * Never throws — a lookup failure here (transient DB error, or this node
+ * momentarily ahead of migration 007) must not fail login/registration for a
+ * claim nothing yet depends on; it just resolves to no company for this token.
+ */
+async function resolveActiveCompanyId(userId: string): Promise<string | null> {
+  try {
+    const r = await query(
+      `SELECT enterprise_id FROM enterprise_members WHERE user_id = $1 AND status = 'active'`,
+      [userId],
+    );
+    return r.rows[0]?.enterprise_id ?? null;
+  } catch (err) {
+    logger.warn('Failed to resolve active company membership (non-critical)', { userId, error: String(err) });
+    return null;
+  }
+}
+
+/**
+ * Links a worker to the company owned by `enterpriseUserId` (a users.id,
+ * despite worker_invites/many call sites naming it "enterpriseId"), creating
+ * the company's `enterprises`/`enterprise_members` owner row first if the
+ * inviting enterprise hasn't saved their profile in Settings yet — an invite
+ * can be sent and accepted before that happens, and the link must not be
+ * silently dropped in that case.
+ */
+async function linkWorkerToInviter(enterpriseUserId: string, workerId: string): Promise<void> {
+  let companyId: string;
+  const entRes = await query(`SELECT id FROM enterprises WHERE user_id = $1`, [enterpriseUserId]);
+  if (entRes.rows.length) {
+    companyId = entRes.rows[0].id;
+  } else {
+    const ownerRow = await query(`SELECT first_name FROM users WHERE id = $1`, [enterpriseUserId]);
+    const placeholderName = ownerRow.rows[0]?.first_name ? `${ownerRow.rows[0].first_name}'s Company` : 'Company';
+    const created = await query(
+      `INSERT INTO enterprises (user_id, company_name) VALUES ($1, $2) RETURNING id`,
+      [enterpriseUserId, placeholderName],
+    );
+    companyId = created.rows[0].id;
+    await query(
+      `INSERT INTO enterprise_members (enterprise_id, user_id, company_role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING`,
+      [companyId, enterpriseUserId],
+    );
+  }
+
+  await query(
+    `INSERT INTO enterprise_workers (enterprise_id, worker_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [companyId, workerId],
+  );
+}
+
+/**
+ * Marks a pending, unexpired invite token as accepted and links the worker.
+ * Returns false (no exception) if the token is invalid/expired/already used —
+ * callers decide whether that should block the caller's own request or not.
+ */
+async function acceptWorkerInvite(token: string, workerId: string): Promise<boolean> {
+  const inv = await query(
+    `UPDATE worker_invites SET status = 'accepted'
+     WHERE token = $1 AND status = 'pending' AND expires_at > NOW()
+     RETURNING enterprise_id`,
+    [token],
+  );
+  if (!inv.rows.length) return false;
+
+  const enterpriseUserId = inv.rows[0].enterprise_id;
+  await linkWorkerToInviter(enterpriseUserId, workerId);
+
+  // Notify the enterprise that their invited worker has joined
+  try {
+    const workerRow = await query('SELECT email FROM users WHERE id = $1', [workerId]);
+    const workerEmail = workerRow.rows[0]?.email ?? 'A worker';
+    await query(
+      `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
+       VALUES ($1, 'worker_joined', 'New worker joined', $2, 'worker', $3)`,
+      [enterpriseUserId, `${workerEmail} accepted your invite and joined your team.`, workerId],
+    );
+  } catch (notifErr) {
+    logger.warn('Failed to emit worker_joined notification', { error: String(notifErr) });
+  }
+
+  return true;
+}
+
 // ── Health ────────────────────────────────────────────────────────────────────
 
 app.get('/health', (_, res) => {
@@ -176,10 +265,11 @@ app.post('/api/auth/register/start', registerStartHandler);
  */
 const registerFinishHandler = async (req: express.Request, res: express.Response) => {
   try {
-    const { email, credential, origin } = req.body as {
+    const { email, credential, origin, inviteToken } = req.body as {
       email: string;
       credential: Record<string, unknown>;
       origin?: string;
+      inviteToken?: string;
     };
     if (!email || !credential) throw new ValidationError('email and credential are required');
 
@@ -265,13 +355,30 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     // Note: workers use their classic Stellar account (created above) for payments.
     // No Soroban SmartWallet deployment — that path was removed.
 
+    // Link an invited worker to their employer in the SAME request that
+    // creates the account, rather than depending on a separate follow-up
+    // call from the browser after registration — that call can be lost to a
+    // dropped connection, tab close, etc., leaving the invite stuck pending
+    // and the worker registered but never linked, with no retry.
+    let inviteLinked: boolean | undefined;
+    if (inviteToken && session.role === 'worker') {
+      try {
+        inviteLinked = await acceptWorkerInvite(inviteToken, userId);
+        if (!inviteLinked) logger.warn('register/finish: invite token invalid/expired', { email, inviteToken });
+      } catch (err) {
+        inviteLinked = false;
+        logger.error('register/finish: invite acceptance failed', { email, error: String(err) });
+      }
+    }
+
     await deleteKey(`reg:${email}`);
 
-    const accessToken = generateToken(userId, email, session.role);
+    const companyId = await resolveActiveCompanyId(userId);
+    const accessToken = generateToken(userId, email, session.role, companyId ?? undefined);
     const refreshToken = randomBytes(64).toString('hex');
     await setJSON(
       `refresh:${hashRefreshToken(refreshToken)}`,
-      { userId, email, role: session.role },
+      { userId, email, role: session.role, companyId },
       REFRESH_TOKEN_TTL_SEC,
     );
 
@@ -281,7 +388,9 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
       accessToken,
       userId,
       email,
-      role: session.role
+      role: session.role,
+      companyId,
+      ...(inviteLinked !== undefined ? { inviteLinked } : {}),
     });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
@@ -407,16 +516,17 @@ const loginFinishHandler = async (req: express.Request, res: express.Response) =
 
     await deleteKey(`auth:${userId}`);
 
-    const accessToken = generateToken(userId, email, role);
+    const companyId = await resolveActiveCompanyId(userId);
+    const accessToken = generateToken(userId, email, role, companyId ?? undefined);
     const refreshToken = randomBytes(64).toString('hex');
     await setJSON(
       `refresh:${hashRefreshToken(refreshToken)}`,
-      { userId, email, role },
+      { userId, email, role, companyId },
       REFRESH_TOKEN_TTL_SEC,
     );
 
     setRefreshCookie(res, refreshToken);
-    res.json({ accessToken, userId, email, role });
+    res.json({ accessToken, userId, email, role, companyId });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     if (err instanceof AuthenticationError) return res.status(401).json({ error: err.message });
@@ -452,17 +562,18 @@ const devLoginHandler = async (req: express.Request, res: express.Response) => {
     if (result.rows.length === 0) throw new NotFoundError('User');
 
     const { id: userId, role } = result.rows[0];
-    const accessToken = generateToken(userId, email, role);
+    const companyId = await resolveActiveCompanyId(userId);
+    const accessToken = generateToken(userId, email, role, companyId ?? undefined);
     const refreshToken = randomBytes(64).toString('hex');
     await setJSON(
       `refresh:${hashRefreshToken(refreshToken)}`,
-      { userId, email, role },
+      { userId, email, role, companyId },
       REFRESH_TOKEN_TTL_SEC,
     );
     setRefreshCookie(res, refreshToken);
 
     logger.info('dev-login: signed in without passkey', { userId, email, role });
-    res.json({ accessToken, userId, email, role });
+    res.json({ accessToken, userId, email, role, companyId });
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     if (err instanceof NotFoundError) return res.status(404).json({ error: 'No account with that email' });
@@ -484,12 +595,12 @@ const refreshHandler = async (req: express.Request, res: express.Response) => {
     const token: string | undefined = req.cookies?.refresh_token;
     if (!token) throw new AuthenticationError('No refresh token');
 
-    const session = await getJSON<{ userId: string; email: string; role: UserRole }>(
+    const session = await getJSON<{ userId: string; email: string; role: UserRole; companyId?: string | null }>(
       `refresh:${hashRefreshToken(token)}`,
     );
     if (!session) throw new AuthenticationError('Refresh token expired or invalid');
 
-    const accessToken = generateToken(session.userId, session.email, session.role);
+    const accessToken = generateToken(session.userId, session.email, session.role, session.companyId ?? undefined);
 
     // Rotate refresh token
     await deleteKey(`refresh:${hashRefreshToken(token)}`);
@@ -501,7 +612,7 @@ const refreshHandler = async (req: express.Request, res: express.Response) => {
     );
     setRefreshCookie(res, newRefresh);
 
-    res.json({ accessToken });
+    res.json({ accessToken, companyId: session.companyId ?? null });
   } catch (err) {
     if (err instanceof AuthenticationError) return res.status(401).json({ error: err.message });
     logger.error('refresh failed', { error: String(err) });
@@ -724,15 +835,27 @@ const patchMeHandler = async (req: express.Request, res: express.Response) => {
       if (!resolvedName) {
         return res.status(400).json({ error: 'company_name is required before setting other company fields' });
       }
-      await query(
+      const enterpriseRow = await query(
         `INSERT INTO enterprises (user_id, company_name, company_registration, country)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (user_id) DO UPDATE SET
            company_name = EXCLUDED.company_name,
            company_registration = COALESCE($3, enterprises.company_registration),
            country = COALESCE($4, enterprises.country),
-           updated_at = NOW()`,
+           updated_at = NOW()
+         RETURNING id`,
         [userId, resolvedName, company_registration ?? null, company_country ?? null],
+      );
+
+      // This is the lazy company-creation path (registration itself doesn't
+      // create one) — without this, resolveActiveCompanyId would stay null
+      // forever for every company created from here on, since only migration
+      // 007's one-time backfill populates enterprise_members otherwise.
+      await query(
+        `INSERT INTO enterprise_members (enterprise_id, user_id, company_role)
+         VALUES ($1, $2, 'owner')
+         ON CONFLICT (enterprise_id, user_id) DO NOTHING`,
+        [enterpriseRow.rows[0].id, userId],
       );
     }
 
@@ -855,43 +978,16 @@ app.get('/invites/:token', async (req, res) => {
   }
 });
 
-// Called after worker registration to accept the invite and link them
+// Kept for a worker who already has an account (invited to a second company,
+// or the registration-time atomic accept below couldn't run for some reason).
+// The primary path is now inviteToken passed directly to /auth/register/finish.
 app.post('/invites/:token/accept', async (req, res) => {
   const { workerId } = req.body as { workerId?: string };
   if (!workerId) return res.status(400).json({ error: 'workerId required' });
 
   try {
-    const inv = await query(
-      `UPDATE worker_invites SET status = 'accepted'
-       WHERE token = $1 AND status = 'pending' AND expires_at > NOW()
-       RETURNING enterprise_id`,
-      [req.params.token],
-    );
-    if (!inv.rows.length) return res.status(410).json({ error: 'Invite expired or already used' });
-
-    const enterpriseId = inv.rows[0].enterprise_id;
-    const entRes = await query(`SELECT id FROM enterprises WHERE user_id = $1`, [enterpriseId]);
-    if (entRes.rows.length) {
-      await query(
-        `INSERT INTO enterprise_workers (enterprise_id, worker_id)
-         VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [entRes.rows[0].id, workerId],
-      );
-    }
-
-    // Notify the enterprise that their invited worker has joined
-    try {
-      const workerRow = await query('SELECT email FROM users WHERE id = $1', [workerId]);
-      const workerEmail = workerRow.rows[0]?.email ?? 'A worker';
-      await query(
-        `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
-         VALUES ($1, 'worker_joined', 'New worker joined', $2, 'worker', $3)`,
-        [enterpriseId, `${workerEmail} accepted your invite and joined your team.`, workerId],
-      );
-    } catch (notifErr) {
-      logger.warn('Failed to emit worker_joined notification', { error: String(notifErr) });
-    }
-
+    const accepted = await acceptWorkerInvite(req.params.token, workerId);
+    if (!accepted) return res.status(410).json({ error: 'Invite expired or already used' });
     return res.json({ ok: true });
   } catch (err) {
     logger.error('Accept invite failed', { error: String(err) });
@@ -1040,11 +1136,12 @@ const recoveryVerifyHandler = async (req: express.Request, res: express.Response
     // Single-use: delete immediately
     await deleteKey(`recovery:${tokenHash}`);
 
-    const accessToken = generateToken(session.userId, session.email, session.role);
+    const companyId = await resolveActiveCompanyId(session.userId);
+    const accessToken = generateToken(session.userId, session.email, session.role, companyId ?? undefined);
     const refreshToken = randomBytes(64).toString('hex');
     await setJSON(
       `refresh:${hashRefreshToken(refreshToken)}`,
-      { userId: session.userId, email: session.email, role: session.role },
+      { userId: session.userId, email: session.email, role: session.role, companyId },
       REFRESH_TOKEN_TTL_SEC,
     );
 
@@ -1056,6 +1153,7 @@ const recoveryVerifyHandler = async (req: express.Request, res: express.Response
       userId: session.userId,
       email: session.email,
       role: session.role,
+      companyId,
     });
   } catch (err) {
     logger.error('recovery/verify failed', { error: String(err) });

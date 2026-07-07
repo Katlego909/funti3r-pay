@@ -21,8 +21,7 @@
     "@funti3r/shared-types": "workspace:*",
     "@funti3r/shared-utils": "workspace:*",
     "pg": "^8.11.0",
-    "redis": "^4.6.0",
-    "mongodb": "^6.3.0"
+    "redis": "^4.6.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

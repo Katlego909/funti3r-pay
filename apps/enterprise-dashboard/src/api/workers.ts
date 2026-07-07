@@ -7,6 +7,7 @@ export interface Worker {
   status: string;
   country?: string;
   created_at: string;
+  stellar_public_key?: string | null;
 }
 
 export interface WorkerWallet {
@@ -56,6 +57,12 @@ export async function getWorkerWallet(userId: string): Promise<WorkerWallet> {
 export async function getKYCStatus(userId: string): Promise<KYCStatus> {
   const { data } = await api.get<KYCStatus>(`/compliance/${userId}/status`);
   return data;
+}
+
+export async function getKYCStatusBulk(userIds: string[]): Promise<Record<string, KYCStatus>> {
+  if (userIds.length === 0) return {};
+  const { data } = await api.post<{ statuses: Record<string, KYCStatus> }>('/compliance/status/bulk', { userIds });
+  return data.statuses;
 }
 
 export async function submitKYC(payload: {

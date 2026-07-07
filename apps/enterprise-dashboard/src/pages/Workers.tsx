@@ -3,13 +3,12 @@ import { Helmet } from 'react-helmet-async';
 import { HiOutlineArrowDownTray, HiOutlineEnvelope, HiOutlineClipboard, HiCheck, HiOutlineXMark } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { useAuthStore } from '../store/authStore.js';
-import { getWorkerWallet, getKYCStatus, getInvites, type Worker, type WorkerWallet, type KYCStatus, type WorkerInvite } from '../api/workers.js';
+import { getKYCStatusBulk, getInvites, type Worker, type KYCStatus, type WorkerInvite } from '../api/workers.js';
 import { api } from '../api/client.js';
 import WorkerDetailDrawer from '../components/WorkerDetailDrawer.js';
 import { exportWorkersCSV, exportWorkersPDF } from '../utils/export.js';
 
 interface WorkerRow extends Worker {
-  wallet?: WorkerWallet;
   kyc?: KYCStatus;
 }
 
@@ -88,20 +87,8 @@ export default function Workers() {
     api.get<{ users?: Worker[]; data?: Worker[] }>('/users?role=worker&limit=50')
       .then(async (res) => {
         const list: Worker[] = res.data.users ?? res.data.data ?? [];
-        const enriched = await Promise.all(
-          list.map(async (w) => {
-            const [wallet, kyc] = await Promise.allSettled([
-              getWorkerWallet(w.id),
-              getKYCStatus(w.id),
-            ]);
-            return {
-              ...w,
-              wallet: wallet.status === 'fulfilled' ? wallet.value : undefined,
-              kyc: kyc.status === 'fulfilled' ? kyc.value : undefined,
-            };
-          }),
-        );
-        setWorkers(enriched);
+        const statuses = await getKYCStatusBulk(list.map((w) => w.id)).catch(() => ({} as Record<string, KYCStatus>));
+        setWorkers(list.map((w) => ({ ...w, kyc: statuses[w.id] })));
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -303,11 +290,11 @@ export default function Workers() {
                   <td data-label="Status"><span className={`status ${w.status === 'active' ? 'completed' : 'pending'}`}>{w.status}</span></td>
                   <td data-label="KYC">{kycBadge(w.kyc?.status)}</td>
                   <td data-label="Wallet">
-                    {w.wallet?.address
-                      ? <a href={`https://stellar.expert/explorer/testnet/account/${w.wallet.address}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                          {w.wallet.address.slice(0, 8)}…
+                    {w.stellar_public_key
+                      ? <a href={`https://stellar.expert/explorer/testnet/account/${w.stellar_public_key}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                          {w.stellar_public_key.slice(0, 8)}…
                         </a>
-                      : <span className="status pending">{w.wallet?.status ?? 'None'}</span>}
+                      : <span className="status pending">None</span>}
                   </td>
                   <td data-label="Joined">{new Date(w.created_at).toLocaleDateString()}</td>
                   <td data-label="Actions">

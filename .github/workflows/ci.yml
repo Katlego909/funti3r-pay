@@ -35,19 +35,6 @@ jobs:
         ports:
           - 6379:6379
 
-      mongodb:
-        image: mongo:7.0
-        env:
-          MONGO_INITDB_ROOT_USERNAME: test_user
-          MONGO_INITDB_ROOT_PASSWORD: test_pass
-        options: >-
-          --health-cmd mongosh
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 27017:27017
-
     steps:
       - uses: actions/checkout@v4
 
@@ -79,7 +66,6 @@ jobs:
         env:
           DATABASE_URL: postgresql://test_user:test_pass@localhost:5432/test_db
           REDIS_URL: redis://localhost:6379
-          MONGODB_URL: mongodb://test_user:test_pass@localhost:27017/test_db
 
   build-services:
     runs-on: ubuntu-latest

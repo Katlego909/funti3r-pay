@@ -40,11 +40,11 @@ export default function Register() {
     setStep('passkey');
 
     try {
-      const session = await registerPasskey(email, role);
-      setSession({ userId: session.userId, email: session.email, role: session.role }, session.accessToken);
+      const session = await registerPasskey(email, role, inviteToken || undefined);
+      setSession({ userId: session.userId, email: session.email, role: session.role, companyId: session.companyId ?? undefined }, session.accessToken);
 
-      if (inviteToken && role === 'worker') {
-        await api.post(`/invites/${inviteToken}/accept`, { workerId: session.userId }).catch(() => {});
+      if (inviteToken && role === 'worker' && session.inviteLinked === false) {
+        toast.error('Could not link your account to the invite — contact the person who invited you.');
       }
 
       navigate('/');

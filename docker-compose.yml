@@ -30,23 +30,6 @@ services:
       timeout: 5s
       retries: 5
 
-  mongodb:
-    image: mongo:7.0
-    container_name: funti3r-mongodb
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: funti3r_dev
-      MONGO_INITDB_ROOT_PASSWORD: dev_password
-      MONGO_INITDB_DATABASE: funti3r_analytics
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # ── Microservices ─────────────────────────────────────────────────────────────
   user-service:
     build:
@@ -118,12 +101,12 @@ services:
     container_name: funti3r-analytics-service
     env_file: .env.local
     environment:
-      MONGODB_URL: mongodb://funti3r_dev:dev_password@mongodb:27017/funti3r_analytics?authSource=admin
+      DATABASE_URL: postgresql://funti3r_dev:dev_password@postgres:5432/funti3r_dev
       ANALYTICS_SERVICE_PORT: "3004"
     ports:
       - "3004:3004"
     depends_on:
-      mongodb:
+      postgres:
         condition: service_healthy
     networks:
       - funti3r-network
@@ -137,7 +120,6 @@ services:
     environment:
       DATABASE_URL: postgresql://funti3r_dev:dev_password@postgres:5432/funti3r_dev
       REDIS_URL: redis://redis:6379
-      MONGODB_URL: mongodb://funti3r_dev:dev_password@mongodb:27017/funti3r_analytics?authSource=admin
       API_PORT: "3000"
       USER_SERVICE_URL: http://user-service:3001
       PAYMENT_SERVICE_URL: http://payment-service:3002
@@ -157,7 +139,6 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  mongodb_data:
 
 networks:
   funti3r-network:

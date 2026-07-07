@@ -5,7 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { v4 as uuid } from 'uuid';
 import { createLogger } from '@funti3r/shared-utils';
-import { initPostgres, initRedis, initMongoDB } from '@funti3r/database';
+import { initPostgres, initRedis } from '@funti3r/database';
 import { authMiddleware } from './middleware/auth.js';
 
 const logger = createLogger('APIGateway');
@@ -134,17 +134,16 @@ app.get('/status', async (_, res) => {
   const checks = await Promise.allSettled([
     initPostgres(),
     initRedis(),
-    initMongoDB(),
   ]);
 
-  const [pg, redis, mongo] = checks.map((r) =>
+  const [pg, redis] = checks.map((r) =>
     r.status === 'fulfilled' ? 'connected' : 'unavailable',
   );
 
   const healthy = checks.every((r) => r.status === 'fulfilled');
   res.status(healthy ? 200 : 503).json({
     status: healthy ? 'operational' : 'degraded',
-    services: { postgres: pg, redis, mongodb: mongo },
+    services: { postgres: pg, redis },
     timestamp: new Date().toISOString(),
   });
 });
@@ -222,11 +221,6 @@ async function start() {
     await initRedis();
     logger.info('Redis connected');
   } catch { logger.warn('Redis unavailable at startup'); }
-
-  try {
-    await initMongoDB();
-    logger.info('MongoDB connected');
-  } catch { logger.warn('MongoDB unavailable at startup'); }
 
   app.listen(PORT, '0.0.0.0', () => {
     logger.info(`API Gateway running on port ${PORT}`);

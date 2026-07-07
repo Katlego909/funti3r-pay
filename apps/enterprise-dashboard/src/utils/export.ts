@@ -133,7 +133,7 @@ export interface ExportWorker {
   country?: string;
   preferred_currency?: string;
   kyc_status?: string;
-  stellar_public_key?: string;
+  stellar_public_key?: string | null;
   created_at?: string;
 }
 
