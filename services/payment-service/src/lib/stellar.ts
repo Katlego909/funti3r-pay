@@ -7,37 +7,21 @@ import {
   TransactionBuilder,
   Transaction,
   Networks,
-  rpc,
-  Contract,
-  nativeToScVal,
-  Address,
-  hash,
   BASE_FEE,
   Memo,
 } from '@stellar/stellar-sdk';
 import { createLogger } from '@funti3r/shared-utils';
 import { getRedis } from '@funti3r/database';
 import axios from 'axios';
-import { randomBytes } from 'crypto';
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 
 const logger = createLogger('StellarService');
 
-// Get __dirname equivalent in ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
 const HORIZON_URL =
   process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org';
-const SOROBAN_URL =
-  process.env.STELLAR_SOROBAN_URL || 'https://soroban-testnet.stellar.org';
 const NETWORK_PASSPHRASE =
   process.env.STELLAR_NETWORK === 'MAINNET' ? Networks.PUBLIC : Networks.TESTNET;
 
 const horizon = new Horizon.Server(HORIZON_URL);
-const soroban = new rpc.Server(SOROBAN_URL, { allowHttp: false });
 
 export interface StellarKeypair {
   publicKey: string;
@@ -310,146 +294,6 @@ export async function payExactWithXlm(
     sourceAmountXlm: best.source_amount,
   });
   return { hash: result.hash, sourceAmountXlm: best.source_amount };
-}
-
-// ── Soroban SmartWallet deployment ────────────────────────────────────────────
-
-async function pollSorobanTx(txHash: string): Promise<rpc.Api.GetTransactionResponse> {
-  // Poll up to 60 times with 3-second intervals = 180 seconds max wait
-  for (let i = 0; i < 60; i++) {
-    await new Promise((r) => setTimeout(r, 3000));
-    const result = await soroban.getTransaction(txHash);
-    if (result.status !== rpc.Api.GetTransactionStatus.NOT_FOUND) return result;
-  }
-  throw new Error(`Soroban transaction ${txHash} was not confirmed within 180 s`);
-}
-
-async function buildAndSubmitSoroban(
-  keypair: Keypair,
-  op: ReturnType<typeof Operation.uploadContractWasm>,
-  retries = 3,
-): Promise<rpc.Api.GetTransactionResponse> {
-  for (let attempt = 0; attempt < retries; attempt++) {
-    try {
-      const account = await soroban.getAccount(keypair.publicKey());
-
-      const tx = new TransactionBuilder(account, {
-        fee: String(Number(BASE_FEE) * 100),
-        networkPassphrase: NETWORK_PASSPHRASE,
-      })
-        .addOperation(op)
-        .setTimeout(60)
-        .build();
-
-      const prepared = await soroban.prepareTransaction(tx);
-      prepared.sign(keypair);
-
-      const result = await soroban.sendTransaction(prepared);
-      if (result.status === 'ERROR') {
-        const errorMsg = JSON.stringify(result.errorResult);
-        // Retry on sequence number errors
-        if (errorMsg.includes('txBadSeq') && attempt < retries - 1) {
-          await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); // Exponential backoff
-          continue;
-        }
-        throw new Error(`Soroban submit error: ${errorMsg}`);
-      }
-      return pollSorobanTx(result.hash);
-    } catch (err) {
-      if (attempt === retries - 1) throw err;
-      // Exponential backoff before retry
-      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-    }
-  }
-  throw new Error('Max retries exceeded');
-}
-
-// Navigate from services/payment-service/src/lib to project root
-const WASM_PATH = join(
-  __dirname,
-  '../../../../contracts/target/wasm32-unknown-unknown/release/funti3r_soroban.wasm',
-);
-let _cachedWasm: Buffer | null = null;
-function getWasmBytes(): Buffer {
-  if (!_cachedWasm) {
-    try {
-      _cachedWasm = readFileSync(WASM_PATH);
-    } catch {
-      throw new Error(
-        `SmartWallet WASM not found at ${WASM_PATH}. ` +
-        'Run: cd contracts && cargo build --target wasm32-unknown-unknown --release',
-      );
-    }
-  }
-  return _cachedWasm;
-}
-
-/**
- * Deploys a Funti3r SmartWallet Soroban contract for a worker.
- *
- * @param passkeyPkHex  Hex-encoded 65-byte uncompressed P-256 public key.
- * @param credentialIdHex  Hex-encoded WebAuthn credential ID bytes.
- * @returns The Soroban contract address (Stellar StrKey).
- */
-export async function deploySmartWallet(
-  passkeyPkHex: string,
-  credentialIdHex: string,
-): Promise<string> {
-  const operatorSecret = process.env.STELLAR_OPERATOR_SECRET;
-  if (!operatorSecret) {
-    throw new Error('STELLAR_OPERATOR_SECRET is required to deploy SmartWallet contracts');
-  }
-
-  const wasmBytes = getWasmBytes();
-
-  const keypair = Keypair.fromSecret(operatorSecret);
-  const salt = randomBytes(32);
-  const wasmHash = hash(wasmBytes);
-
-  // 1. Upload WASM (idempotent on-chain — same hash is a no-op if already uploaded)
-  logger.info('Uploading SmartWallet WASM', { wasmHash: wasmHash.toString('hex') });
-  const uploadResult = await buildAndSubmitSoroban(
-    keypair,
-    Operation.uploadContractWasm({ wasm: wasmBytes }),
-  );
-  if (uploadResult.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
-    throw new Error(`WASM upload failed: ${uploadResult.status}`);
-  }
-
-  // 2. Create contract instance
-  logger.info('Creating SmartWallet contract instance');
-  const createResult = await buildAndSubmitSoroban(
-    keypair,
-    Operation.createCustomContract({
-      address: new Address(keypair.publicKey()),
-      wasmHash,
-      salt,
-    }),
-  );
-  if (createResult.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
-    throw new Error(`Contract creation failed: ${createResult.status}`);
-  }
-
-  const contractAddress = Address.fromScVal(createResult.returnValue!).toString();
-
-  // 3. Initialise the contract with the worker's passkey
-  logger.info('Initialising SmartWallet contract', { contractAddress });
-  const contract = new Contract(contractAddress);
-  const initResult = await buildAndSubmitSoroban(
-    keypair,
-    contract.call(
-      'init',
-      nativeToScVal(new Address(contractAddress), { type: 'address' }),
-      nativeToScVal(Buffer.from(credentialIdHex, 'hex'), { type: 'bytes' }),
-      nativeToScVal(Buffer.from(passkeyPkHex, 'hex'), { type: 'bytes' }),
-    ),
-  );
-  if (initResult.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
-    throw new Error(`Contract init failed: ${initResult.status}`);
-  }
-
-  logger.info('SmartWallet deployed', { contractAddress });
-  return contractAddress;
 }
 
 // ── Unsigned transactions for external wallet signing ──────────────────────────

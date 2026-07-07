@@ -2,7 +2,6 @@
  * Stellar XLM / USDC on-chain rail.
  *
  * For testnet this uses XLM (the native asset) funded via Friendbot.
- * The worker's destination is their Soroban SmartWallet contract address.
  * In production, switch STELLAR_SETTLEMENT_ASSET to USDC and configure
  * STELLAR_USDC_ISSUER.
  */
@@ -30,9 +29,9 @@ export class StellarRail implements IPaymentRail {
   }
 
   async sendPayment(params: RailPaymentParams): Promise<RailResult> {
-    const destination = params.stellarContractAddress;
+    const destination = params.recipientAccount;
     if (!destination) {
-      throw new Error('stellarContractAddress is required for Stellar rail');
+      throw new Error('recipientAccount is required for Stellar rail');
     }
 
     const sourceSecret = params.metadata?.sourceSecret;

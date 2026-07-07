@@ -8,7 +8,6 @@ interface WalletData {
   userId: string;
   walletType: string;
   address?: string;
-  contractAddress?: string;
   balances?: Array<{
     balance: string;
     asset_type: string;
@@ -46,8 +45,7 @@ export default function WalletInfo() {
   if (!wallet) return null;
 
   const xlmBalance = wallet.balances?.find((b) => b.asset_type === 'native')?.balance || '0';
-  const address = wallet.address || wallet.contractAddress;
-  const isSmartWallet = !!wallet.contractAddress;
+  const address = wallet.address;
   const isEnterprise = user?.role !== 'worker';
 
   function copyAddress() {
@@ -63,7 +61,7 @@ export default function WalletInfo() {
         <div className="detail-item" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <label>Type</label>
-            <span style={{ display: 'block', marginTop: 4 }}>{isSmartWallet ? 'SmartWallet (Non-custodial)' : 'Platform (Custodial)'}</span>
+            <span style={{ display: 'block', marginTop: 4 }}>Platform (Custodial)</span>
           </div>
           <span className={`status ${!wallet.status || wallet.status.toLowerCase() === 'active' ? 'completed' : 'pending'}`}>
             {wallet.status || 'Active'}
@@ -79,7 +77,7 @@ export default function WalletInfo() {
 
         {address && (
           <div className="detail-item">
-            <label>{isSmartWallet ? 'Contract Address' : 'Stellar Account'}</label>
+            <label>Stellar Account</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f7f8fa', border: '1px solid #e8eaed', borderRadius: 8, padding: '8px 12px' }}>
               <code className="address" style={{ flex: 1, fontSize: '0.78rem', fontFamily: 'monospace', wordBreak: 'break-all', color: 'var(--gray-700)' }}>
                 {address}

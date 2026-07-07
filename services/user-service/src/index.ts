@@ -3,7 +3,6 @@ import cookieParser from 'cookie-parser';
 import { randomBytes, createHash, randomUUID } from 'crypto';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import axios from 'axios';
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -56,7 +55,6 @@ app.use(parseBody);
 const RP_NAME = process.env.RP_NAME || 'Funti3r-Pay';
 const RP_ID = process.env.RP_ID || 'localhost';
 const RP_ORIGIN = process.env.RP_ORIGIN || 'http://localhost:3100';
-const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3002';
 const REFRESH_TOKEN_TTL_SEC = 60 * 60 * 24 * 7; // 7 days
 const CHALLENGE_TTL_SEC = 600; // 10 minutes
 // Access token TTL is controlled by JWT_EXPIRATION env var (default 24h; set to 15m for production)
@@ -173,8 +171,8 @@ app.post('/api/auth/register/start', registerStartHandler);
 /**
  * POST /auth/register/finish
  * Body: { email, credential: RegistrationResponseJSON }
- * Verifies the WebAuthn credential, creates the user, deploys their
- * Soroban SmartWallet, and returns a JWT.
+ * Verifies the WebAuthn credential, creates the user with a classic
+ * Stellar account, and returns a JWT.
  */
 const registerFinishHandler = async (req: express.Request, res: express.Response) => {
   try {
@@ -746,84 +744,6 @@ const patchMeHandler = async (req: express.Request, res: express.Response) => {
 };
 app.patch('/users/me', patchMeHandler);
 app.patch('/api/users/me', patchMeHandler);
-
-// ── Wallet Deployment ────────────────────────────────────────────────────────
-
-/**
- * POST /wallets/deploy
- * Trigger SmartWallet deployment for current user or a specific user (admin only).
- * Can be called by:
- * - A user for their own wallet (if they don't have one yet)
- * - An admin to deploy for another user
- */
-const deployWalletHandler = async (req: express.Request, res: express.Response) => {
-  try {
-    const { userId: targetUserId } = req.body as { userId?: string };
-    const requestingUserId = (req as any).headers['x-user-id'] as string;
-    const requestingRole = (req as any).headers['x-user-role'] as string;
-
-    // Determine which user to deploy for
-    const userId = targetUserId || requestingUserId;
-
-    if (!userId) {
-      return res.status(400).json({ error: 'userId is required or must be authenticated' });
-    }
-
-    // Authorization: user can deploy for themselves, or admin can deploy for anyone
-    if (userId !== requestingUserId && requestingRole !== 'admin') {
-      return res.status(403).json({ error: 'Not authorized to deploy wallet for this user' });
-    }
-
-    logger.info('Triggering wallet deployment', { userId, requestedBy: requestingUserId });
-
-    // Call Payment Service to deploy
-    const deployRes = await axios.post(
-      `${PAYMENT_SERVICE_URL}/wallets/deploy-for-existing-user`,
-      { userId },
-      { timeout: 60000 }
-    );
-
-    res.status(201).json(deployRes.data);
-  } catch (err) {
-    if (axios.isAxiosError(err) && err.response?.status === 404) {
-      return res.status(404).json({ error: 'User not found or user credentials missing' });
-    }
-    logger.error('Wallet deployment failed', { error: String(err) });
-    res.status(500).json({ error: 'Wallet deployment failed' });
-  }
-};
-
-app.post('/wallets/deploy', deployWalletHandler);
-app.post('/api/wallets/deploy', deployWalletHandler);
-
-/**
- * GET /wallets/:userId/deployment-status
- * Check worker wallet deployment progress (polls Payment Service)
- */
-app.get('/wallets/:userId/deployment-status', async (req: express.Request, res: express.Response) => {
-  try {
-    const { userId } = req.params;
-
-    // Query Payment Service for deployment status
-    const statusRes = await axios.get(
-      `${PAYMENT_SERVICE_URL}/wallets/${userId}/deployment-status`,
-      { timeout: 5000 }
-    );
-
-    res.json(statusRes.data);
-  } catch (err) {
-    logger.warn('Failed to get deployment status from Payment Service', {
-      userId: req.params.userId,
-      error: String(err)
-    });
-    // Return "still deploying" if Payment Service unreachable
-    res.json({
-      status: 'deploying',
-      contractAddress: null,
-      deployedAt: null
-    });
-  }
-});
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
