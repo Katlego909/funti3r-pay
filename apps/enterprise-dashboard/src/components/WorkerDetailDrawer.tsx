@@ -1,7 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
-import { HiXMark, HiOutlineArrowTopRightOnSquare, HiOutlineClipboard, HiCheck } from 'react-icons/hi2';
+import { useEffect, useState } from 'react';
+import { HiOutlineArrowTopRightOnSquare, HiOutlineClipboard, HiCheck } from 'react-icons/hi2';
 import { api } from '../api/client.js';
 import { getFxRates, getXlmPrice } from '../api/payments.js';
+import SlideOver, { Row, SectionTitle } from './SlideOver.js';
+import { statusClass } from '../lib/status.js';
+import { CURRENCY_META } from '../lib/currencyMeta.js';
 
 interface Profile {
   id: string; email: string; status?: string; country?: string | null;
@@ -14,22 +17,8 @@ interface PaymentRow {
   stellar_tx_hash?: string | null; created_at: string;
 }
 
-const CURRENCY_META: Record<string, { name: string; symbol: string; color: string }> = {
-  XLM: { name: 'Stellar Lumens', symbol: 'XLM', color: '#3b82f6' },
-  USDC: { name: 'USD Coin', symbol: '$', color: '#16a34a' },
-  NGN: { name: 'Nigerian Naira', symbol: '₦', color: '#f59e0b' },
-  KES: { name: 'Kenyan Shilling', symbol: 'KSh', color: '#8b5cf6' },
-  GHS: { name: 'Ghanaian Cedi', symbol: 'GH₵', color: '#ec4899' },
-  ZAR: { name: 'South African Rand', symbol: 'R', color: '#06b6d4' },
-  UGX: { name: 'Ugandan Shilling', symbol: 'USh', color: '#ef4444' },
-};
 const fmt = (n: string | number, d = 2) => Number(n).toLocaleString(undefined, { maximumFractionDigits: d });
 const fmtDate = (s?: string | null) => (s ? new Date(s).toLocaleDateString() : '—');
-function statusClass(s?: string) {
-  if (s === 'completed' || s === 'verified' || s === 'approved') return 'completed';
-  if (s === 'failed' || s === 'rejected') return 'failed';
-  return 'pending';
-}
 function kycLabel(s?: string) {
   if (s === 'verified' || s === 'approved') return 'verified';
   if (s === 'rejected') return 'rejected';
@@ -44,21 +33,7 @@ function usdOf(currency: string, amount: number, xlmUsd: number, fx: Record<stri
   return r > 0 ? amount / r : 0;
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', padding: '9px 0', borderBottom: '1px solid #f1f5f9' }}>
-      <span style={{ color: '#6b7280', fontSize: '0.82rem' }}>{label}</span>
-      <span style={{ fontSize: '0.85rem', fontWeight: 500, textAlign: 'right', wordBreak: 'break-word' }}>{children}</span>
-    </div>
-  );
-}
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h4 style={{ margin: '20px 0 6px', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#6b7280' }}>{children}</h4>;
-}
-
 export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: string | null; onClose: () => void }) {
-  const [mounted, setMounted] = useState(false);
-  const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -71,8 +46,6 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
 
   useEffect(() => {
     if (!workerId) return;
-    setMounted(true);
-    const raf = requestAnimationFrame(() => setVisible(true));
     setLoading(true); setError('');
     setProfile(null); setWallet(null); setKyc('none'); setPayments([]);
 
@@ -91,23 +64,7 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
       if (price.status === 'fulfilled') setXlmUsd(price.value);
       if (rates.status === 'fulfilled') setFx(rates.value);
     }).finally(() => setLoading(false));
-
-    return () => cancelAnimationFrame(raf);
   }, [workerId]);
-
-  const handleClose = useCallback(() => {
-    setVisible(false);
-    window.setTimeout(() => { setMounted(false); onClose(); }, 220);
-  }, [onClose]);
-
-  useEffect(() => {
-    if (!mounted) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [mounted, handleClose]);
-
-  if (!mounted) return null;
 
   const copy = (text: string, key: string) => {
     navigator.clipboard?.writeText(text);
@@ -120,25 +77,7 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
   const balances = (wallet?.balances ?? []).filter((b) => Number(b.balance) > 0);
 
   return (
-    <div
-      onClick={handleClose}
-      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: `rgba(15,23,42,${visible ? 0.4 : 0})`, transition: 'background 0.25s ease' }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          position: 'fixed', top: 0, right: 0, height: '100vh', width: 'min(480px, 94vw)',
-          background: '#fff', boxShadow: '-10px 0 40px rgba(0,0,0,0.18)', overflowY: 'auto', padding: '1.5rem',
-          transform: visible ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)', zIndex: 1001, display: 'flex', flexDirection: 'column',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <h3 style={{ margin: 0 }}>Worker Details</h3>
-          <button onClick={handleClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }}>
-            <HiXMark size={22} />
-          </button>
-        </div>
+    <SlideOver openKey={workerId} title="Worker Details" onClose={onClose} width={480}>
 
         {loading ? (
           <div style={{ marginTop: '1rem' }} aria-busy="true">
@@ -211,7 +150,6 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
             )}
           </div>
         ) : null}
-      </div>
-    </div>
+    </SlideOver>
   );
 }

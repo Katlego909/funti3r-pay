@@ -11,15 +11,8 @@ import { listPayments, type Payment } from '../api/payments.js';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
 import { useAuthStore } from '../store/authStore.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
+import { statusClass, STATUS_TABS } from '../lib/status.js';
 import '../styles/Dashboard.css';
-
-function statusClass(s: string) {
-  if (s === 'completed') return 'completed';
-  if (s === 'failed') return 'failed';
-  return 'pending';
-}
-
-const STATUS_TABS = ['all', 'completed', 'failed', 'pending_claim', 'initiated'] as const;
 
 export default function PaymentHistory() {
   const user = useAuthStore((s) => s.user);

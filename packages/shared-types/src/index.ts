@@ -57,7 +57,9 @@ export interface Payment {
   id: string;
   enterpriseId: string;
   workerId: string;
-  amount: number;
+  // DECIMAL column — node-postgres returns NUMERIC/DECIMAL as strings to
+  // avoid silent precision loss, so this must stay a string, not a number.
+  amount: string;
   currency: string;
   status: PaymentStatus;
   paymentMethod: PaymentMethod;
@@ -315,7 +317,9 @@ export interface PaymentBatch {
   id: string;
   enterpriseId: string;
   stellarTxHash?: string;
-  totalAmount: number;
+  // DECIMAL column — node-postgres returns NUMERIC/DECIMAL as strings to
+  // avoid silent precision loss, so this must stay a string, not a number.
+  totalAmount: string;
   paymentCount: number;
   status: PaymentStatus;
   createdAt: Date;

@@ -7,24 +7,11 @@ import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, type P
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
+import { statusClass, STATUS_TABS } from '../lib/status.js';
+import { CURRENCY_META } from '../lib/currencyMeta.js';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string; stellar_public_key?: string }
 interface BatchRow { workerId: string; amountUsd: string }
-
-const CURRENCY_META: Record<string, { name: string; symbol: string }> = {
-  USDC: { name: 'USD Coin', symbol: '$' },
-  NGN: { name: 'Nigerian Naira', symbol: '₦' },
-  KES: { name: 'Kenyan Shilling', symbol: 'KSh' },
-  GHS: { name: 'Ghanaian Cedi', symbol: 'GH₵' },
-  ZAR: { name: 'South African Rand', symbol: 'R' },
-  UGX: { name: 'Ugandan Shilling', symbol: 'USh' },
-};
-
-function statusClass(s: string) {
-  if (s === 'completed') return 'completed';
-  if (s === 'failed') return 'failed';
-  return 'pending';
-}
 
 export default function Payments() {
   const user = useAuthStore((s) => s.user);
@@ -74,8 +61,6 @@ export default function Payments() {
       setExporting(false);
     }
   }
-
-  const STATUS_TABS = ['all', 'completed', 'failed', 'pending_claim', 'initiated'] as const;
 
   const PAGE = 15;
 

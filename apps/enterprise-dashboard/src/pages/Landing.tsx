@@ -16,7 +16,7 @@ import {
 import FinalCta from '../components/landing/FinalCta.js';
 import FaqSection from '../components/landing/FaqSection.js';
 import WaitlistSection from '../components/landing/WaitlistSection.js';
-import type { UserType } from '../components/landing/types.js';
+import type { UserType } from '../types.js';
 import '../styles/Landing.css';
 
 /** Router `state` this page reacts to, e.g. navigated here from another page asking to jump to the footer. */

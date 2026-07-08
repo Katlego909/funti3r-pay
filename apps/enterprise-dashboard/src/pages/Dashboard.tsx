@@ -25,23 +25,9 @@ import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
 import InsightsCharts from '../components/InsightsCharts.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
+import { statusClass } from '../lib/status.js';
+import { currencyColor } from '../lib/currencyMeta.js';
 import '../styles/Dashboard.css';
-
-function statusClass(s: string) {
-  if (s === 'completed') return 'completed';
-  if (s === 'failed') return 'failed';
-  return 'pending';
-}
-
-const CURRENCY_COLORS: Record<string, string> = {
-  XLM: '#3b82f6',
-  USDC: '#16a34a',
-  NGN: '#f59e0b',
-  KES: '#8b5cf6',
-  GHS: '#ec4899',
-  ZAR: '#06b6d4',
-  UGX: '#ef4444',
-};
 
 /**
  * A list of equal-weight currency rows (color dot + amount + code), used by
@@ -55,7 +41,7 @@ function CurrencyBreakdown({ items }: { items: Array<{ code: string; amount: num
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px' }}>
       {entries.map(({ code, amount }) => {
-        const color = CURRENCY_COLORS[code] ?? '#6b7280';
+        const color = currencyColor(code);
         return (
           <div key={code} style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />

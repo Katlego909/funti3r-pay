@@ -17,14 +17,19 @@ const PAYMENT_SERVICE = process.env.PAYMENT_SERVICE_URL || 'http://localhost:300
 const COMPLIANCE_URL  = process.env.COMPLIANCE_SERVICE_URL || 'http://localhost:3003';
 const ANALYTICS_URL   = process.env.ANALYTICS_SERVICE_URL  || 'http://localhost:3004';
 
+// Single source of truth for which frontend origins may talk to this gateway —
+// used both for CORS and for the returnTo redirect allowlist below, so the
+// two controls can't drift out of sync with each other.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS?.split(',') ?? [
+  'http://localhost:3100',
+  'http://localhost:3102',
+]).map((o) => o.trim());
+
 // ── Security & basics ─────────────────────────────────────────────────────────
 
 app.use(helmet());
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') ?? [
-    'http://localhost:3100',
-    'http://localhost:3102',
-  ],
+  origin: ALLOWED_ORIGINS,
   credentials: true,
 }));
 
@@ -87,12 +92,7 @@ app.get('/health', (_, res) => {
   res.json({ status: 'healthy', service: 'api-gateway', uptime: process.uptime() });
 });
 
-const ALLOWED_REDIRECT_ORIGINS = new Set(
-  (process.env.ALLOWED_ORIGINS?.split(',') ?? [
-    'http://localhost:3100',
-    'http://localhost:3102',
-  ]).map((o) => o.trim()),
-);
+const ALLOWED_REDIRECT_ORIGINS = new Set(ALLOWED_ORIGINS);
 
 app.get('/auth.html', (req, res) => {
   const requested = req.query.returnTo as string | undefined;

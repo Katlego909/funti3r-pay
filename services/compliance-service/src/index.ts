@@ -30,7 +30,7 @@ app.get('/health', (_, res) => {
 // Stores the whole submission payload in the `data` JSONB column. Auto-approves
 // when AUTO_APPROVE is on. One record per user (upsert on user_id).
 
-const submitKycHandler = async (req: any, res: any) => {
+const submitKycHandler = async (req: express.Request, res: express.Response) => {
   const { userId, ...details } = req.body ?? {};
   if (!userId) {
     return res.status(400).json({ error: 'userId is required' });
@@ -68,12 +68,10 @@ const submitKycHandler = async (req: any, res: any) => {
 };
 
 app.post('/submit', submitKycHandler);
-app.post('/compliance/submit', submitKycHandler);
-app.post('/api/compliance/submit', submitKycHandler);
 
 // ── Status check ──────────────────────────────────────────────────────────────
 
-const statusHandler = async (req: any, res: any) => {
+const statusHandler = async (req: express.Request, res: express.Response) => {
   try {
     const result = await query(
       `SELECT id, status, verified_at, created_at, updated_at
@@ -105,14 +103,12 @@ const statusHandler = async (req: any, res: any) => {
 };
 
 app.get('/:userId/status', statusHandler);
-app.get('/compliance/:userId/status', statusHandler);
-app.get('/api/compliance/:userId/status', statusHandler);
 
 // ── Bulk status check ──────────────────────────────────────────────────────────
 // Used by list views (e.g. the Workers page) to avoid an N+1 request pattern —
 // one call for all worker ids instead of one per worker.
 
-const statusBulkHandler = async (req: any, res: any) => {
+const statusBulkHandler = async (req: express.Request, res: express.Response) => {
   const { userIds } = req.body as { userIds?: string[] };
   if (!Array.isArray(userIds) || userIds.length === 0) {
     return res.status(400).json({ error: 'userIds must be a non-empty array' });
@@ -152,12 +148,10 @@ const statusBulkHandler = async (req: any, res: any) => {
 };
 
 app.post('/status/bulk', statusBulkHandler);
-app.post('/compliance/status/bulk', statusBulkHandler);
-app.post('/api/compliance/status/bulk', statusBulkHandler);
 
 // ── Full KYC details (owner, admin, or enterprise) ────────────────────────────
 
-const getKycHandler = async (req: any, res: any) => {
+const getKycHandler = async (req: express.Request, res: express.Response) => {
   const requesterId = req.headers['x-user-id'];
   const requesterRole = req.headers['x-user-role'];
   const targetUserId = req.params.userId;
@@ -178,14 +172,17 @@ const getKycHandler = async (req: any, res: any) => {
 
     const row = result.rows[0];
     // Flatten the stored submission payload so the UI can read fields directly.
+    // Computed fields spread LAST — a submitter can put arbitrary keys (e.g.
+    // "status") in their own submission payload; those must never override
+    // the real computed values.
     res.json({
+      ...(row.data ?? {}),
       id: row.id,
       user_id: row.user_id,
       status: toFrontendStatus(row.status),
       verified_at: row.verified_at,
       created_at: row.created_at,
       updated_at: row.updated_at,
-      ...(row.data ?? {}),
     });
   } catch (err) {
     logger.error('Get KYC details failed', { error: String(err) });
@@ -194,12 +191,10 @@ const getKycHandler = async (req: any, res: any) => {
 };
 
 app.get('/:userId', getKycHandler);
-app.get('/compliance/:userId', getKycHandler);
-app.get('/api/compliance/:userId', getKycHandler);
 
 // ── Approve / Reject (admin or enterprise) ────────────────────────────────────
 
-const setStatusHandler = (newStatus: 'approved' | 'rejected') => async (req: any, res: any) => {
+const setStatusHandler = (newStatus: 'approved' | 'rejected') => async (req: express.Request, res: express.Response) => {
   const role = req.headers['x-user-role'];
   if (role !== 'admin' && role !== 'enterprise') {
     return res.status(403).json({ error: 'Admin or enterprise role required' });
@@ -227,12 +222,7 @@ const approveHandler = setStatusHandler('approved');
 const rejectHandler = setStatusHandler('rejected');
 
 app.post('/:userId/approve', approveHandler);
-app.post('/compliance/:userId/approve', approveHandler);
-app.post('/api/compliance/:userId/approve', approveHandler);
-
 app.post('/:userId/reject', rejectHandler);
-app.post('/compliance/:userId/reject', rejectHandler);
-app.post('/api/compliance/:userId/reject', rejectHandler);
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 

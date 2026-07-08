@@ -6,7 +6,7 @@ import {
   HiOutlineFingerPrint,
   HiOutlineArrowsRightLeft,
 } from 'react-icons/hi2';
-import type { UserType } from './types.js';
+import type { UserType } from '../../types.js';
 
 const ENTERPRISE_STEPS = [
   {

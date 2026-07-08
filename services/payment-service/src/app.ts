@@ -2,7 +2,6 @@ import express from 'express';
 import crypto from 'crypto';
 import { createLogger, encryptSecret, decryptFromString, ValidationError, NotFoundError } from '@funti3r/shared-utils';
 import { query } from '@funti3r/database';
-import { PaymentStatus } from '@funti3r/shared-types';
 import * as stellar from './lib/stellar.js';
 import { Asset } from '@stellar/stellar-sdk';
 import { getCurrency, isSupportedCurrency, PAYOUT_CURRENCIES } from './lib/currencies.js';
@@ -780,7 +779,11 @@ app.post('/payouts/submit-signature', async (req, res) => {
     if (!canMoveMoney(ctx.companyRole)) {
       return res.status(403).json({ error: 'Only company owners and admins can submit payment signatures' });
     }
-    if (payment.status !== PaymentStatus.PENDING) {
+    // payments.status is a raw string literal checked by a SQL CHECK constraint
+    // (see migrations/001_clean_schema.sql), not the stale PaymentStatus enum —
+    // comparing against PaymentStatus.PENDING ('pending') here previously meant
+    // this branch could never match, since nothing ever sets that literal.
+    if (payment.status !== 'pending_signature') {
       logger.warn('Attempt to submit signature for non-pending payment', { paymentId, status: payment.status });
       return res.status(409).json({ error: 'Payment is not pending signature' });
     }
@@ -794,14 +797,14 @@ app.post('/payouts/submit-signature', async (req, res) => {
       `UPDATE payments
        SET status = $1, stellar_tx_hash = $2, updated_at = NOW()
        WHERE id = $3`,
-      [PaymentStatus.COMPLETED, txHash, paymentId],
+      ['completed', txHash, paymentId],
     );
 
     logger.info('Externally-signed payment submitted', { paymentId, txHash });
 
     res.json({
       paymentId,
-      status: PaymentStatus.COMPLETED,
+      status: 'completed',
       stellarTxHash: txHash,
       message: 'Payment submitted successfully',
     });
@@ -810,7 +813,7 @@ app.post('/payouts/submit-signature', async (req, res) => {
 
     await query(
       `UPDATE payments SET status = $1, failure_reason = $2, updated_at = NOW() WHERE id = $3`,
-      [PaymentStatus.FAILED, String(err), paymentId],
+      ['failed', String(err), paymentId],
     );
 
     res.status(502).json({ error: 'Failed to submit payment', detail: String(err) });

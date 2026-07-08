@@ -1,5 +1,3 @@
-const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
-
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 const levels: Record<LogLevel, number> = {
@@ -9,8 +7,17 @@ const levels: Record<LogLevel, number> = {
   error: 3,
 };
 
+function isLogLevel(value: string): value is LogLevel {
+  return value in levels;
+}
+
+const envLevel = process.env.LOG_LEVEL;
+// An unrecognized LOG_LEVEL (typo, stray whitespace) must not silently
+// suppress every log line — fall back to 'info' instead.
+const LOG_LEVEL: LogLevel = envLevel && isLogLevel(envLevel) ? envLevel : 'info';
+
 function shouldLog(level: LogLevel): boolean {
-  return levels[level] >= levels[LOG_LEVEL as LogLevel];
+  return levels[level] >= levels[LOG_LEVEL];
 }
 
 function formatMessage(level: LogLevel, context: string, message: string, data?: unknown): string {

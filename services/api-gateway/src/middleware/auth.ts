@@ -1,15 +1,26 @@
 import type { Request, Response, NextFunction } from 'express';
 import { verifyToken, AuthenticationError } from '@funti3r/shared-utils';
 
+// The only auth endpoints reachable before a JWT exists. Explicit and
+// exhaustive on purpose — unlike a `startsWith('/auth/')` prefix check, this
+// can't silently make a future (or leftover debug) route under /auth/ public.
+const PUBLIC_AUTH_ENDPOINTS = [
+  '/register/start',
+  '/register/finish',
+  '/login/start',
+  '/login/finish',
+  '/dev-login',
+  '/refresh',
+  '/logout',
+  '/recovery/start',
+  '/recovery/verify',
+];
+
 const PUBLIC_PATHS = new Set([
   '/health',
   '/status',
-  '/auth/register/start',
-  '/auth/register/finish',
-  '/auth/login/start',
-  '/auth/login/finish',
-  '/auth/refresh',
-  '/auth/logout',
+  ...PUBLIC_AUTH_ENDPOINTS.map((p) => `/auth${p}`),
+  ...PUBLIC_AUTH_ENDPOINTS.map((p) => `/api/auth${p}`),
 ]);
 
 // GET /invites/:token (and its company-invite equivalent) is a read-only
@@ -27,8 +38,6 @@ const PUBLIC_GET_PATTERNS = [
 
 function isPublic(path: string, method: string): boolean {
   if (PUBLIC_PATHS.has(path)) return true;
-  if (path.startsWith('/auth/')) return true;
-  if (path.startsWith('/api/auth/')) return true;
   if (method === 'GET' && PUBLIC_GET_PATTERNS.some((p) => p.test(path))) return true;
   return false;
 }

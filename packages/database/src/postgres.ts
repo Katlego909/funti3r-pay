@@ -1,4 +1,4 @@
-import { Pool, PoolClient } from 'pg';
+import { Pool, PoolClient, QueryResultRow } from 'pg';
 import { createLogger } from '@funti3r/shared-utils';
 
 const logger = createLogger('Database:PostgreSQL');
@@ -58,9 +58,9 @@ export async function closePostgres(): Promise<void> {
   }
 }
 
-export async function query(sql: string, params?: unknown[]) {
+export async function query<T extends QueryResultRow = any>(sql: string, params?: unknown[]) {
   const db = await getPostgres();
-  return db.query(sql, params);
+  return db.query<T>(sql, params);
 }
 
 export async function transaction<T>(

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { HiOutlineBars3, HiOutlineXMark } from 'react-icons/hi2';
 import { CtaLink, MARKETING_ONLY } from './CtaLink.js';
-import type { UserType } from './types.js';
+import type { UserType } from '../../types.js';
 
 const logoImg = '/images/logo.png';
 

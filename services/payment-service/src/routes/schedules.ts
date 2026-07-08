@@ -1,9 +1,11 @@
 import { Router, Request, Response } from 'express';
+import type { Router as RouterType } from 'express';
 import { query } from '@funti3r/database';
 import { createLogger } from '@funti3r/shared-utils';
 import { resolveCompanyContextOrSelf, canMoveMoney } from '../lib/company.js';
+import { nextRunDate } from '../lib/scheduling.js';
 
-const router = Router();
+const router: RouterType = Router();
 const logger = createLogger('SchedulesRoute');
 
 // ── Auth guards ───────────────────────────────────────────────────────────────
@@ -32,46 +34,6 @@ async function requireCompanyWrite(req: Request, res: Response): Promise<string 
     return null;
   }
   return ctx.ownerUserId;
-}
-
-// ── Next-run helper (duplicated from scheduler to keep routes self-contained) ─
-
-const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-
-function computeFirstRun(frequency: string, runDay: string, timezone: string): Date {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  });
-  const parts = Object.fromEntries(
-    formatter.formatToParts(new Date()).map(({ type, value }) => [type, value]),
-  );
-  const localNow = new Date(
-    `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:00`,
-  );
-  const result = new Date(localNow);
-
-  if (frequency === 'weekly' || frequency === 'biweekly') {
-    const targetDow = DAY_NAMES.indexOf(runDay.toLowerCase());
-    if (targetDow === -1) throw new Error(`Invalid run_day: ${runDay}`);
-    let daysUntil = (targetDow - result.getDay() + 7) % 7 || 7;
-    if (frequency === 'biweekly') daysUntil = daysUntil <= 7 ? daysUntil + 7 : daysUntil;
-    result.setDate(result.getDate() + daysUntil);
-  } else {
-    const targetDom = parseInt(runDay, 10);
-    if (isNaN(targetDom) || targetDom < 1 || targetDom > 28) {
-      throw new Error(`Invalid run_day for monthly: ${runDay}`);
-    }
-    result.setDate(targetDom);
-    if (result <= localNow) {
-      result.setMonth(result.getMonth() + 1);
-      result.setDate(targetDom);
-    }
-  }
-
-  result.setHours(9, 0, 0, 0);
-  return result;
 }
 
 // ── GET /schedules ────────────────────────────────────────────────────────────
@@ -156,7 +118,7 @@ router.post('/', async (req: Request, res: Response) => {
 
   let nextRunAt: Date;
   try {
-    nextRunAt = computeFirstRun(frequency, runDay, timezone);
+    nextRunAt = nextRunDate(frequency, runDay, timezone);
   } catch (err) {
     return res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid schedule parameters' });
   }

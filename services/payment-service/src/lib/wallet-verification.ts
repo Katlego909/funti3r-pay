@@ -1,5 +1,6 @@
-import { Keypair, TransactionBuilder, Networks, hash, xdr, Transaction } from '@stellar/stellar-sdk';
+import { Keypair, TransactionBuilder, hash, xdr, Transaction } from '@stellar/stellar-sdk';
 import { createLogger } from '@funti3r/shared-utils';
+import { getNetworkPassphrase } from './wallet-kit-integration.js';
 
 const logger = createLogger('WalletVerification');
 
@@ -79,7 +80,7 @@ export function verifyWalletSignature(
 
     // Verify network passphrase
     // Note: The network passphrase is not stored in XDR, but we use it for signature verification
-    const expectedPassphrase = Networks.TESTNET;
+    const expectedPassphrase = getNetworkPassphrase();
 
     // Compute transaction hash using the network passphrase (same way it was signed)
     // Create a Transaction object from the full envelope with the correct network passphrase

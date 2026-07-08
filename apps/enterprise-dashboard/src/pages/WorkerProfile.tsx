@@ -5,9 +5,8 @@ import { logout } from '../api/auth.js';
 import { HiOutlineArrowRightOnRectangle, HiOutlineCheckCircle } from 'react-icons/hi2';
 import WalletInfo from '../components/WalletInfo.js';
 
-export default function Profile() {
+export default function WorkerProfile() {
   const user = useAuthStore((s) => s.user);
-  const token = useAuthStore((s) => s.accessToken);
   const clearSession = useAuthStore((s) => s.clearSession);
   const navigate = useNavigate();
 
@@ -157,28 +156,6 @@ export default function Profile() {
               }}
             >
               {user.userId}
-            </p>
-          </div>
-
-          {/* Token */}
-          <div>
-            <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '6px' }}>
-              Access Token
-            </label>
-            <p
-              style={{
-                margin: 0,
-                fontSize: '13px',
-                color: '#374151',
-                fontFamily: 'monospace',
-                wordBreak: 'break-all',
-                backgroundColor: 'white',
-                padding: '8px',
-                borderRadius: '4px',
-                border: '1px solid #e5e7eb',
-              }}
-            >
-              {token ? `${token.substring(0, 30)}...` : 'No token'}
             </p>
           </div>
         </div>

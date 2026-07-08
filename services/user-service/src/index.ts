@@ -29,6 +29,7 @@ const app = express();
 app.use(cookieParser());
 
 // Safe body parser
+const MAX_BODY_BYTES = 1 * 1024 * 1024; // 1MB — comfortably above any real payload this service accepts
 function parseBody(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (req.method === 'GET' || req.method === 'DELETE' || req.method === 'HEAD') {
     req.body = {};
@@ -36,8 +37,20 @@ function parseBody(req: express.Request, res: express.Response, next: express.Ne
   }
 
   let data = '';
-  req.on('data', chunk => { data += chunk; });
+  let bytes = 0;
+  let aborted = false;
+  req.on('data', (chunk: Buffer) => {
+    if (aborted) return;
+    bytes += chunk.length;
+    if (bytes > MAX_BODY_BYTES) {
+      aborted = true;
+      res.status(413).json({ error: 'Request body too large' });
+      return; // keep draining the stream below without buffering further
+    }
+    data += chunk;
+  });
   req.on('end', () => {
+    if (aborted) return;
     try {
       req.body = data ? JSON.parse(data) : {};
     } catch (e) {
@@ -46,6 +59,7 @@ function parseBody(req: express.Request, res: express.Response, next: express.Ne
     next();
   });
   req.on('error', () => {
+    if (aborted) return;
     req.body = {};
     next();
   });
@@ -301,6 +315,21 @@ app.post('/auth/register/test', (req, res) => {
   res.json({ test: 'works', challenge: 'test-challenge' });
 });
 
+/**
+ * Registers an auth handler at every path shape a request for it can arrive
+ * on: `/auth/<path>` (what the gateway forwards `/auth/*` as), `/api/auth/<path>`
+ * (kept for any direct, pre-rewrite caller), and — for routes that expect one —
+ * a bare `/<path>` alias. One call site instead of three per handler, so
+ * adding or changing a route can't silently drop one of the variants (as
+ * happened with the `/login/dev-login` alias, handled separately below since
+ * its bare form doesn't follow this pattern).
+ */
+function registerAuthRoute(path: string, handler: express.RequestHandler, { bareAlias = true } = {}) {
+  app.post(`/auth/${path}`, handler);
+  if (bareAlias) app.post(`/${path}`, handler);
+  app.post(`/api/auth/${path}`, handler);
+}
+
 // ── Registration ──────────────────────────────────────────────────────────────
 
 /**
@@ -321,7 +350,13 @@ const registerStartHandler = async (req: express.Request, res: express.Response)
       rpName: RP_NAME,
       rpID: RP_ID,
       userName: email,
-      userID: new Uint8Array(Buffer.from(email.split('@')[0])), // Unique user ID based on email prefix
+      // A fresh random WebAuthn user handle per registration attempt — deriving
+      // it from the email local-part let two different accounts sharing a
+      // local-part (e.g. john@companyA.com vs john@companyB.com) collide on
+      // the same platform authenticator's resident-credential slot. Login
+      // looks credentials up by credential_id, never by this handle, so it
+      // doesn't need to be reproducible.
+      userID: new Uint8Array(randomBytes(32)),
       userDisplayName: email.split('@')[0] || 'User',
       attestationType: 'none',
       authenticatorSelection: {
@@ -346,9 +381,7 @@ const registerStartHandler = async (req: express.Request, res: express.Response)
   }
 };
 
-app.post('/auth/register/start', registerStartHandler);
-app.post('/register/start', registerStartHandler);
-app.post('/api/auth/register/start', registerStartHandler);
+registerAuthRoute('register/start', registerStartHandler);
 
 /**
  * POST /auth/register/finish
@@ -374,13 +407,23 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     }
 
     const clientOrigin = origin || req.headers.origin || RP_ORIGIN;
-    const verification = await verifyRegistrationResponse({
-      response: credential as unknown as Parameters<typeof verifyRegistrationResponse>[0]['response'],
-      expectedChallenge: session.challenge,
-      expectedOrigin: clientOrigin,
-      expectedRPID: RP_ID,
-      requireUserVerification: false,
-    });
+    let verification: Awaited<ReturnType<typeof verifyRegistrationResponse>>;
+    try {
+      verification = await verifyRegistrationResponse({
+        response: credential as unknown as Parameters<typeof verifyRegistrationResponse>[0]['response'],
+        expectedChallenge: session.challenge,
+        expectedOrigin: clientOrigin,
+        expectedRPID: RP_ID,
+        requireUserVerification: false,
+      });
+    } catch (verifyErr) {
+      // @simplewebauthn/server throws plain Errors (not a distinguishable
+      // class) for an expired/mismatched challenge or bad origin — treat any
+      // of them as one client-facing validation error instead of guessing
+      // the cause from the error message text.
+      logger.warn('register/finish: WebAuthn verification threw', { email, error: String(verifyErr) });
+      throw new ValidationError('Invalid or expired challenge');
+    }
 
     logger.info('register/finish: credential verified', { email, verified: verification.verified });
     if (!verification.verified || !verification.registrationInfo) {
@@ -515,16 +558,12 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     logger.error('register/finish failed', { error: errorMsg, code: errorCode, stack: err instanceof Error ? err.stack : undefined });
 
     if (errorCode === '23505') return res.status(409).json({ error: 'Email already registered' });
-    if (errorMsg.includes('challenge')) return res.status(400).json({ error: 'Invalid or expired challenge' });
-    if (errorMsg.includes('verification')) return res.status(400).json({ error: 'Passkey verification failed' });
 
     res.status(500).json({ error: process.env.NODE_ENV === 'development' ? errorMsg : 'Internal server error' });
   }
 };
 
-app.post('/auth/register/finish', registerFinishHandler);
-app.post('/register/finish', registerFinishHandler);
-app.post('/api/auth/register/finish', registerFinishHandler);
+registerAuthRoute('register/finish', registerFinishHandler);
 
 // ── Authentication ────────────────────────────────────────────────────────────
 
@@ -573,9 +612,7 @@ const loginStartHandler = async (req: express.Request, res: express.Response) =>
   }
 };
 
-app.post('/auth/login/start', loginStartHandler);
-app.post('/login/start', loginStartHandler);
-app.post('/api/auth/login/start', loginStartHandler);
+registerAuthRoute('login/start', loginStartHandler);
 
 /**
  * POST /auth/login/finish
@@ -652,9 +689,7 @@ const loginFinishHandler = async (req: express.Request, res: express.Response) =
   }
 };
 
-app.post('/auth/login/finish', loginFinishHandler);
-app.post('/login/finish', loginFinishHandler);
-app.post('/api/auth/login/finish', loginFinishHandler);
+registerAuthRoute('login/finish', loginFinishHandler);
 
 /**
  * POST /auth/dev-login  (DEVELOPMENT ONLY)
@@ -736,9 +771,7 @@ const refreshHandler = async (req: express.Request, res: express.Response) => {
   }
 };
 
-app.post('/auth/refresh', refreshHandler);
-app.post('/refresh', refreshHandler);
-app.post('/api/auth/refresh', refreshHandler);
+registerAuthRoute('refresh', refreshHandler);
 
 /**
  * POST /auth/logout
@@ -751,9 +784,7 @@ const logoutHandler = async (req: express.Request, res: express.Response) => {
   res.json({ message: 'Logged out' });
 };
 
-app.post('/auth/logout', logoutHandler);
-app.post('/logout', logoutHandler);
-app.post('/api/auth/logout', logoutHandler);
+registerAuthRoute('logout', logoutHandler);
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 
@@ -1112,8 +1143,8 @@ app.get('/invites/:token', async (req, res) => {
 // or the registration-time atomic accept below couldn't run for some reason).
 // The primary path is now inviteToken passed directly to /auth/register/finish.
 app.post('/invites/:token/accept', async (req, res) => {
-  const { workerId } = req.body as { workerId?: string };
-  if (!workerId) return res.status(400).json({ error: 'workerId required' });
+  const workerId = req.headers['x-user-id'] as string;
+  if (!workerId) return res.status(401).json({ error: 'Not authenticated' });
 
   try {
     const accepted = await acceptWorkerInvite(req.params.token, workerId);
@@ -1260,10 +1291,8 @@ app.get('/company/invites/:token', async (req, res) => {
 });
 
 // Kept for an already-registered enterprise user accepting a standalone
-// invite (edge case, not the primary path). Unlike POST /invites/:token/accept
-// (worker), which trusts a client-supplied `workerId` body param, this uses
-// the gateway-authenticated x-user-id header — do not copy that worker-route
-// pattern, it's a pre-existing gap, not something to propagate.
+// invite (edge case, not the primary path). Same gateway-authenticated
+// x-user-id pattern as POST /invites/:token/accept (worker).
 app.post('/company/invites/:token/accept', async (req, res) => {
   const requesterId = req.headers['x-user-id'] as string;
   if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
@@ -1477,8 +1506,7 @@ const recoveryStartHandler = async (req: express.Request, res: express.Response)
   }
 };
 
-app.post('/auth/recovery/start', recoveryStartHandler);
-app.post('/api/auth/recovery/start', recoveryStartHandler);
+registerAuthRoute('recovery/start', recoveryStartHandler, { bareAlias: false });
 
 /**
  * POST /auth/recovery/verify
@@ -1492,7 +1520,7 @@ const recoveryVerifyHandler = async (req: express.Request, res: express.Response
 
   try {
     const tokenHash = hashRefreshToken(token);
-    const session = await getJSON<{ userId: string; email: string; role: string }>(
+    const session = await getJSON<{ userId: string; email: string; role: UserRole }>(
       `recovery:${tokenHash}`,
     );
 
@@ -1528,8 +1556,7 @@ const recoveryVerifyHandler = async (req: express.Request, res: express.Response
   }
 };
 
-app.post('/auth/recovery/verify', recoveryVerifyHandler);
-app.post('/api/auth/recovery/verify', recoveryVerifyHandler);
+registerAuthRoute('recovery/verify', recoveryVerifyHandler, { bareAlias: false });
 
 async function start() {
   try {
@@ -1554,7 +1581,7 @@ async function start() {
 app.use((err: any, req: any, res: any, next: any) => {
   logger.error('Unhandled error', { error: String(err), path: req.path });
   if (!res.headersSent) {
-    res.status(500).json({ error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

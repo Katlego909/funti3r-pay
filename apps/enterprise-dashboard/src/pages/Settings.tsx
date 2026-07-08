@@ -69,14 +69,15 @@ const field: React.CSSProperties = {
   boxSizing: 'border-box' as const,
 };
 
-function ToggleRow({ label: rowLabel, description, checked, onChange }: {
+function ToggleRow({ label: rowLabel, description, checked, onChange, disabled }: {
   label: string;
   description: string;
   checked: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', opacity: disabled ? 0.6 : 1 }}>
       <div>
         <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--gray-900)', marginBottom: '2px' }}>{rowLabel}</div>
         <div style={{ fontSize: '13px', color: 'var(--gray-600)' }}>{description}</div>
@@ -84,12 +85,13 @@ function ToggleRow({ label: rowLabel, description, checked, onChange }: {
       <button
         onClick={() => onChange(!checked)}
         aria-pressed={checked}
+        disabled={disabled}
         style={{
           width: '44px',
           height: '24px',
           borderRadius: '999px',
           border: 'none',
-          cursor: 'pointer',
+          cursor: disabled ? 'not-allowed' : 'pointer',
           background: checked ? 'var(--primary)' : 'var(--gray-300)',
           position: 'relative',
           transition: 'background 0.2s',
@@ -507,19 +509,19 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Notifications */}
+      {/* Notifications — read-only until backend supports persisting these */}
       <div style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
           <HiOutlineBell size={18} style={{ color: 'var(--primary)' }} />
           <div style={sectionTitle}>Notifications</div>
         </div>
-        <p style={sectionDesc}>Choose which email alerts you receive</p>
+        <p style={sectionDesc}>Coming soon — email alert preferences aren't saved yet</p>
 
-        <ToggleRow label="Payment completed" description="Notify when a payout settles on-chain" checked={notifyCompleted} onChange={setNotifyCompleted} />
+        <ToggleRow label="Payment completed" description="Notify when a payout settles on-chain" checked={notifyCompleted} onChange={setNotifyCompleted} disabled />
         <hr style={divider} />
-        <ToggleRow label="Payment failed" description="Notify when a payout fails" checked={notifyFailed} onChange={setNotifyFailed} />
+        <ToggleRow label="Payment failed" description="Notify when a payout fails" checked={notifyFailed} onChange={setNotifyFailed} disabled />
         <hr style={divider} />
-        <ToggleRow label="Weekly summary" description="A digest of your payout volume every Monday" checked={notifyWeekly} onChange={setNotifyWeekly} />
+        <ToggleRow label="Weekly summary" description="A digest of your payout volume every Monday" checked={notifyWeekly} onChange={setNotifyWeekly} disabled />
       </div>
 
       {/* Security */}

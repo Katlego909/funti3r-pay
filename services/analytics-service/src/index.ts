@@ -9,6 +9,13 @@ const logger = createLogger('AnalyticsService');
 const app = express();
 app.use(express.json());
 
+/** Parses a query-string value as a non-negative integer, or null if invalid. */
+function parseIntParam(value: unknown, max?: number): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return null;
+  return max !== undefined ? Math.min(n, max) : n;
+}
+
 // ── Health ────────────────────────────────────────────────────────────────────
 
 app.get('/health', (_, res) => {
@@ -62,7 +69,10 @@ app.post('/events', async (req, res) => {
  * Returns event-based aggregate stats for the last N days.
  */
 app.get('/dashboard', async (req, res) => {
-  const days = Math.min(Number(req.query.days ?? 30), 365);
+  const days = parseIntParam(req.query.days ?? 30, 365);
+  if (days === null) {
+    return res.status(400).json({ error: 'days must be a non-negative integer' });
+  }
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   try {
@@ -108,6 +118,11 @@ app.get('/dashboard', async (req, res) => {
  */
 app.get('/events', async (req, res) => {
   const { type, userId, limit = '20', offset = '0' } = req.query;
+  const limitNum = parseIntParam(limit, 100);
+  const offsetNum = parseIntParam(offset);
+  if (limitNum === null || offsetNum === null) {
+    return res.status(400).json({ error: 'limit and offset must be non-negative integers' });
+  }
 
   try {
     const result = await query(
@@ -117,7 +132,7 @@ app.get('/events', async (req, res) => {
           AND ($2::uuid IS NULL OR user_id = $2)
         ORDER BY timestamp DESC
         LIMIT $3 OFFSET $4`,
-      [type ? String(type) : null, userId ? String(userId) : null, Math.min(Number(limit), 100), Number(offset)],
+      [type ? String(type) : null, userId ? String(userId) : null, limitNum, offsetNum],
     );
 
     const total = result.rows.length > 0 ? Number(result.rows[0].total) : 0;
@@ -136,7 +151,11 @@ app.get('/events', async (req, res) => {
  */
 app.get('/events/timeseries', async (req, res) => {
   const { type, days = '30', granularity = 'day' } = req.query;
-  const since = new Date(Date.now() - Number(days) * 24 * 60 * 60 * 1000);
+  const daysNum = parseIntParam(days);
+  if (daysNum === null) {
+    return res.status(400).json({ error: 'days must be a non-negative integer' });
+  }
+  const since = new Date(Date.now() - daysNum * 24 * 60 * 60 * 1000);
   const truncUnit = granularity === 'hour' ? 'hour' : 'day';
 
   try {

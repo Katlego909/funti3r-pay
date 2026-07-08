@@ -1,8 +1,11 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { HiOutlineArrowTopRightOnSquare, HiXMark, HiOutlineClipboard, HiCheck, HiOutlineArrowPath, HiOutlineArrowDownTray } from 'react-icons/hi2';
+import { useEffect, useState } from 'react';
+import { HiOutlineArrowTopRightOnSquare, HiOutlineClipboard, HiCheck, HiOutlineArrowPath, HiOutlineArrowDownTray } from 'react-icons/hi2';
 import { api } from '../api/client.js';
 import { initiatePayment } from '../api/payments.js';
 import { generatePayslip, formatCompanyLabel } from '../utils/export.js';
+import SlideOver, { Row } from './SlideOver.js';
+import { statusClass } from '../lib/status.js';
+import { currencyColor } from '../lib/currencyMeta.js';
 
 interface PaymentDetail {
   id: string;
@@ -28,26 +31,8 @@ interface PaymentDetail {
   fx_rate?: number | null;
 }
 
-const CURRENCY_COLORS: Record<string, string> = {
-  XLM: '#3b82f6', USDC: '#16a34a', NGN: '#f59e0b', KES: '#8b5cf6',
-  GHS: '#ec4899', ZAR: '#06b6d4', UGX: '#ef4444',
-};
-function statusClass(s: string) {
-  if (s === 'completed') return 'completed';
-  if (s === 'failed') return 'failed';
-  return 'pending';
-}
 const fmtAmt = (n: string | number) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 7 });
 const fmtDate = (s?: string | null) => (s ? new Date(s).toLocaleString() : '—');
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
-      <span style={{ color: '#6b7280', fontSize: '0.82rem' }}>{label}</span>
-      <span style={{ fontSize: '0.85rem', fontWeight: 500, textAlign: 'right', wordBreak: 'break-word' }}>{children}</span>
-    </div>
-  );
-}
 
 export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: string | null; onClose: () => void }) {
   const [p, setP] = useState<PaymentDetail | null>(null);
@@ -58,20 +43,8 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
   const [retryError, setRetryError] = useState('');
   const [retrySuccess, setRetrySuccess] = useState(false);
 
-  // mounted = in the DOM (kept during slide-out); visible = slid into view.
-  const [mounted, setMounted] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const closeTimerRef = useRef<number | null>(null);
-
   useEffect(() => {
     if (!paymentId) return;
-    // Cancel any in-flight close timer so a rapid re-open doesn't self-destruct.
-    if (closeTimerRef.current !== null) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-    setMounted(true);
-    const raf = requestAnimationFrame(() => setVisible(true));
     setLoading(true);
     setError('');
     setP(null);
@@ -79,27 +52,7 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
       .then((r) => setP(r.data))
       .catch((e: any) => setError(e?.response?.data?.error ?? 'Failed to load payment'))
       .finally(() => setLoading(false));
-    return () => cancelAnimationFrame(raf);
   }, [paymentId]);
-
-  const handleClose = useCallback(() => {
-    setVisible(false);
-    closeTimerRef.current = window.setTimeout(() => {
-      closeTimerRef.current = null;
-      setMounted(false);
-      onClose();
-    }, 220);
-  }, [onClose]);
-
-  // Close on Escape.
-  useEffect(() => {
-    if (!mounted) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [mounted, handleClose]);
-
-  if (!mounted) return null;
 
   const copy = (text: string, key: string) => {
     navigator.clipboard?.writeText(text);
@@ -139,38 +92,11 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
     }
   }
 
-  const color = p ? (CURRENCY_COLORS[p.currency] ?? '#374151') : '#374151';
+  const color = p ? currencyColor(p.currency, '#374151') : '#374151';
   const isConverted = p && p.currency !== 'USDC' && p.fx_rate; // USD → local conversion happened
 
   return (
-    <div
-      onClick={handleClose}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
-        background: `rgba(15,23,42,${visible ? 0.4 : 0})`,
-        transition: 'background 0.25s ease',
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          position: 'fixed', top: 0, right: 0, height: '100vh',
-          width: 'min(460px, 92vw)', background: '#fff',
-          boxShadow: '-10px 0 40px rgba(0,0,0,0.18)',
-          overflowY: 'auto', padding: '1.5rem',
-          transform: visible ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-          zIndex: 1001,
-          display: 'flex', flexDirection: 'column',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <h3 style={{ margin: 0 }}>Payment Details</h3>
-          <button onClick={handleClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }}>
-            <HiXMark size={22} />
-          </button>
-        </div>
-
+    <SlideOver openKey={paymentId} title="Payment Details" onClose={onClose}>
         {loading ? (
           // Full-size skeleton so the modal opens at its final height (no jump).
           <div style={{ marginTop: '1rem' }} aria-busy="true">
@@ -301,7 +227,6 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
             )}
           </div>
         ) : null}
-      </div>
-    </div>
+    </SlideOver>
   );
 }

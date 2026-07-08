@@ -4,6 +4,7 @@ import {
   BarChart, Bar,
 } from 'recharts';
 import type { Payment } from '../api/payments.js';
+import { currencyColor } from '../lib/currencyMeta.js';
 
 const WORKER_COLORS = ['#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
@@ -82,11 +83,6 @@ function topWorkersByVolume(payments: Payment[], xlmUsd: number, fx: Record<stri
 
 const fmtUsd = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
-const CURRENCY_COLORS: Record<string, string> = {
-  XLM: '#7c3aed', USDC: '#16a34a', NGN: '#f59e0b',
-  KES: '#8b5cf6', GHS: '#ec4899', ZAR: '#06b6d4', UGX: '#ef4444',
-};
-
 export default function InsightsCharts({
   payments, xlmUsd, byStatus = {}, byCurrency = {}, fx = {}, isWorker = false,
 }: {
@@ -155,7 +151,7 @@ export default function InsightsCharts({
                   <Pie data={currencyData} dataKey="value" nameKey="name" cx="50%" cy="50%"
                     innerRadius={55} outerRadius={82} paddingAngle={2}>
                     {currencyData.map((d) => (
-                      <Cell key={d.name} fill={CURRENCY_COLORS[d.name] ?? '#9ca3af'} />
+                      <Cell key={d.name} fill={currencyColor(d.name, '#9ca3af')} />
                     ))}
                   </Pie>
                   <Tooltip formatter={(v, n) => [Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }), String(n)]} />
@@ -225,7 +221,7 @@ export default function InsightsCharts({
                   <Tooltip formatter={(v, n) => [Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }), String(n)]} />
                   <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={24}>
                     {currencyData.map((d) => (
-                      <Cell key={d.name} fill={CURRENCY_COLORS[d.name] ?? '#9ca3af'} />
+                      <Cell key={d.name} fill={currencyColor(d.name, '#9ca3af')} />
                     ))}
                   </Bar>
                 </BarChart>

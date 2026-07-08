@@ -175,6 +175,9 @@ importers:
         specifier: ^3.22.0
         version: 3.25.76
     devDependencies:
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
       '@types/jsonwebtoken':
         specifier: ^9.0.5
         version: 9.0.10

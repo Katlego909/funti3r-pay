@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { HiOutlineArrowRight } from 'react-icons/hi2';
 import { MARKETING_ONLY } from './CtaLink.js';
 import PayoutCard from './PayoutCard.js';
-import type { UserType } from './types.js';
+import type { UserType } from '../../types.js';
 
 interface FinalCtaProps {
   userType: UserType;

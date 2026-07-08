@@ -70,6 +70,46 @@ interface KYCFormProps {
   onSubmitSuccess?: () => void;
 }
 
+/** Every field marked with * on the given step must be non-empty before advancing. */
+function isStepValid(step: number, data: KYCFormData): boolean {
+  switch (step) {
+    case 1:
+      return !!(
+        data.identity.fullName.trim() &&
+        data.identity.legalName.trim() &&
+        data.identity.dateOfBirth &&
+        data.identity.nationality &&
+        data.identity.countryOfResidence
+      );
+    case 2:
+      return !!(
+        data.governmentId.idNumber.trim() &&
+        data.governmentId.issueDate &&
+        data.governmentId.expiryDate &&
+        data.governmentId.country
+      );
+    case 3:
+      return !!(
+        data.address.streetAddress.trim() &&
+        data.address.city.trim() &&
+        data.address.stateProvince.trim() &&
+        data.address.postalCode.trim() &&
+        data.address.country
+      );
+    case 4:
+      return !!(
+        data.taxInfo.taxId.trim() &&
+        data.taxInfo.taxResidencyCountry &&
+        data.bankAccount.bankName.trim() &&
+        data.bankAccount.accountHolderName.trim() &&
+        data.bankAccount.accountNumber.trim() &&
+        data.bankAccount.currency
+      );
+    default:
+      return true;
+  }
+}
+
 export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
   const { user } = useAuthStore();
   const [currentStep, setCurrentStep] = useState(1);
@@ -127,9 +167,15 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
     }));
   };
 
+  const stepValid = isStepValid(currentStep, formData);
+
   const handleSubmit = async () => {
     if (!user?.userId) {
       setError('You must be logged in to submit KYC');
+      return;
+    }
+    if (![1, 2, 3, 4].every((s) => isStepValid(s, formData))) {
+      setError('Please complete all required fields before submitting.');
       return;
     }
 
@@ -207,9 +253,14 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
             style={{
               flex: 1,
               textAlign: 'center',
-              cursor: 'pointer',
+              // Jumping back is always fine; jumping ahead requires the
+              // current step to already be complete (same gate as Next).
+              cursor: step.number <= currentStep || stepValid ? 'pointer' : 'not-allowed',
+              opacity: step.number <= currentStep || stepValid ? 1 : 0.5,
             }}
-            onClick={() => setCurrentStep(step.number)}
+            onClick={() => {
+              if (step.number <= currentStep || stepValid) setCurrentStep(step.number);
+            }}
           >
             <div style={{
               width: '40px',
@@ -817,14 +868,16 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
         {currentStep < 4 ? (
           <button
             onClick={() => setCurrentStep(currentStep + 1)}
+            disabled={!stepValid}
             style={{
               padding: '12px 24px',
               backgroundColor: '#3b82f6',
               color: 'white',
               border: 'none',
               borderRadius: '6px',
-              cursor: 'pointer',
+              cursor: stepValid ? 'pointer' : 'not-allowed',
               fontWeight: 600,
+              opacity: stepValid ? 1 : 0.5,
             }}
           >
             Next
@@ -832,22 +885,27 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
         ) : (
           <button
             onClick={handleSubmit}
-            disabled={loading}
+            disabled={loading || !stepValid}
             style={{
               padding: '12px 24px',
               backgroundColor: '#22c55e',
               color: 'white',
               border: 'none',
               borderRadius: '6px',
-              cursor: loading ? 'not-allowed' : 'pointer',
+              cursor: loading || !stepValid ? 'not-allowed' : 'pointer',
               fontWeight: 600,
-              opacity: loading ? 0.7 : 1,
+              opacity: loading || !stepValid ? 0.7 : 1,
             }}
           >
             {loading ? 'Submitting...' : 'Submit KYC'}
           </button>
         )}
       </div>
+      {!stepValid && (
+        <p style={{ textAlign: 'right', fontSize: '12px', color: '#dc2626', marginTop: '6px' }}>
+          Please complete all required fields on this step.
+        </p>
+      )}
     </div>
   );
 }

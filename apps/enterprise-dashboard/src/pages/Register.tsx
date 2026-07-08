@@ -6,8 +6,7 @@ import { HiOutlineFingerPrint } from 'react-icons/hi2';
 import { registerPasskey } from '../api/auth.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
-
-type Role = 'enterprise' | 'worker';
+import type { UserType as Role } from '../types.js';
 
 export default function Register() {
   const navigate = useNavigate();
