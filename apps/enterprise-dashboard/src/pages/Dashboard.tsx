@@ -82,6 +82,7 @@ export default function Dashboard() {
 
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [userCount, setUserCount] = useState<number | null>(null);
+  const [companyName, setCompanyName] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [otherBalances, setOtherBalances] = useState<Array<{ code: string; balance: string }>>([]);
   const [xlmUsd, setXlmUsd] = useState(0);
@@ -97,7 +98,7 @@ export default function Dashboard() {
 
     async function fetchWalletBalance() {
       try {
-        const { data } = await api.get(`/wallets/${user!.userId}`);
+        const { data } = await api.get(isEnterprise ? '/wallets/company' : `/wallets/${user!.userId}`);
         const all: any[] = data.balances ?? [];
         const xlmBalance = all.find((b) => b.asset_type === 'native')?.balance;
         const others = all
@@ -131,8 +132,14 @@ export default function Dashboard() {
     getXlmPrice().then(setXlmUsd);
     getFxRates().then(setFxRates);
 
+    if (isEnterprise) {
+      api.get<{ company_name?: string }>(`/users/${user.userId}`)
+        .then((r) => setCompanyName(r.data.company_name ?? null))
+        .catch(() => setCompanyName(null));
+    }
+
     const chartQuery = isEnterprise
-      ? listPayments({ enterpriseId: user.userId, limit: 200 })
+      ? listPayments({ limit: 200 })
       : listPayments({ workerId: user.userId, limit: 200 });
 
     chartQuery.then(({ payments }) => setChartPayments(payments)).catch(() => setChartPayments([]));
@@ -168,7 +175,18 @@ export default function Dashboard() {
       {/* Header */}
       <div className="dashboard-header">
         <div className="dashboard-greeting">
-          <h2 className="greeting-name">Hello, {user?.email.split('@')[0]}</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <h2 className="greeting-name">Hello, {user?.email.split('@')[0]}</h2>
+            {isEnterprise && companyName && (
+              <span style={{
+                fontSize: '12px', fontWeight: 700, color: 'var(--primary)',
+                background: 'rgba(66, 10, 99, 0.08)', padding: '3px 10px',
+                borderRadius: '999px', whiteSpace: 'nowrap',
+              }}>
+                {companyName}
+              </span>
+            )}
+          </div>
           <p className="greeting-sub">
             {isEnterprise ? 'Overview of your payment operations' : 'Your incoming payments'}
           </p>

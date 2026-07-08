@@ -67,8 +67,8 @@ export default function Payments() {
     if (!user) return [];
     setExporting(true);
     try {
-      const { total } = await listPayments({ enterpriseId: user.userId, limit: 1, offset: 0, ...(statusFilter !== 'all' ? { status: statusFilter } : {}) });
-      const { payments: all } = await listPayments({ enterpriseId: user.userId, limit: total, offset: 0, ...(statusFilter !== 'all' ? { status: statusFilter } : {}) });
+      const { total } = await listPayments({ limit: 1, offset: 0, ...(statusFilter !== 'all' ? { status: statusFilter } : {}) });
+      const { payments: all } = await listPayments({ limit: total, offset: 0, ...(statusFilter !== 'all' ? { status: statusFilter } : {}) });
       return all;
     } finally {
       setExporting(false);
@@ -83,7 +83,6 @@ export default function Payments() {
     if (!user) return;
     setLoading(true);
     listPayments({
-      enterpriseId: user.userId,
       limit: PAGE,
       offset,
       ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
@@ -133,7 +132,6 @@ export default function Payments() {
     if (!sendKeyRef.current) sendKeyRef.current = crypto.randomUUID();
     try {
       const result = await initiatePayment({
-        enterpriseId: user!.userId,
         workerId: workerId.trim(),
         amountUsd: Number(amount),
         memo: memo.trim() || undefined,
@@ -176,7 +174,6 @@ export default function Payments() {
     if (!batchKeyRef.current) batchKeyRef.current = crypto.randomUUID();
     try {
       const result = await initiateBatchPayment({
-        enterpriseId: user!.userId,
         currency: batchCurrency,
         items,
         idempotencyKey: batchKeyRef.current,

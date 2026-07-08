@@ -74,7 +74,7 @@ export default function GlobalSearch() {
     try {
       const [workersRes, paymentsRes] = await Promise.allSettled([
         api.get<{ users: WorkerResult[] }>(`/users?role=worker&search=${encodeURIComponent(q)}&limit=5`),
-        listPayments({ enterpriseId: user.userId, limit: 50, offset: 0 }),
+        listPayments({ limit: 50, offset: 0 }),
       ]);
 
       const workers = workersRes.status === 'fulfilled' ? workersRes.value.data.users ?? [] : [];

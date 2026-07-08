@@ -117,7 +117,6 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
       // resume-a-failed-payment path (same paymentId) rather than creating a
       // second real payment; legacy rows predating the column get a fresh key.
       await initiatePayment({
-        enterpriseId: p.enterprise_id,
         workerId: p.worker_id,
         amount: Number(p.amount),
         currency: p.currency,

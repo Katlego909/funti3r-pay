@@ -14,15 +14,19 @@ export interface QueryHandler {
  * Routes the mocked `query()` by matching against the SQL text, so tests read
  * as "when the code runs this kind of query, return this" rather than a
  * brittle positional sequence tied to executePayout's internal call order.
- * Unmatched queries return `{ rows: [] }` (safe default for UPDATE/INSERT
- * calls whose return value isn't inspected).
+ * Always includes HANDLER_ENTERPRISE_MEMBERSHIP last, so every route test
+ * gets a working company-context resolution (ENTERPRISE_ID/ADMIN_ID/MEMBER_ID)
+ * without having to repeat it in every test's handler list. Unmatched queries
+ * return `{ rows: [] }` (safe default for UPDATE/INSERT calls whose return
+ * value isn't inspected).
  */
 export function createQueryMock(handlers: QueryHandler[]) {
+  const allHandlers = [...handlers, HANDLER_ENTERPRISE_MEMBERSHIP];
   // Cast to `any`: app code only ever reads `.rows` off the real pg QueryResult,
   // so faking its other fields (command/rowCount/oid/fields) everywhere would
   // be pure noise with no test value.
   return vi.fn(async (sql: string, params?: unknown[]): Promise<any> => {
-    for (const h of handlers) {
+    for (const h of allHandlers) {
       if (h.match.test(sql)) return h.handler(params ?? []);
     }
     return { rows: [] };
@@ -31,6 +35,28 @@ export function createQueryMock(handlers: QueryHandler[]) {
 
 export const WORKER_ID = 'worker-1111-1111-1111-111111111111';
 export const ENTERPRISE_ID = 'enterprise-2222-2222-2222-222222222222';
+export const ADMIN_ID = 'admin-3333-3333-3333-333333333333';
+export const MEMBER_ID = 'member-4444-4444-4444-444444444444';
+export const COMPANY_ID = 'company-5555-5555-5555-555555555555';
+
+/**
+ * Mocks the payment-service company.ts resolver's query (`FROM
+ * enterprise_members em JOIN enterprises e`). ENTERPRISE_ID resolves as the
+ * company owner (matching every existing test's pre-Phase-2 assumption that
+ * the requester IS the enterprise identity); ADMIN_ID/MEMBER_ID resolve as
+ * teammates of that same company, for testing the owner/admin-only
+ * money-movement gate.
+ */
+export const HANDLER_ENTERPRISE_MEMBERSHIP: QueryHandler = {
+  match: /FROM enterprise_members em JOIN enterprises e/,
+  handler: (params) => {
+    const userId = params[0];
+    if (userId === ENTERPRISE_ID) return { rows: [{ company_id: COMPANY_ID, company_role: 'owner', owner_user_id: ENTERPRISE_ID }] };
+    if (userId === ADMIN_ID) return { rows: [{ company_id: COMPANY_ID, company_role: 'admin', owner_user_id: ENTERPRISE_ID }] };
+    if (userId === MEMBER_ID) return { rows: [{ company_id: COMPANY_ID, company_role: 'member', owner_user_id: ENTERPRISE_ID }] };
+    return { rows: [] };
+  },
+};
 
 /** A worker row with a classic Stellar account (not a SmartWallet/passkey user). */
 export const WORKER_ROW = {

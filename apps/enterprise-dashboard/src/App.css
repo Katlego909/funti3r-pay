@@ -79,7 +79,35 @@ h6 {
   display: flex;
   flex-direction: column;
   z-index: 200;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.25s ease;
+}
+
+.sidebar-collapse-toggle {
+  position: absolute;
+  top: 50%;
+  right: -12px;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #0d1520;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 201;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.sidebar-collapse-toggle:hover {
+  background: #16202e;
+  color: #ffffff;
 }
 
 .sidebar-logo {
@@ -92,6 +120,10 @@ h6 {
   width: auto;
   object-fit: contain;
   max-width: 100%;
+}
+
+.sidebar-logo-icon {
+  display: none;
 }
 
 .sidebar-nav {
@@ -193,6 +225,45 @@ h6 {
   flex-direction: column;
   min-height: 100vh;
   background: #f7f8fa;
+  transition: margin-left 0.25s ease;
+}
+
+/* ── Sidebar collapsed (desktop icon rail) ──────────────────────────────── */
+
+.app-shell.sidebar-collapsed .sidebar {
+  width: 72px;
+}
+
+.app-shell.sidebar-collapsed .content-area {
+  margin-left: 72px;
+}
+
+.app-shell.sidebar-collapsed .sidebar-logo {
+  padding: 26px 0 22px;
+  display: flex;
+  justify-content: center;
+}
+
+.app-shell.sidebar-collapsed .sidebar-logo-full {
+  display: none;
+}
+
+.app-shell.sidebar-collapsed .sidebar-logo-icon {
+  display: block;
+  height: 32px;
+  width: 32px;
+  object-fit: contain;
+}
+
+.app-shell.sidebar-collapsed .sidebar-link,
+.app-shell.sidebar-collapsed .sidebar-signout {
+  justify-content: center;
+  padding: 9px 0;
+}
+
+.app-shell.sidebar-collapsed .sidebar-link span,
+.app-shell.sidebar-collapsed .sidebar-signout span {
+  display: none;
 }
 
 /* ── Top bar ─────────────────────────────────────────────────────────────── */
@@ -432,6 +503,45 @@ h6 {
 
   .content-area {
     margin-left: 0;
+  }
+
+  /* The desktop collapse preference persists in localStorage across
+     sessions — explicitly reset it here so a collapsed desktop session
+     never leaks a narrow rail or shifted margin into the mobile drawer. */
+  .app-shell.sidebar-collapsed .sidebar {
+    width: 256px;
+  }
+
+  .app-shell.sidebar-collapsed .content-area {
+    margin-left: 0;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-logo {
+    padding: 26px 22px 22px;
+    justify-content: flex-start;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-logo-full {
+    display: block;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-logo-icon {
+    display: none;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-link,
+  .app-shell.sidebar-collapsed .sidebar-signout {
+    justify-content: flex-start;
+    padding: 9px 12px;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-link span,
+  .app-shell.sidebar-collapsed .sidebar-signout span {
+    display: inline;
+  }
+
+  .sidebar-collapse-toggle {
+    display: none;
   }
 
   .topbar-hamburger {

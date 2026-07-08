@@ -11,6 +11,7 @@ import { getAllQuotes } from './rails/router.js';
 import walletLinkingRouter from './routes/wallet-linking.js';
 import schedulesRouter from './routes/schedules.js';
 import axios from 'axios';
+import { resolveCompanyContext, resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from './lib/company.js';
 
 const logger = createLogger('PaymentService');
 const COMPLIANCE_SERVICE_URL = process.env.COMPLIANCE_SERVICE_URL || 'http://localhost:3003';
@@ -98,14 +99,53 @@ app.post('/wallets/enterprise', async (req, res) => {
 
 // ── Wallet info ───────────────────────────────────────────────────────────────
 
-app.get('/wallets/:userId', async (req, res) => {
-  const requesterId = req.headers['x-user-id'];
-  const requesterRole = req.headers['x-user-role'];
+/**
+ * GET /wallets/company — the caller's COMPANY wallet (owner/admin/member all
+ * see the same one, since custody is per-company, not per-login). Needed
+ * because a teammate's own x-user-id never has a wallet of its own to show.
+ */
+app.get('/wallets/company', async (req, res) => {
+  const requesterId = req.headers['x-user-id'] as string | undefined;
+  const requesterRole = req.headers['x-user-role'] as string | undefined;
+  if (requesterRole !== 'enterprise' || !requesterId) {
+    return res.status(403).json({ error: 'Enterprise role required' });
+  }
 
-  // The owner can view their own wallet; enterprises/admins can view any
-  // worker's wallet (the Workers page lists each worker's Stellar address).
+  try {
+    const ctx = await resolveCompanyContextOrSelf(requesterId, requesterRole);
+    if (!ctx) return res.status(403).json({ error: 'You do not belong to a company' });
+
+    const result = await query('SELECT stellar_public_key FROM users WHERE id = $1', [ctx.ownerUserId]);
+    const address = result.rows[0]?.stellar_public_key;
+    if (!address) return res.json({ address: null, balances: [] });
+
+    let balances: any[] = [];
+    try {
+      balances = await stellar.getAccountBalance(address);
+    } catch (balErr) {
+      logger.warn('Balance lookup failed; returning empty', { address, error: String(balErr) });
+    }
+    res.json({ address, balances });
+  } catch (err) {
+    logger.error('Company wallet lookup failed', { error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/wallets/:userId', async (req, res) => {
+  const requesterId = req.headers['x-user-id'] as string | undefined;
+  const requesterRole = req.headers['x-user-role'] as string | undefined;
+
+  // The owner can view their own wallet; an enterprise account (owner/admin/
+  // member) can view a wallet ONLY if it belongs to a worker of their own
+  // company (a platform-level 'admin' role, unrelated to company_role,
+  // keeps its existing unrestricted bypass — out of scope for this cutover).
   const isOwner = requesterId === req.params.userId;
-  const isPrivileged = requesterRole === 'enterprise' || requesterRole === 'admin';
+  let isPrivileged = requesterRole === 'admin';
+  if (!isOwner && !isPrivileged && requesterRole === 'enterprise' && requesterId) {
+    const ctx = await resolveCompanyContext(requesterId);
+    isPrivileged = !!ctx && await isCompanyWorker(ctx.companyId, req.params.userId);
+  }
   if (!isOwner && !isPrivileged) {
     return res.status(403).json({ error: 'Not authorized to view this wallet' });
   }
@@ -436,17 +476,20 @@ export async function resolveEnterpriseSecret(enterpriseId: string): Promise<{ s
  *            receives their PREFERRED currency, converted at the live FX rate.
  */
 app.post('/payouts', async (req, res) => {
-  const { enterpriseId, workerId, amount, amountUsd, currency, memo, idempotencyKey } = req.body as {
-    enterpriseId: string; workerId: string;
+  const { workerId, amount, amountUsd, currency, memo, idempotencyKey } = req.body as {
+    enterpriseId?: string; workerId: string;
     amount?: number | string; amountUsd?: number | string; currency?: string; memo?: string;
     idempotencyKey?: string;
   };
 
-  const requesterId = req.headers['x-user-id'];
-  const requesterRole = req.headers['x-user-role'];
-  if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
-  if (requesterId !== enterpriseId) return res.status(403).json({ error: 'Not authorized to create payments for this enterprise' });
-  if (!enterpriseId || !workerId) return res.status(400).json({ error: 'enterpriseId and workerId are required' });
+  const requesterId = req.headers['x-user-id'] as string | undefined;
+  const requesterRole = req.headers['x-user-role'] as string | undefined;
+  if (requesterRole !== 'enterprise' || !requesterId) return res.status(403).json({ error: 'Enterprise role required' });
+  const ctx = await resolveCompanyContextOrSelf(requesterId, requesterRole);
+  if (!ctx) return res.status(403).json({ error: 'You do not belong to a company' });
+  if (!canMoveMoney(ctx.companyRole)) return res.status(403).json({ error: 'Only company owners and admins can send payments' });
+  const enterpriseId = ctx.ownerUserId;
+  if (!workerId) return res.status(400).json({ error: 'workerId is required' });
 
   // Resolve the destination asset + exact amount.
   let asset: string;
@@ -498,17 +541,20 @@ app.post('/payouts', async (req, res) => {
  * Payments execute sequentially (one Stellar source account → one sequence).
  */
 app.post('/payouts/batch', async (req, res) => {
-  const { enterpriseId, currency = 'XLM', items, idempotencyKey } = req.body as {
-    enterpriseId: string;
+  const { currency = 'XLM', items, idempotencyKey } = req.body as {
+    enterpriseId?: string;
     currency?: string;
     items: Array<{ workerId: string; amount: number | string; memo?: string }>;
     idempotencyKey?: string;
   };
 
-  const requesterId = req.headers['x-user-id'];
-  const requesterRole = req.headers['x-user-role'];
-  if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
-  if (requesterId !== enterpriseId) return res.status(403).json({ error: 'Not authorized to create payments for this enterprise' });
+  const requesterId = req.headers['x-user-id'] as string | undefined;
+  const requesterRole = req.headers['x-user-role'] as string | undefined;
+  if (requesterRole !== 'enterprise' || !requesterId) return res.status(403).json({ error: 'Enterprise role required' });
+  const ctx = await resolveCompanyContextOrSelf(requesterId, requesterRole);
+  if (!ctx) return res.status(403).json({ error: 'You do not belong to a company' });
+  if (!canMoveMoney(ctx.companyRole)) return res.status(403).json({ error: 'Only company owners and admins can send payments' });
+  const enterpriseId = ctx.ownerUserId;
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'items must be a non-empty array' });
@@ -633,7 +679,8 @@ app.post('/payouts/submit-signature', async (req, res) => {
     paymentId: string;
     signedXDR: string;
   };
-  const requesterId = req.headers['x-user-id'];
+  const requesterId = req.headers['x-user-id'] as string | undefined;
+  const requesterRole = req.headers['x-user-role'] as string | undefined;
 
   if (!paymentId || !signedXDR) {
     return res.status(400).json({ error: 'paymentId and signedXDR are required' });
@@ -651,9 +698,15 @@ app.post('/payouts/submit-signature', async (req, res) => {
     }
 
     const payment = paymentResult.rows[0];
-    // Only the enterprise that created the payment can submit the signature
-    if (requesterId !== payment.enterprise_id) {
+    // Only a member of the company that created the payment (and only
+    // owner/admin, since this moves money) can submit the signature.
+    if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
+    const ctx = await resolveCompanyContextOrSelf(requesterId, requesterRole);
+    if (!ctx || ctx.ownerUserId !== payment.enterprise_id) {
       return res.status(403).json({ error: 'Not authorized to submit signature for this payment' });
+    }
+    if (!canMoveMoney(ctx.companyRole)) {
+      return res.status(403).json({ error: 'Only company owners and admins can submit payment signatures' });
     }
     if (payment.status !== PaymentStatus.PENDING) {
       logger.warn('Attempt to submit signature for non-pending payment', { paymentId, status: payment.status });
@@ -697,13 +750,14 @@ app.post('/payouts/submit-signature', async (req, res) => {
  * GET /payouts — list payments for an enterprise or worker.
  */
 app.get('/payouts', async (req, res) => {
-  const { enterpriseId, workerId, status, limit = '20', offset = '0' } = req.query;
-  const requesterId = req.headers['x-user-id'];
-  const requesterRole = req.headers['x-user-role'];
+  const { workerId, status, limit = '20', offset = '0' } = req.query;
+  const requesterId = req.headers['x-user-id'] as string | undefined;
+  const requesterRole = req.headers['x-user-role'] as string | undefined;
 
-  // Scope strictly to the requester: an enterprise sees its own payments
-  // (optionally filtered by a specific worker); a worker sees only their own.
-  if (requesterRole !== 'enterprise' && requesterRole !== 'worker') {
+  // Scope strictly to the requester's company: an enterprise sees its
+  // company's payments (optionally filtered by a specific worker); a worker
+  // sees only their own.
+  if ((requesterRole !== 'enterprise' && requesterRole !== 'worker') || !requesterId) {
     return res.status(403).json({ error: 'Not authorized' });
   }
 
@@ -713,7 +767,9 @@ app.get('/payouts', async (req, res) => {
     let idx = 1;
 
     if (requesterRole === 'enterprise') {
-      conditions.push(`enterprise_id = $${idx++}`); params.push(requesterId);
+      const ctx = await resolveCompanyContextOrSelf(requesterId, requesterRole);
+      if (!ctx) return res.status(403).json({ error: 'You do not belong to a company' });
+      conditions.push(`enterprise_id = $${idx++}`); params.push(ctx.ownerUserId);
       if (workerId) { conditions.push(`worker_id = $${idx++}`); params.push(workerId); }
     } else {
       conditions.push(`worker_id = $${idx++}`); params.push(requesterId);
@@ -749,28 +805,33 @@ app.get('/payouts', async (req, res) => {
  * GET /payouts/summary — dashboard aggregate stats.
  */
 app.get('/payouts/summary', async (req, res) => {
-  const requesterId = req.headers['x-user-id'];
-  const requesterRole = req.headers['x-user-role'];
+  const requesterId = req.headers['x-user-id'] as string | undefined;
+  const requesterRole = req.headers['x-user-role'] as string | undefined;
 
-  // Enterprises see their enterprise's payments; workers see their own.
+  // Enterprises see their company's payments; workers see their own.
   let scope: string;
-  if (requesterRole === 'enterprise') {
+  let scopeId: string;
+  if (requesterRole === 'enterprise' && requesterId) {
+    const ctx = await resolveCompanyContextOrSelf(requesterId, requesterRole);
+    if (!ctx) return res.status(403).json({ error: 'You do not belong to a company' });
     scope = 'enterprise_id';
-  } else if (requesterRole === 'worker') {
+    scopeId = ctx.ownerUserId;
+  } else if (requesterRole === 'worker' && requesterId) {
     scope = 'worker_id';
+    scopeId = requesterId;
   } else {
     return res.status(403).json({ error: 'Not authorized' });
   }
 
   try {
     const [byStatus, byCurrencyRows] = await Promise.all([
-      query(`SELECT status, COUNT(*) AS count FROM payments WHERE ${scope} = $1 GROUP BY status`, [requesterId]),
+      query(`SELECT status, COUNT(*) AS count FROM payments WHERE ${scope} = $1 GROUP BY status`, [scopeId]),
       // Completed volume per currency — different currencies cannot be summed
       // directly, so we aggregate per currency and convert each to USD.
       query(
         `SELECT currency, COALESCE(SUM(amount), 0) AS vol
            FROM payments WHERE ${scope} = $1 AND status = 'completed' GROUP BY currency`,
-        [requesterId],
+        [scopeId],
       ),
     ]);
 
@@ -805,16 +866,21 @@ app.get('/payouts/summary', async (req, res) => {
  * GET /payouts/recent — last N payments for dashboard.
  */
 app.get('/payouts/recent', async (req, res) => {
-  const requesterId = req.headers['x-user-id'];
-  const requesterRole = req.headers['x-user-role'];
+  const requesterId = req.headers['x-user-id'] as string | undefined;
+  const requesterRole = req.headers['x-user-role'] as string | undefined;
   const limit = Math.min(Number(req.query.limit ?? 10), 50);
 
-  // Enterprises see their enterprise's payments; workers see their own.
+  // Enterprises see their company's payments; workers see their own.
   let scopeColumn: string;
-  if (requesterRole === 'enterprise') {
+  let scopeId: string;
+  if (requesterRole === 'enterprise' && requesterId) {
+    const ctx = await resolveCompanyContextOrSelf(requesterId, requesterRole);
+    if (!ctx) return res.status(403).json({ error: 'You do not belong to a company' });
     scopeColumn = 'p.enterprise_id';
-  } else if (requesterRole === 'worker') {
+    scopeId = ctx.ownerUserId;
+  } else if (requesterRole === 'worker' && requesterId) {
     scopeColumn = 'p.worker_id';
+    scopeId = requesterId;
   } else {
     return res.status(403).json({ error: 'Not authorized' });
   }
@@ -829,7 +895,7 @@ app.get('/payouts/recent', async (req, res) => {
          WHERE ${scopeColumn} = $1
          ORDER BY p.created_at DESC
          LIMIT $2`,
-      [requesterId, limit],
+      [scopeId, limit],
     );
     res.json({ payments: result.rows });
   } catch (err) {
@@ -891,7 +957,8 @@ app.get('/payouts/xlm-price', async (_req, res) => {
  * GET /payouts/:id — full detail for a single payment (for the detail modal).
  */
 app.get('/payouts/:id', async (req, res) => {
-  const requesterId = req.headers['x-user-id'];
+  const requesterId = req.headers['x-user-id'] as string | undefined;
+  const requesterRole = req.headers['x-user-role'] as string | undefined;
 
   try {
     const result = await query(
@@ -910,8 +977,13 @@ app.get('/payouts/:id', async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Payment not found' });
 
     const payment = result.rows[0];
-    // Only the enterprise or worker involved can view this payment.
-    if (requesterId !== payment.enterprise_id && requesterId !== payment.worker_id) {
+    // Only the company (owner/admin/member) or worker involved can view this payment.
+    let authorized = requesterId === payment.worker_id;
+    if (!authorized && requesterRole === 'enterprise' && requesterId) {
+      const ctx = await resolveCompanyContextOrSelf(requesterId, requesterRole);
+      authorized = !!ctx && ctx.ownerUserId === payment.enterprise_id;
+    }
+    if (!authorized) {
       return res.status(403).json({ error: 'Not authorized to view this payment' });
     }
 

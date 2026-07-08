@@ -12,6 +12,8 @@ import {
   HiOutlineCog6Tooth,
   HiOutlineLifebuoy,
   HiOutlineChevronDown,
+  HiOutlineChevronLeft,
+  HiOutlineChevronRight,
   HiOutlineBell,
 } from 'react-icons/hi2';
 import { useState, useEffect, useRef } from 'react';
@@ -242,7 +244,15 @@ function NotificationBell() {
   );
 }
 
-function Sidebar({ role, isOpen, onClose }: { role: string; isOpen: boolean; onClose: () => void }) {
+function Sidebar({
+  role, isOpen, onClose, collapsed, onToggleCollapse,
+}: {
+  role: string;
+  isOpen: boolean;
+  onClose: () => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+}) {
   const navLinks = role === 'worker' ? WORKER_NAV : ENTERPRISE_NAV;
   const location = useLocation();
   const clearSession = useAuthStore((s) => s.clearSession);
@@ -258,6 +268,7 @@ function Sidebar({ role, isOpen, onClose }: { role: string; isOpen: boolean; onC
       to={to}
       className={`sidebar-link${location.pathname === to ? ' active' : ''}`}
       onClick={onClose}
+      title={collapsed ? label : undefined}
     >
       <Icon size={18} />
       <span>{label}</span>
@@ -267,9 +278,18 @@ function Sidebar({ role, isOpen, onClose }: { role: string; isOpen: boolean; onC
   return (
     <>
       {isOpen && <div className="sidebar-overlay" onClick={onClose} />}
-      <aside className={`sidebar${isOpen ? ' open' : ''}`}>
+      <aside className={`sidebar${isOpen ? ' open' : ''}${collapsed ? ' collapsed' : ''}`}>
+        <button
+          className="sidebar-collapse-toggle"
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? <HiOutlineChevronRight size={14} /> : <HiOutlineChevronLeft size={14} />}
+        </button>
         <div className="sidebar-logo">
-          <img src="/images/logo-wht.png" alt="Funti3rPay" />
+          <img src="/images/logo-wht.png" alt="Funti3rPay" className="sidebar-logo-full" />
+          <img src="/images/icon.png" alt="Funti3rPay" className="sidebar-logo-icon" />
         </div>
         <nav className="sidebar-nav">
           {navLinks.map(({ to, icon: Icon, label }) => navLink(to, Icon, label))}
@@ -277,7 +297,7 @@ function Sidebar({ role, isOpen, onClose }: { role: string; isOpen: boolean; onC
         <div className="sidebar-footer">
           {FOOTER_LINKS.map(({ to, icon: Icon, label }) => navLink(to, Icon, label))}
           <div className="sidebar-divider" />
-          <button className="sidebar-signout" onClick={handleLogout}>
+          <button className="sidebar-signout" onClick={handleLogout} title={collapsed ? 'Sign Out' : undefined}>
             <HiOutlineArrowRightOnRectangle size={18} />
             <span>Sign Out</span>
           </button>
@@ -364,6 +384,7 @@ function TopBar({ role, onMenuToggle }: { role: string; onMenuToggle: () => void
 function AuthedApp({ role }: { role: string }) {
   const isWorker = role === 'worker';
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebar-collapsed') === 'true');
   const fetchNotifications = useNotificationStore((s) => s.fetch);
   const unreadCount = useNotificationStore((s) => s.unreadCount);
   const prevUnreadRef = useRef<number | null>(null);
@@ -386,9 +407,19 @@ function AuthedApp({ role }: { role: string }) {
     prevUnreadRef.current = unreadCount;
   }, [unreadCount]);
 
+  useEffect(() => {
+    localStorage.setItem('sidebar-collapsed', String(collapsed));
+  }, [collapsed]);
+
   return (
-    <div className="app-shell">
-      <Sidebar role={role} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+    <div className={`app-shell${collapsed ? ' sidebar-collapsed' : ''}`}>
+      <Sidebar
+        role={role}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        collapsed={collapsed}
+        onToggleCollapse={() => setCollapsed((c) => !c)}
+      />
       <div className="content-area">
         <TopBar role={role} onMenuToggle={() => setSidebarOpen((o) => !o)} />
         <main className="main">

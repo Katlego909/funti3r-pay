@@ -1,20 +1,37 @@
 import { Router, Request, Response } from 'express';
 import { query } from '@funti3r/database';
 import { createLogger } from '@funti3r/shared-utils';
+import { resolveCompanyContextOrSelf, canMoveMoney } from '../lib/company.js';
 
 const router = Router();
 const logger = createLogger('SchedulesRoute');
 
-// ── Auth guard ────────────────────────────────────────────────────────────────
+// ── Auth guards ───────────────────────────────────────────────────────────────
 
-function requireEnterprise(req: Request, res: Response): string | null {
+async function requireCompanyRead(req: Request, res: Response): Promise<string | null> {
   const userId = req.headers['x-user-id'] as string | undefined;
   const role = req.headers['x-user-role'] as string | undefined;
   if (role !== 'enterprise' || !userId) {
     res.status(403).json({ error: 'Enterprise role required' });
     return null;
   }
-  return userId;
+  const ctx = (await resolveCompanyContextOrSelf(userId, role))!;
+  return ctx.ownerUserId;
+}
+
+async function requireCompanyWrite(req: Request, res: Response): Promise<string | null> {
+  const userId = req.headers['x-user-id'] as string | undefined;
+  const role = req.headers['x-user-role'] as string | undefined;
+  if (role !== 'enterprise' || !userId) {
+    res.status(403).json({ error: 'Enterprise role required' });
+    return null;
+  }
+  const ctx = (await resolveCompanyContextOrSelf(userId, role))!;
+  if (!canMoveMoney(ctx.companyRole)) {
+    res.status(403).json({ error: 'Only company owners and admins can manage payment schedules' });
+    return null;
+  }
+  return ctx.ownerUserId;
 }
 
 // ── Next-run helper (duplicated from scheduler to keep routes self-contained) ─
@@ -60,7 +77,7 @@ function computeFirstRun(frequency: string, runDay: string, timezone: string): D
 // ── GET /schedules ────────────────────────────────────────────────────────────
 
 router.get('/', async (req: Request, res: Response) => {
-  const enterpriseId = requireEnterprise(req, res);
+  const enterpriseId = await requireCompanyRead(req, res);
   if (!enterpriseId) return;
 
   try {
@@ -112,7 +129,7 @@ router.get('/', async (req: Request, res: Response) => {
 // ── POST /schedules ───────────────────────────────────────────────────────────
 
 router.post('/', async (req: Request, res: Response) => {
-  const enterpriseId = requireEnterprise(req, res);
+  const enterpriseId = await requireCompanyWrite(req, res);
   if (!enterpriseId) return;
 
   const { name, frequency, runDay, timezone = 'UTC', items } = req.body as {
@@ -173,7 +190,7 @@ router.post('/', async (req: Request, res: Response) => {
 // ── PATCH /schedules/:id ──────────────────────────────────────────────────────
 
 router.patch('/:id', async (req: Request, res: Response) => {
-  const enterpriseId = requireEnterprise(req, res);
+  const enterpriseId = await requireCompanyWrite(req, res);
   if (!enterpriseId) return;
 
   const { id } = req.params;
@@ -202,7 +219,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 // ── DELETE /schedules/:id ─────────────────────────────────────────────────────
 
 router.delete('/:id', async (req: Request, res: Response) => {
-  const enterpriseId = requireEnterprise(req, res);
+  const enterpriseId = await requireCompanyWrite(req, res);
   if (!enterpriseId) return;
 
   const { id } = req.params;

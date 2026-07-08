@@ -131,7 +131,10 @@ AppData/
 *.xml
 .git-rewrite/
 
-# Playwright/browser verification artifacts - scratch outputs, not app assets
-# (tracked PNG assets live under apps/*/public/, so this is root-scoped only)
-/*.png
+# Playwright/browser verification artifacts - scratch outputs, not app assets.
+# Repo-wide (not just root) since screenshot tools sometimes save relative to
+# a subdirectory cwd - explicitly allowlist the real tracked image assets.
+*.png
+!apps/*/public/**/*.png
 .playwright-mcp/
+**/.playwright-mcp/

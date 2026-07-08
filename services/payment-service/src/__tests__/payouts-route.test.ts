@@ -4,7 +4,7 @@ import axios from 'axios';
 import { query } from '@funti3r/database';
 import * as stellar from '../lib/stellar.js';
 import app, { payoutPayloadHash } from '../app.js';
-import { createQueryMock, WORKER_ID, ENTERPRISE_ID, WORKER_ROW, HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT } from './helpers.js';
+import { createQueryMock, WORKER_ID, ENTERPRISE_ID, ADMIN_ID, MEMBER_ID, WORKER_ROW, HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT } from './helpers.js';
 
 const ENTERPRISE_SECRET_HANDLER = {
   match: /^SELECT stellar_secret_key FROM users/,
@@ -15,6 +15,10 @@ const enterpriseHeaders = { 'x-user-id': ENTERPRISE_ID, 'x-user-role': 'enterpri
 
 beforeEach(() => {
   vi.mocked(query).mockReset();
+  // Default: ENTERPRISE_ID resolves as its own company's owner — every test
+  // below that doesn't override this keeps the pre-Phase-2 behavior where the
+  // requester IS the enterprise identity being scoped by.
+  vi.mocked(query).mockImplementation(createQueryMock([]));
   vi.mocked(axios.get).mockReset().mockResolvedValue({ data: { status: 'verified' } });
   vi.mocked(stellar.sendPayment).mockReset();
   vi.mocked(stellar.payExactWithXlm).mockReset();
@@ -30,13 +34,29 @@ describe('POST /payouts — authorization', () => {
     expect(res.status).toBe(403);
   });
 
-  it('403s when the requester is not the enterprise on the request', async () => {
+  it('403s when requester is a company member (not owner/admin) — money movement is owner/admin-only', async () => {
     const res = await request(app)
       .post('/payouts')
-      .set({ 'x-user-id': 'someone-else', 'x-user-role': 'enterprise' })
-      .send({ enterpriseId: ENTERPRISE_ID, workerId: WORKER_ID, amount: 5, currency: 'XLM' });
+      .set({ 'x-user-id': MEMBER_ID, 'x-user-role': 'enterprise' })
+      .send({ workerId: WORKER_ID, amount: 5, currency: 'XLM' });
 
     expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/owners and admins/);
+  });
+
+  it('admin can send a payment on behalf of the company', async () => {
+    vi.mocked(query).mockImplementation(
+      createQueryMock([ENTERPRISE_SECRET_HANDLER, HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT]),
+    );
+    vi.mocked(stellar.sendPayment).mockResolvedValue('tx-admin-send');
+
+    const res = await request(app)
+      .post('/payouts')
+      .set({ 'x-user-id': ADMIN_ID, 'x-user-role': 'enterprise' })
+      .send({ workerId: WORKER_ID, amount: 5, currency: 'XLM' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.stellarTxHash).toBe('tx-admin-send');
   });
 
   it('400s when workerId is missing', async () => {

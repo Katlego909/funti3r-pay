@@ -53,7 +53,6 @@ export async function getRecentPayments(limit = 10): Promise<Payment[]> {
 }
 
 export async function listPayments(params: {
-  enterpriseId?: string;
   workerId?: string;
   status?: string;
   limit?: number;
@@ -74,7 +73,6 @@ export async function getQuotes(params: {
 }
 
 export async function initiatePayment(payload: {
-  enterpriseId: string;
   workerId: string;
   amount?: number;
   amountUsd?: number;
@@ -116,7 +114,6 @@ export interface BatchResult {
 }
 
 export async function initiateBatchPayment(payload: {
-  enterpriseId: string;
   currency?: string;
   items: Array<{ workerId: string; amount: number; memo?: string }>;
   idempotencyKey?: string;

@@ -208,13 +208,15 @@ async function acceptWorkerInvite(token: string, workerId: string): Promise<bool
  * there is no company_role JWT/session claim by design (see companyAuth
  * notes in the plan); never trust a cached claim for this decision.
  */
-async function resolveActiveMembership(userId: string): Promise<{ companyId: string; companyRole: string } | null> {
+async function resolveActiveMembership(userId: string): Promise<{ companyId: string; companyRole: string; ownerUserId: string } | null> {
   const r = await query(
-    `SELECT enterprise_id, company_role FROM enterprise_members WHERE user_id = $1 AND status = 'active'`,
+    `SELECT em.enterprise_id AS company_id, em.company_role, e.user_id AS owner_user_id
+       FROM enterprise_members em JOIN enterprises e ON e.id = em.enterprise_id
+      WHERE em.user_id = $1 AND em.status = 'active'`,
     [userId],
   );
   if (!r.rows.length) return null;
-  return { companyId: r.rows[0].enterprise_id, companyRole: r.rows[0].company_role };
+  return { companyId: r.rows[0].company_id, companyRole: r.rows[0].company_role, ownerUserId: r.rows[0].owner_user_id };
 }
 
 /**
@@ -756,18 +758,11 @@ app.post('/api/auth/logout', logoutHandler);
 // ── Users ─────────────────────────────────────────────────────────────────────
 
 /** Resolves the `enterprises.id` for a user, or null if they have no company profile yet. */
-async function enterpriseIdFor(userId: string): Promise<string | null> {
-  const r = await query('SELECT id FROM enterprises WHERE user_id = $1', [userId]);
-  return r.rows[0]?.id ?? null;
-}
-
-/** True if `workerId` is an active worker of the enterprise identified by `enterpriseUserId`. */
-async function isOwnWorker(enterpriseUserId: string, workerId: string): Promise<boolean> {
+/** True if `workerId` is an active worker of company `companyId` (enterprises.id). */
+async function isOwnWorker(companyId: string, workerId: string): Promise<boolean> {
   const r = await query(
-    `SELECT 1 FROM enterprise_workers ew
-       JOIN enterprises e ON e.id = ew.enterprise_id
-      WHERE e.user_id = $1 AND ew.worker_id = $2 AND ew.status = 'active'`,
-    [enterpriseUserId, workerId],
+    `SELECT 1 FROM enterprise_workers WHERE enterprise_id = $1 AND worker_id = $2 AND status = 'active'`,
+    [companyId, workerId],
   );
   return r.rows.length > 0;
 }
@@ -785,8 +780,9 @@ app.get('/users/summary', async (req, res) => {
   }
 
   try {
-    const enterpriseId = await enterpriseIdFor(requesterId);
-    if (!enterpriseId) return res.json({ total: 0, byRole: {} });
+    const membership = await resolveActiveMembership(requesterId);
+    if (!membership) return res.json({ total: 0, byRole: {} });
+    const enterpriseId = membership.companyId;
 
     const total = await query(
       `SELECT COUNT(*) AS total FROM enterprise_workers WHERE enterprise_id = $1 AND status = 'active'`,
@@ -818,8 +814,9 @@ app.get('/users', async (req, res) => {
   }
 
   try {
-    const enterpriseId = await enterpriseIdFor(requesterId);
-    if (!enterpriseId) return res.json({ users: [], total: 0 });
+    const membership = await resolveActiveMembership(requesterId);
+    if (!membership) return res.json({ users: [], total: 0 });
+    const enterpriseId = membership.companyId;
 
     const search = req.query.search as string | undefined;
     const limit = Math.min(Number(req.query.limit ?? 50), 500);
@@ -861,20 +858,29 @@ app.get('/users/:id', async (req, res) => {
 
   try {
     const isSelf = requesterId === req.params.id;
-    const isOwner = !isSelf && requesterRole === 'enterprise' && requesterId
-      ? await isOwnWorker(requesterId, req.params.id)
-      : false;
+    let membership: { companyId: string; companyRole: string; ownerUserId: string } | null = null;
+    if (requesterRole === 'enterprise' && requesterId) {
+      membership = await resolveActiveMembership(requesterId);
+    }
+    let isOwner = false;
+    if (!isSelf && membership) {
+      isOwner = await isOwnWorker(membership.companyId, req.params.id);
+    }
     if (!isSelf && !isOwner) {
       return res.status(403).json({ error: 'Not authorized to view this user' });
     }
 
+    // Company fields are resolved via enterprise_members (not the owner-only
+    // enterprises.user_id) so an admin/member teammate's self-lookup sees the
+    // same company name as the owner — same fix as the Phase 2 cutover.
+    const companyId = isSelf ? (membership?.companyId ?? null) : null;
     const result = await query(
       `SELECT u.id, u.email, u.role, u.status, u.country, u.preferred_currency, u.created_at,
               e.company_name, e.company_registration, e.country AS company_country
          FROM users u
-         LEFT JOIN enterprises e ON e.user_id = u.id
+         LEFT JOIN enterprises e ON e.id = $2
         WHERE u.id = $1`,
-      [req.params.id],
+      [req.params.id, companyId],
     );
     if (result.rows.length === 0) throw new NotFoundError('User');
     res.json(result.rows[0]);
@@ -998,15 +1004,22 @@ app.post('/invites', async (req, res) => {
   const normalizedEmail = email.toLowerCase();
 
   try {
+    // worker_invites.enterprise_id stores the company OWNER's users.id, not
+    // the requester's own id — resolve membership first so an invited
+    // admin/member teammate (not just the owner) can invite workers too.
+    const membership = await resolveActiveMembership(requesterId);
+    if (!membership) return res.status(403).json({ error: 'You do not belong to a company' });
+    const ownerUserId = membership.ownerUserId;
+
     // Don't re-invite someone already an active worker of THIS enterprise —
     // a worker can legitimately work for multiple companies, so this is
-    // scoped to the requester, not a global "already a worker" check.
+    // scoped to the requester's company, not a global "already a worker" check.
     const existingWorker = await query(
       `SELECT 1 FROM enterprise_workers ew
          JOIN enterprises e ON e.id = ew.enterprise_id
          JOIN users u ON u.id = ew.worker_id
         WHERE e.user_id = $1 AND u.email = $2 AND ew.status = 'active'`,
-      [requesterId, normalizedEmail],
+      [ownerUserId, normalizedEmail],
     );
     if (existingWorker.rows.length > 0) {
       return res.status(409).json({ error: 'This person is already part of your team' });
@@ -1017,7 +1030,7 @@ app.post('/invites', async (req, res) => {
     // of the link correctly stop working once the token is regenerated.
     const existingInvite = await query(
       `SELECT id FROM worker_invites WHERE enterprise_id = $1 AND email = $2 AND status = 'pending'`,
-      [requesterId, normalizedEmail],
+      [ownerUserId, normalizedEmail],
     );
 
     const token = randomBytes(32).toString('hex');
@@ -1029,7 +1042,7 @@ app.post('/invites', async (req, res) => {
     } else {
       await query(
         `INSERT INTO worker_invites (enterprise_id, email, token) VALUES ($1, $2, $3)`,
-        [requesterId, normalizedEmail, token],
+        [ownerUserId, normalizedEmail, token],
       );
     }
 
@@ -1048,6 +1061,9 @@ app.get('/invites', async (req, res) => {
   if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
 
   try {
+    const membership = await resolveActiveMembership(requesterId);
+    if (!membership) return res.json({ invites: [] });
+
     // Exclude invites whose email is already an active worker of this
     // enterprise, regardless of the invite row's own `status` — an older
     // invite can be left 'pending' in the DB even after the person joined
@@ -1064,7 +1080,7 @@ app.get('/invites', async (req, res) => {
              WHERE e.user_id = wi.enterprise_id AND u.email = wi.email AND ew.status = 'active'
           )
         ORDER BY wi.created_at DESC`,
-      [requesterId],
+      [membership.ownerUserId],
     );
     return res.json({ invites: result.rows });
   } catch (err) {

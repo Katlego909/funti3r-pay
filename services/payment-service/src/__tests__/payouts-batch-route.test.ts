@@ -5,7 +5,7 @@ import axios from 'axios';
 import { query } from '@funti3r/database';
 import * as stellar from '../lib/stellar.js';
 import app from '../app.js';
-import { createQueryMock, WORKER_ID, ENTERPRISE_ID, HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT } from './helpers.js';
+import { createQueryMock, WORKER_ID, ENTERPRISE_ID, ADMIN_ID, MEMBER_ID, HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT } from './helpers.js';
 
 const ENTERPRISE_SECRET_HANDLER = {
   match: /^SELECT stellar_secret_key FROM users/,
@@ -18,6 +18,9 @@ const enterpriseHeaders = { 'x-user-id': ENTERPRISE_ID, 'x-user-role': 'enterpri
 
 beforeEach(() => {
   vi.mocked(query).mockReset();
+  // Default: ENTERPRISE_ID resolves as its own company's owner — matches the
+  // pre-Phase-2 assumption that the requester IS the enterprise identity.
+  vi.mocked(query).mockImplementation(createQueryMock([]));
   vi.mocked(axios.get).mockReset().mockResolvedValue({ data: { status: 'verified' } });
   vi.mocked(stellar.sendPayment).mockReset();
 });
@@ -29,6 +32,30 @@ describe('POST /payouts/batch — authorization and validation', () => {
       .set({ 'x-user-id': ENTERPRISE_ID, 'x-user-role': 'worker' })
       .send({ enterpriseId: ENTERPRISE_ID, items: [{ workerId: WORKER_ID, amount: 1 }] });
     expect(res.status).toBe(403);
+  });
+
+  it('403s when requester is a company member (not owner/admin) — money movement is owner/admin-only', async () => {
+    const res = await request(app)
+      .post('/payouts/batch')
+      .set({ 'x-user-id': MEMBER_ID, 'x-user-role': 'enterprise' })
+      .send({ items: [{ workerId: WORKER_ID, amount: 1 }] });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/owners and admins/);
+  });
+
+  it('admin can execute a batch payout', async () => {
+    vi.mocked(query).mockImplementation(
+      createQueryMock([ENTERPRISE_SECRET_HANDLER, NO_EXISTING_BATCH, BATCH_INSERT_OK, HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT]),
+    );
+    vi.mocked(stellar.sendPayment).mockResolvedValue('tx-admin-batch');
+
+    const res = await request(app)
+      .post('/payouts/batch')
+      .set({ 'x-user-id': ADMIN_ID, 'x-user-role': 'enterprise' })
+      .send({ currency: 'XLM', items: [{ workerId: WORKER_ID, amount: 1 }] });
+
+    expect(res.status).toBe(201);
+    expect(res.body.status).toBe('completed');
   });
 
   it('400s on an empty items array', async () => {
