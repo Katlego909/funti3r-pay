@@ -6,6 +6,7 @@ import {
   HiOutlineFingerPrint,
   HiOutlineArrowsRightLeft,
 } from 'react-icons/hi2';
+import type { UserType } from './types.js';
 
 const ENTERPRISE_STEPS = [
   {
@@ -70,8 +71,8 @@ const WORKER_STEPS = [
 ];
 
 interface HowItWorksProps {
-  userType: 'enterprise' | 'worker';
-  onSelectUserType: (userType: 'enterprise' | 'worker') => void;
+  userType: UserType;
+  onSelectUserType: (userType: UserType) => void;
 }
 
 /** How-it-works flow — enterprise/worker tabs with per-role steps. */
@@ -100,7 +101,7 @@ export default function HowItWorks({ userType, onSelectUserType }: HowItWorksPro
 
       <div className="flow">
         {(userType === 'enterprise' ? ENTERPRISE_STEPS : WORKER_STEPS).map((s, i) => (
-          <div className="flow-step" key={i}>
+          <div className="flow-step" key={s.t}>
             <span className="flow-badge">{i + 1}</span>
             <h4>{s.t}</h4>
             <p>{s.d}</p>

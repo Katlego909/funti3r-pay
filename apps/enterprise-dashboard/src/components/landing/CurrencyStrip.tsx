@@ -8,15 +8,7 @@ const CURRENCIES: Array<{ code: string; label?: string; cc?: string; coin?: bool
   { code: 'ZAR', label: 'South African Rand',  cc: 'za' },
   { code: 'UGX', label: 'Ugandan Shilling',    cc: 'ug' },
   { code: 'USDC', label: 'USD Coin',           coin: true },
-  { code: 'TZS', label: 'Tanzanian Shilling',  cc: 'tz' },
-  { code: 'RWF', label: 'Rwandan Franc',       cc: 'rw' },
-  { code: 'ETB', label: 'Ethiopian Birr',      cc: 'et' },
-  { code: 'EGP', label: 'Egyptian Pound',      cc: 'eg' },
-  { code: 'XOF', label: 'West African Franc',  cc: 'sn' },
-  { code: 'MAD', label: 'Moroccan Dirham',     cc: 'ma' },
   { code: 'XLM', label: 'Stellar Lumens',      xlm: true },
-  { code: 'MWK', label: 'Malawian Kwacha',     cc: 'mw' },
-  { code: 'ZMW', label: 'Zambian Kwacha',      cc: 'zm' },
 ];
 
 /** Infinite-scroll currency carousel ("Pay out in" strip). */

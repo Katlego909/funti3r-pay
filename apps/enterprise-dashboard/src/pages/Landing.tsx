@@ -16,19 +16,26 @@ import {
 import FinalCta from '../components/landing/FinalCta.js';
 import FaqSection from '../components/landing/FaqSection.js';
 import WaitlistSection from '../components/landing/WaitlistSection.js';
+import type { UserType } from '../components/landing/types.js';
 import '../styles/Landing.css';
+
+/** Router `state` this page reacts to, e.g. navigated here from another page asking to jump to the footer. */
+interface LandingLocationState {
+  scrollToFooter?: boolean;
+}
 
 export default function Landing() {
   useDocumentTitle('Cross-Border Payroll for Africa');
-  const [userType, setUserType] = useState<'enterprise' | 'worker'>('enterprise');
+  const [userType, setUserType] = useState<UserType>('enterprise');
   const [contactIntent, setContactIntent] = useState<'demo' | 'sales' | null>(null);
   const { state } = useLocation();
+  const locationState = state as LandingLocationState | null;
 
   useEffect(() => {
-    if ((state as any)?.scrollToFooter) {
+    if (locationState?.scrollToFooter) {
       document.getElementById('landing-footer')?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [state]);
+  }, [locationState]);
 
   return (
     <div className="landing">

@@ -45,7 +45,7 @@ export default function FaqSection() {
       </div>
       <div className="faq-container">
         {faqs.map((faq, index) => (
-          <div key={index} className="faq-item">
+          <div key={faq.question} className="faq-item">
             <button
               className={`faq-question ${openFaq === index ? 'open' : ''}`}
               onClick={() => setOpenFaq(openFaq === index ? null : index)}

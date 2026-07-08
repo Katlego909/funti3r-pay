@@ -16,6 +16,12 @@ import StellarMark from './StellarMark.js';
 
 const logoWhtImg = '/images/logo-wht.png';
 
+const TRUST_STATS = [
+  { icon: <HiOutlineBolt size={34} />, value: '~5s', label: 'Average settlement' },
+  { icon: <HiOutlineCurrencyDollar size={34} />, value: '<¢1', label: 'Network fee per payment' },
+  { icon: <HiOutlineShieldCheck size={34} />, value: '100%', label: 'On-chain & verifiable' },
+];
+
 /** Stats band — settlement speed, fees, on-chain verifiability. */
 export function TrustStats() {
   return (
@@ -24,32 +30,51 @@ export function TrustStats() {
         <h3>Money movement, re-engineered</h3>
         <p>Built on open blockchain rails — fast, transparent, and borderless by default.</p>
         <div className="trust-stats">
-          <div className="stat">
-            <div className="stat-icon">
-              <HiOutlineBolt size={34} />
+          {TRUST_STATS.map((s) => (
+            <div className="stat" key={s.label}>
+              <div className="stat-icon">{s.icon}</div>
+              <div className="stat-value">{s.value}</div>
+              <div className="stat-label">{s.label}</div>
             </div>
-            <div className="stat-value">~5s</div>
-            <div className="stat-label">Average settlement</div>
-          </div>
-          <div className="stat">
-            <div className="stat-icon">
-              <HiOutlineCurrencyDollar size={34} />
-            </div>
-            <div className="stat-value">&lt;¢1</div>
-            <div className="stat-label">Network fee per payment</div>
-          </div>
-          <div className="stat">
-            <div className="stat-icon">
-              <HiOutlineShieldCheck size={34} />
-            </div>
-            <div className="stat-value">100%</div>
-            <div className="stat-label">On-chain &amp; verifiable</div>
-          </div>
+          ))}
         </div>
       </div>
     </section>
   );
 }
+
+const FEATURES = [
+  {
+    icon: <HiOutlineBolt size={26} />,
+    title: 'Instant on-chain settlement',
+    description: 'Payments clear on the Stellar network in seconds, 24/7 — no banks, no batch cut-offs.',
+  },
+  {
+    icon: <HiOutlineGlobeAlt size={26} />,
+    title: 'Local-currency payouts',
+    description: 'Send USD; workers receive Naira, Cedi, Shilling, Rand or Ugandan Shilling at live FX rates.',
+  },
+  {
+    icon: <HiOutlineCurrencyDollar size={26} />,
+    title: 'Stablecoin payments',
+    description: 'Pay in USDC for stable, dollar-pegged value that holds the same across every border.',
+  },
+  {
+    icon: <HiOutlineUserGroup size={26} />,
+    title: 'Batch payroll',
+    description: 'Pay your entire team in one go — different amounts and currencies per worker.',
+  },
+  {
+    icon: <HiOutlineFingerPrint size={26} />,
+    title: 'Passwordless security',
+    description: 'Passkey sign-in (WebAuthn). Nothing to phish, and account keys are encrypted at rest.',
+  },
+  {
+    icon: <HiOutlineShieldCheck size={26} />,
+    title: 'Verifiable & transparent',
+    description: 'Every payout is a real on-chain transaction you can verify on the public Stellar ledger.',
+  },
+];
 
 /** Features grid. */
 export function FeaturesSection() {
@@ -60,60 +85,13 @@ export function FeaturesSection() {
         <p>One platform — multi-currency, instant, and secure</p>
       </div>
       <div className="features-grid">
-        <div className="feature-card">
-          <div className="feature-icon">
-            <HiOutlineBolt size={26} />
+        {FEATURES.map((f) => (
+          <div className="feature-card" key={f.title}>
+            <div className="feature-icon">{f.icon}</div>
+            <h4>{f.title}</h4>
+            <p>{f.description}</p>
           </div>
-          <h4>Instant on-chain settlement</h4>
-          <p>
-            Payments clear on the Stellar network in seconds, 24/7 — no banks, no batch cut-offs.
-          </p>
-        </div>
-        <div className="feature-card">
-          <div className="feature-icon">
-            <HiOutlineGlobeAlt size={26} />
-          </div>
-          <h4>Local-currency payouts</h4>
-          <p>
-            Send USD; workers receive Naira, Cedi, Shilling, Rand or Ugandan Shilling at live FX
-            rates.
-          </p>
-        </div>
-        <div className="feature-card">
-          <div className="feature-icon">
-            <HiOutlineCurrencyDollar size={26} />
-          </div>
-          <h4>Stablecoin payments</h4>
-          <p>
-            Pay in USDC for stable, dollar-pegged value that holds the same across every border.
-          </p>
-        </div>
-        <div className="feature-card">
-          <div className="feature-icon">
-            <HiOutlineUserGroup size={26} />
-          </div>
-          <h4>Batch payroll</h4>
-          <p>Pay your entire team in one go — different amounts and currencies per worker.</p>
-        </div>
-        <div className="feature-card">
-          <div className="feature-icon">
-            <HiOutlineFingerPrint size={26} />
-          </div>
-          <h4>Passwordless security</h4>
-          <p>
-            Passkey sign-in (WebAuthn). Nothing to phish, and account keys are encrypted at rest.
-          </p>
-        </div>
-        <div className="feature-card">
-          <div className="feature-icon">
-            <HiOutlineShieldCheck size={26} />
-          </div>
-          <h4>Verifiable &amp; transparent</h4>
-          <p>
-            Every payout is a real on-chain transaction you can verify on the public Stellar
-            ledger.
-          </p>
-        </div>
+        ))}
       </div>
     </section>
   );
@@ -164,6 +142,29 @@ export function UseCasesSection() {
   );
 }
 
+const SECURITY_BADGES = [
+  {
+    icon: <HiOutlineFingerPrint size={28} />,
+    title: 'Passkey authentication',
+    description: 'Biometric WebAuthn sign-in — no passwords.',
+  },
+  {
+    icon: <HiOutlineLockClosed size={28} />,
+    title: 'Encrypted at rest',
+    description: 'Account keys sealed with AES-256-GCM.',
+  },
+  {
+    icon: <HiOutlineCpuChip size={28} />,
+    title: 'On-chain & verifiable',
+    description: 'Every payment auditable on Stellar.',
+  },
+  {
+    icon: <HiOutlineShieldCheck size={28} />,
+    title: 'Compliance built-in',
+    description: 'KYC verification before payouts.',
+  },
+];
+
 /** Security & compliance badge row. */
 export function SecuritySection() {
   return (
@@ -173,34 +174,13 @@ export function SecuritySection() {
         <p>Modern authentication meets open-ledger transparency</p>
       </div>
       <div className="security-badges">
-        <div className="security-badge">
-          <div className="badge-icon">
-            <HiOutlineFingerPrint size={28} />
+        {SECURITY_BADGES.map((b) => (
+          <div className="security-badge" key={b.title}>
+            <div className="badge-icon">{b.icon}</div>
+            <h5>{b.title}</h5>
+            <p>{b.description}</p>
           </div>
-          <h5>Passkey authentication</h5>
-          <p>Biometric WebAuthn sign-in — no passwords.</p>
-        </div>
-        <div className="security-badge">
-          <div className="badge-icon">
-            <HiOutlineLockClosed size={28} />
-          </div>
-          <h5>Encrypted at rest</h5>
-          <p>Account keys sealed with AES-256-GCM.</p>
-        </div>
-        <div className="security-badge">
-          <div className="badge-icon">
-            <HiOutlineCpuChip size={28} />
-          </div>
-          <h5>On-chain &amp; verifiable</h5>
-          <p>Every payment auditable on Stellar.</p>
-        </div>
-        <div className="security-badge">
-          <div className="badge-icon">
-            <HiOutlineShieldCheck size={28} />
-          </div>
-          <h5>Compliance built-in</h5>
-          <p>KYC verification before payouts.</p>
-        </div>
+        ))}
       </div>
     </section>
   );

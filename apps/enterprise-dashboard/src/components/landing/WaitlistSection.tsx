@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { HiOutlineCheckCircle } from 'react-icons/hi2';
 import { Flag } from '../CurrencyIcon.js';
 import { submitLead } from '../../lib/leads.js';
+import { isValidEmail } from '../../lib/validation.js';
 import StellarMark from './StellarMark.js';
 
 const UPCOMING_CORRIDORS = [
@@ -20,7 +21,7 @@ export default function WaitlistSection() {
   async function handleWaitlistSubmit(e: FormEvent) {
     e.preventDefault();
     if (waitlistStatus === 'submitting') return;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(waitlistEmail)) {
+    if (!isValidEmail(waitlistEmail)) {
       setWaitlistError('Enter a valid email address.');
       setWaitlistStatus('error');
       return;

@@ -2,9 +2,10 @@ import { Link } from 'react-router-dom';
 import { HiOutlineArrowRight } from 'react-icons/hi2';
 import { CtaLink, MARKETING_ONLY } from './CtaLink.js';
 import PayoutCard from './PayoutCard.js';
+import type { UserType } from './types.js';
 
 interface HeroSectionProps {
-  userType: 'enterprise' | 'worker';
+  userType: UserType;
   onTalkToSales: () => void;
 }
 
@@ -14,7 +15,6 @@ export default function HeroSection({ userType, onTalkToSales }: HeroSectionProp
     <div className="hero-bg">
       <section className="hero">
         <div className="hero-content">
-          {/* <span className="hero-badge"><StellarMark size={16} /> Built on the Stellar network</span> */}
           <h2>Pay your global team in local currency.</h2>
           <p>
             Send in USD or USDC — your workers receive Naira, Cedi, Shilling or Rand, converted at
@@ -46,10 +46,6 @@ export default function HeroSection({ userType, onTalkToSales }: HeroSectionProp
               </>
             )}
           </div>
-          {/* <p className="hero-note">
-            <HiOutlineCheckCircle size={16} /> Passkey sign-in · settles in seconds · live FX
-            conversion
-          </p> */}
         </div>
 
         {/* Product mockup */}

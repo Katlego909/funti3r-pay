@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
 import { HiOutlineXMark, HiOutlineCheckCircle, HiOutlineArrowRight } from 'react-icons/hi2';
 import { submitLead } from '../lib/leads.js';
+import { isValidEmail } from '../lib/validation.js';
 
 interface ContactModalProps {
   /** Which form to show; null hides the modal. */
@@ -82,7 +84,7 @@ export default function ContactModal({ intent, onClose }: ContactModalProps) {
   if (!intent) return null;
   const copy = COPY[intent];
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!intent || status === 'submitting') return;
     if (nickname) {
@@ -90,7 +92,7 @@ export default function ContactModal({ intent, onClose }: ContactModalProps) {
       setStatus('success');
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!isValidEmail(email)) {
       setStatus('error');
       return;
     }
@@ -242,7 +244,7 @@ export default function ContactModal({ intent, onClose }: ContactModalProps) {
               </button>
               {status === 'error' && (
                 <p className="cm-error">
-                  {/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+                  {isValidEmail(email)
                     ? 'Something went wrong — please try again.'
                     : 'Enter a valid work email.'}
                 </p>

@@ -138,3 +138,6 @@ AppData/
 !apps/*/public/**/*.png
 .playwright-mcp/
 **/.playwright-mcp/
+
+# Local session-log notes for AI-assisted work - not project documentation.
+context/sessions/

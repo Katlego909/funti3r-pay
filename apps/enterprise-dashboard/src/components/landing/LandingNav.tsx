@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { HiOutlineBars3, HiOutlineXMark } from 'react-icons/hi2';
 import { CtaLink, MARKETING_ONLY } from './CtaLink.js';
+import type { UserType } from './types.js';
 
 const logoImg = '/images/logo.png';
 
 interface LandingNavProps {
-  userType: 'enterprise' | 'worker';
+  userType: UserType;
   onToggleUserType: () => void;
   onTalkToSales: () => void;
 }
@@ -18,9 +19,14 @@ export default function LandingNav({ userType, onToggleUserType, onTalkToSales }
   return (
     <nav className="landing-nav">
       <div className="nav-container">
-        <div className="logo" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} style={{ cursor: 'pointer' }}>
+        <button
+          type="button"
+          className="logo"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          aria-label="Scroll to top"
+        >
           <img src={logoImg} alt="Funti3rPay" className="logo-img" />
-        </div>
+        </button>
         <button
           className="mobile-menu-toggle"
           onClick={() => setMenuOpen(!menuOpen)}
