@@ -106,7 +106,6 @@ export interface BatchItemResult {
 export interface BatchResult {
   batchId: string;
   status: 'completed' | 'partial' | 'failed';
-  currency: string;
   totalRequested: number;
   completedCount: number;
   failedCount: number;
@@ -114,8 +113,7 @@ export interface BatchResult {
 }
 
 export async function initiateBatchPayment(payload: {
-  currency?: string;
-  items: Array<{ workerId: string; amount: number; memo?: string }>;
+  items: Array<{ workerId: string; amountUsd: number; memo?: string }>;
   idempotencyKey?: string;
 }): Promise<BatchResult> {
   // 207 (partial) is a non-2xx the axios client would reject; accept it.

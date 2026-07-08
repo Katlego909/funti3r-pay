@@ -78,36 +78,49 @@ async function runDueSchedules(): Promise<void> {
 
   logger.info(`Running ${claimed.rows.length} due schedule(s)`);
 
+  // One query for every claimed schedule's items instead of one per schedule
+  // (same batching this file's sibling route, routes/schedules.ts, already
+  // does for GET /schedules) — matters when several schedules are due in the
+  // same hourly tick.
+  const scheduleIds = claimed.rows.map((s) => s.id);
+  const allItemsRes = await query<{ schedule_id: string; worker_id: string; amount_usd: string; memo: string | null }>(
+    'SELECT schedule_id, worker_id, amount_usd, memo FROM payment_schedule_items WHERE schedule_id = ANY($1::uuid[])',
+    [scheduleIds],
+  );
+  const itemsBySchedule = new Map<string, Array<{ worker_id: string; amount_usd: string; memo: string | null }>>();
+  for (const row of allItemsRes.rows) {
+    if (!itemsBySchedule.has(row.schedule_id)) itemsBySchedule.set(row.schedule_id, []);
+    itemsBySchedule.get(row.schedule_id)!.push(row);
+  }
+
   for (const schedule of claimed.rows) {
-    await executeSchedule(schedule);
+    await executeSchedule(schedule, itemsBySchedule.get(schedule.id) ?? []);
   }
 }
 
-async function executeSchedule(schedule: {
-  id: string;
-  enterprise_id: string;
-  name: string;
-  frequency: string;
-  run_day: string;
-  timezone: string;
-  last_run_at: string;
-}): Promise<void> {
+async function executeSchedule(
+  schedule: {
+    id: string;
+    enterprise_id: string;
+    name: string;
+    frequency: string;
+    run_day: string;
+    timezone: string;
+    last_run_at: string;
+  },
+  itemRows: Array<{ worker_id: string; amount_usd: string; memo: string | null }>,
+): Promise<void> {
   const { id, enterprise_id, name, frequency, run_day, timezone, last_run_at } = schedule;
 
-  const itemsRes = await query<{ worker_id: string; amount_usd: string; memo: string | null }>(
-    'SELECT worker_id, amount_usd, memo FROM payment_schedule_items WHERE schedule_id = $1',
-    [id],
-  );
-
-  if (itemsRes.rows.length === 0) {
+  if (itemRows.length === 0) {
     logger.warn('Schedule has no items — skipping', { scheduleId: id });
     await updateScheduleAfterRun(id, frequency, run_day, timezone, 'failed');
     return;
   }
 
-  const items = itemsRes.rows.map((r) => ({
+  const items = itemRows.map((r) => ({
     workerId: r.worker_id,
-    amount: Number(r.amount_usd),
+    amountUsd: Number(r.amount_usd),
     memo: r.memo ?? undefined,
   }));
 
@@ -120,7 +133,7 @@ async function executeSchedule(schedule: {
     const idempotencyKey = `schedule:${id}:${last_run_at}`;
     const response = await axios.post(
       `${PAYMENT_SERVICE_URL}/payouts/batch`,
-      { enterpriseId: enterprise_id, currency: 'USDC', items, idempotencyKey },
+      { enterpriseId: enterprise_id, items, idempotencyKey },
       {
         headers: {
           'x-user-id': enterprise_id,
@@ -201,22 +214,33 @@ async function reconcileStuckPayments(): Promise<void> {
       WHERE status = 'processing' AND heartbeat_at < NOW() - INTERVAL '${STALE_BATCH_HEARTBEAT_MINUTES} minutes'`,
   ) as { rows: Array<{ id: string; payment_count: number }> };
 
-  for (const batch of staleBatches.rows) {
-    // Recompute from ground truth — the payments rows already reflect exactly
+  if (staleBatches.rows.length > 0) {
+    // Recompute from ground truth for every stale batch in one query instead
+    // of one GROUP BY per batch — the payments rows already reflect exactly
     // what happened before the crash, whether or not the loop finished.
+    const batchIds = staleBatches.rows.map((b) => b.id);
     const counts = await query(
-      `SELECT status, COUNT(*) AS count FROM payments WHERE batch_id = $1 GROUP BY status`,
-      [batch.id],
-    ) as { rows: Array<{ status: string; count: string }> };
-    const completed = Number(counts.rows.find((r) => r.status === 'completed')?.count ?? 0);
-    const failedOrMissing = Number(batch.payment_count) - completed;
-    const batchStatus = failedOrMissing === 0 ? 'completed' : completed === 0 ? 'failed' : 'partial';
+      `SELECT batch_id, status, COUNT(*) AS count FROM payments WHERE batch_id = ANY($1::uuid[]) GROUP BY batch_id, status`,
+      [batchIds],
+    ) as { rows: Array<{ batch_id: string; status: string; count: string }> };
+    const countsByBatch = new Map<string, Array<{ status: string; count: string }>>();
+    for (const row of counts.rows) {
+      if (!countsByBatch.has(row.batch_id)) countsByBatch.set(row.batch_id, []);
+      countsByBatch.get(row.batch_id)!.push(row);
+    }
 
-    await query(
-      `UPDATE payment_batches SET status = $1, updated_at = NOW() WHERE id = $2 AND status = 'processing'`,
-      [batchStatus, batch.id],
-    );
-    logger.warn('Reconciled stale processing batch', { batchId: batch.id, status: batchStatus, completed, failedOrMissing });
+    for (const batch of staleBatches.rows) {
+      const batchCounts = countsByBatch.get(batch.id) ?? [];
+      const completed = Number(batchCounts.find((r) => r.status === 'completed')?.count ?? 0);
+      const failedOrMissing = Number(batch.payment_count) - completed;
+      const batchStatus = failedOrMissing === 0 ? 'completed' : completed === 0 ? 'failed' : 'partial';
+
+      await query(
+        `UPDATE payment_batches SET status = $1, updated_at = NOW() WHERE id = $2 AND status = 'processing'`,
+        [batchStatus, batch.id],
+      );
+      logger.warn('Reconciled stale processing batch', { batchId: batch.id, status: batchStatus, completed, failedOrMissing });
+    }
   }
 }
 

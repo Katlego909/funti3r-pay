@@ -10,25 +10,12 @@ export interface Worker {
   stellar_public_key?: string | null;
 }
 
-export interface WorkerWallet {
-  userId: string;
-  walletType: string;
-  address?: string;
-  status?: string;
-  balances?: Array<{ asset_type: string; asset_code?: string; balance: string }>;
-}
-
 export interface KYCStatus {
   status: string;
   verified_at?: string;
   submitted_at?: string | null;
   expires_at?: string;
   updated_at?: string;
-}
-
-export async function getWorker(id: string): Promise<Worker> {
-  const { data } = await api.get<Worker>(`/users/${id}`);
-  return data;
 }
 
 export interface WorkerInvite {
@@ -46,16 +33,6 @@ export async function getInvites(): Promise<WorkerInvite[]> {
 
 export async function getUserSummary(): Promise<{ total: number; byRole: Record<string, number> }> {
   const { data } = await api.get('/users/summary');
-  return data;
-}
-
-export async function getWorkerWallet(userId: string): Promise<WorkerWallet> {
-  const { data } = await api.get<WorkerWallet>(`/wallets/${userId}`);
-  return data;
-}
-
-export async function getKYCStatus(userId: string): Promise<KYCStatus> {
-  const { data } = await api.get<KYCStatus>(`/compliance/${userId}/status`);
   return data;
 }
 

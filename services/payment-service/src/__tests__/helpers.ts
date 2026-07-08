@@ -75,6 +75,20 @@ export const HANDLER_WORKER_FOUND: QueryHandler = {
   handler: () => ({ rows: [WORKER_ROW] }),
 };
 
+/**
+ * POST /payouts/batch's bulk worker prefetch (SELECT id, ... WHERE id = ANY($1))
+ * — needs `id` in each row to build its Map, unlike the single-payout
+ * WORKER_ROW above. Defaults every synthesized worker to preferred_currency
+ * 'USDC' (rate 1:1, no live FX call needed) — tests that need a specific
+ * per-worker currency mix should supply their own handler for this query.
+ */
+export const HANDLER_WORKER_FOUND_BULK: QueryHandler = {
+  match: /SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency FROM users WHERE id = ANY/,
+  handler: (params) => ({
+    rows: ((params[0] as string[]) ?? []).map((id) => ({ id, ...WORKER_ROW, preferred_currency: 'USDC' })),
+  }),
+};
+
 export const HANDLER_INSERT_PAYMENT: QueryHandler = {
   match: /INSERT INTO payments/,
   handler: () => ({ rows: [{ id: 'payment-aaaa-aaaa-aaaa-aaaaaaaaaaaa' }] }),

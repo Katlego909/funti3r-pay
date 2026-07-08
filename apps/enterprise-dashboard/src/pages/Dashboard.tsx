@@ -43,33 +43,27 @@ const CURRENCY_COLORS: Record<string, string> = {
   UGX: '#ef4444',
 };
 
-function CurrencyBadges({ byCurrency }: { byCurrency: Record<string, number> }) {
-  const entries = Object.entries(byCurrency).filter(([, a]) => Number(a) > 0);
+/**
+ * A list of equal-weight currency rows (color dot + amount + code), used by
+ * both the Wallet Balance and Total Received/Payments cards so a user learns
+ * one visual pattern instead of two different ones (a hero number + fine
+ * print vs. a hero number + pills) for numbers that mean different things.
+ */
+function CurrencyBreakdown({ items }: { items: Array<{ code: string; amount: number }> }) {
+  const entries = items.filter((i) => i.amount > 0);
   if (entries.length === 0) return null;
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px' }}>
-      {entries.map(([code, amt]) => {
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px' }}>
+      {entries.map(({ code, amount }) => {
         const color = CURRENCY_COLORS[code] ?? '#6b7280';
         return (
-          <span
-            key={code}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '4px 10px',
-              borderRadius: '999px',
-              background: `${color}14`,
-              border: `1px solid ${color}40`,
-              color,
-              fontSize: '0.72rem',
-              fontWeight: 700,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: color }} />
-            {Number(amt).toLocaleString(undefined, { maximumFractionDigits: 2 })} {code}
-          </span>
+          <div key={code} style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+            <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--gray-900)' }}>
+              {amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            </span>
+            <span style={{ fontSize: '12px', fontWeight: 600, color }}>{code}</span>
+          </div>
         );
       })}
     </div>
@@ -151,12 +145,6 @@ export default function Dashboard() {
   const pending = summary?.byStatus['pending'] ?? 0;
   const processing = summary?.byStatus['processing'] ?? 0;
 
-  const fmtXlm = (n: number) =>
-    n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const fmtUsd = (xlm: number) =>
-    xlmUsd > 0
-      ? `≈ $${(xlm * xlmUsd).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-      : '';
   const balanceXlm = walletBalance ? parseFloat(walletBalance) : 0;
   const unit = (lbl: string) => (
     <span style={{ fontSize: '0.5em', fontWeight: 600, marginLeft: '0.2em', opacity: 0.85 }}>
@@ -165,6 +153,15 @@ export default function Dashboard() {
   );
   const fmtMoney = (n: number) =>
     n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Combined USD estimate across every currency the wallet actually holds —
+  // not just the native XLM figure — so the footer total matches what the
+  // CurrencyBreakdown rows above it show.
+  const combinedWalletUsd =
+    balanceXlm * xlmUsd +
+    otherBalances.reduce((sum, b) => {
+      const rate = fxRates[b.code];
+      return rate ? sum + parseFloat(b.balance) / rate : sum;
+    }, 0);
 
   return (
     <div className="dashboard">
@@ -224,28 +221,20 @@ export default function Dashboard() {
             </span>
             <h3>Wallet Balance</h3>
           </div>
-          <div className="metric-value">
-            {walletBalance ? (
-              <>
-                {fmtXlm(balanceXlm)}
-                {unit('XLM')}
-              </>
-            ) : (
-              '—'
-            )}
-          </div>
-          {!isEnterprise &&
-            otherBalances.map((b) => (
-              <div
-                key={b.code}
-                className="metric-value"
-                style={{ color: 'var(--success)', fontSize: '1rem' }}
-              >
-                {fmtXlm(parseFloat(b.balance))}
-                {unit(b.code)}
-              </div>
-            ))}
-          {walletBalance && xlmUsd > 0 && <div className="metric-change">{fmtUsd(balanceXlm)}</div>}
+          {walletBalance ? (
+            <>
+              <div className="metric-value">${fmtMoney(combinedWalletUsd)}</div>
+              <div className="metric-change">Current on-chain balance</div>
+              <CurrencyBreakdown
+                items={[
+                  { code: 'XLM', amount: balanceXlm },
+                  ...otherBalances.map((b) => ({ code: b.code, amount: parseFloat(b.balance) })),
+                ]}
+              />
+            </>
+          ) : (
+            <div className="metric-value">—</div>
+          )}
         </div>
 
         {/* Total Payments */}
@@ -256,11 +245,19 @@ export default function Dashboard() {
             </span>
             <h3>{isEnterprise ? 'Total Payments' : 'Total Received'}</h3>
           </div>
-          <div className="metric-value">
-            {summary ? `$${fmtMoney(summary.completedVolumeUsd)}` : '—'}
-          </div>
-          <div className="metric-change">{summary?.totalCount ?? 0} transactions</div>
-          {summary && <CurrencyBadges byCurrency={summary.byCurrency} />}
+          {summary ? (
+            <>
+              <div className="metric-value">${fmtMoney(summary.completedVolumeUsd)}</div>
+              <div className="metric-change">
+                Lifetime total {isEnterprise ? 'sent' : 'received'} · {summary.totalCount} transactions
+              </div>
+              <CurrencyBreakdown
+                items={Object.entries(summary.byCurrency).map(([code, amount]) => ({ code, amount }))}
+              />
+            </>
+          ) : (
+            <div className="metric-value">—</div>
+          )}
         </div>
 
         {/* Enterprise: Total Workers / Worker: Pending */}

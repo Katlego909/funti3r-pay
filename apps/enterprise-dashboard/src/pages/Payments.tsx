@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, FormEvent, useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMark, HiOutlineArrowDownTray } from 'react-icons/hi2';
+import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMark, HiOutlineArrowDownTray, HiOutlineClipboard, HiCheck } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
 import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, type Payment, type BatchResult } from '../api/payments.js';
@@ -9,7 +9,7 @@ import { useAuthStore } from '../store/authStore.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string; stellar_public_key?: string }
-interface BatchRow { workerId: string; amount: string }
+interface BatchRow { workerId: string; amountUsd: string }
 
 const CURRENCY_META: Record<string, { name: string; symbol: string }> = {
   USDC: { name: 'USD Coin', symbol: '$' },
@@ -42,6 +42,7 @@ export default function Payments() {
   const [memo, setMemo] = useState('');
   const [fxRates, setFxRates] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [addressCopied, setAddressCopied] = useState(false);
   // Idempotency key for the in-flight (or about-to-be-sent) payment. A ref, not
   // state: a fast double-click can fire handleSend twice before a `disabled`
   // state update paints, but a ref read is synchronous so both invocations see
@@ -50,8 +51,7 @@ export default function Payments() {
 
   // Batch payment form state
   const [batchOpen, setBatchOpen] = useState(false);
-  const [batchCurrency, setBatchCurrency] = useState<'XLM' | 'USDC'>('XLM');
-  const [batchRows, setBatchRows] = useState<BatchRow[]>([{ workerId: '', amount: '' }]);
+  const [batchRows, setBatchRows] = useState<BatchRow[]>([{ workerId: '', amountUsd: '' }]);
   const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
   const batchKeyRef = useRef<string | null>(null);
 
@@ -164,8 +164,8 @@ export default function Payments() {
     e.preventDefault();
     setBatchResult(null);
     const items = batchRows
-      .filter((r) => r.workerId && r.amount && Number(r.amount) > 0)
-      .map((r) => ({ workerId: r.workerId, amount: Number(r.amount) }));
+      .filter((r) => r.workerId && r.amountUsd && Number(r.amountUsd) > 0)
+      .map((r) => ({ workerId: r.workerId, amountUsd: Number(r.amountUsd) }));
     if (items.length === 0) {
       toast.error('Add at least one worker with a positive amount.');
       return;
@@ -174,7 +174,6 @@ export default function Payments() {
     if (!batchKeyRef.current) batchKeyRef.current = crypto.randomUUID();
     try {
       const result = await initiateBatchPayment({
-        currency: batchCurrency,
         items,
         idempotencyKey: batchKeyRef.current,
       });
@@ -216,7 +215,7 @@ export default function Payments() {
               <HiOutlineArrowDownTray size={14} /> {exporting ? 'Exporting…' : 'PDF'}
             </button>
           </div>
-          <button className="btn-secondary" onClick={() => { setBatchOpen(true); setBatchResult(null); setBatchRows([{ workerId: '', amount: '' }]); }}>
+          <button className="btn-secondary" onClick={() => { setBatchOpen(true); setBatchResult(null); setBatchRows([{ workerId: '', amountUsd: '' }]); }}>
             Batch Payout
           </button>
           <button className="btn-cta" onClick={() => setFormOpen(true)}>
@@ -239,15 +238,41 @@ export default function Payments() {
                 </select>
               </label>
               {workerId && (
-                <p style={{ margin: '-8px 0 4px', fontSize: '0.78rem', color: '#6b7280' }}>
-                  Paid in <strong>{CURRENCY_META[payCurrency]?.name ?? payCurrency} ({payCurrency})</strong>
-                  <span style={{ fontFamily: 'monospace', wordBreak: 'break-all', display: 'block' }}>Worker ID: {workerId}</span>
-                  {selectedWorker?.stellar_public_key && (
-                    <span style={{ fontFamily: 'monospace', wordBreak: 'break-all', display: 'block' }}>
-                      Stellar: {selectedWorker.stellar_public_key}
-                    </span>
-                  )}
-                </p>
+                <div style={{
+                  margin: '-8px 0 4px', padding: '10px 12px',
+                  background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '10px',
+                  fontSize: '0.78rem',
+                }}>
+                  <div style={{ color: '#374151', marginBottom: '8px' }}>
+                    Paid in <strong>{CURRENCY_META[payCurrency]?.name ?? payCurrency} ({payCurrency})</strong>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', rowGap: '5px', columnGap: '10px', alignItems: 'center' }}>
+                    <span style={{ color: '#9ca3af', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Worker ID</span>
+                    <span style={{ fontFamily: 'monospace', color: '#374151', wordBreak: 'break-all' }}>{workerId}</span>
+                    {selectedWorker?.stellar_public_key && (
+                      <>
+                        <span style={{ color: '#9ca3af', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Stellar</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                          <span style={{ fontFamily: 'monospace', color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={selectedWorker.stellar_public_key}>
+                            {selectedWorker.stellar_public_key}
+                          </span>
+                          <button
+                            type="button"
+                            title="Copy Stellar address"
+                            onClick={() => {
+                              navigator.clipboard.writeText(selectedWorker.stellar_public_key!);
+                              setAddressCopied(true);
+                              setTimeout(() => setAddressCopied(false), 1500);
+                            }}
+                            style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: addressCopied ? 'var(--success, #059669)' : '#9ca3af', display: 'flex', padding: 0 }}
+                          >
+                            {addressCopied ? <HiCheck size={14} /> : <HiOutlineClipboard size={14} />}
+                          </button>
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
               )}
               <label>Amount (USD)
                 <input
@@ -292,59 +317,67 @@ export default function Payments() {
             <h3>Batch Payout</h3>
             {!batchResult ? (
               <form onSubmit={handleSendBatch} className="payment-form">
-                <label>Currency
-                  <select value={batchCurrency} onChange={(e) => setBatchCurrency(e.target.value as 'XLM' | 'USDC')}>
-                    <option value="XLM">XLM</option>
-                    <option value="USDC">USDC</option>
-                  </select>
-                </label>
+                <p style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: 0 }}>
+                  Enter a USD amount per worker — each one is paid in their own preferred currency.
+                </p>
 
                 {/* Column headers (shown once) */}
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '0.78rem', fontWeight: 600, color: '#6b7280' }}>
                   <span style={{ flex: 2, minWidth: 0 }}>Worker</span>
-                  <span style={{ width: '120px' }}>Amount</span>
+                  <span style={{ width: '120px' }}>Amount (USD)</span>
                   <span style={{ width: '32px' }} />
                 </div>
 
-                {batchRows.map((row, i) => (
-                  <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <select
-                      style={{ flex: 2, minWidth: 0, boxSizing: 'border-box' }}
-                      value={row.workerId}
-                      onChange={(e) => updateBatchRow(i, { workerId: e.target.value })}
-                    >
-                      <option value="">Select a worker…</option>
-                      {workers.map((w) => (
-                        <option key={w.id} value={w.id}>{w.email} — {w.id.slice(0, 8)}…</option>
-                      ))}
-                    </select>
-                    <input
-                      type="number" min="0.0000001" step="0.0000001" placeholder="0.00"
-                      style={{ width: '120px', boxSizing: 'border-box' }}
-                      value={row.amount}
-                      onChange={(e) => updateBatchRow(i, { amount: e.target.value })}
-                    />
-                    <button
-                      type="button"
-                      title="Remove"
-                      style={{ width: '32px', height: '32px', flexShrink: 0, border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', color: '#ef4444', cursor: batchRows.length > 1 ? 'pointer' : 'not-allowed', opacity: batchRows.length > 1 ? 1 : 0.4 }}
-                      disabled={batchRows.length <= 1}
-                      onClick={() => setBatchRows((rows) => rows.filter((_, idx) => idx !== i))}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
+                {batchRows.map((row, i) => {
+                  const rowWorker = workers.find((w) => w.id === row.workerId);
+                  const rowCurrency = (rowWorker?.preferred_currency || 'USDC').toUpperCase();
+                  return (
+                    <div key={i}>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <select
+                          style={{ flex: 2, minWidth: 0, boxSizing: 'border-box' }}
+                          value={row.workerId}
+                          onChange={(e) => updateBatchRow(i, { workerId: e.target.value })}
+                        >
+                          <option value="">Select a worker…</option>
+                          {workers.map((w) => (
+                            <option key={w.id} value={w.id}>{w.email} — {w.id.slice(0, 8)}…</option>
+                          ))}
+                        </select>
+                        <input
+                          type="number" min="0.01" step="0.01" placeholder="0.00"
+                          style={{ width: '120px', boxSizing: 'border-box' }}
+                          value={row.amountUsd}
+                          onChange={(e) => updateBatchRow(i, { amountUsd: e.target.value })}
+                        />
+                        <button
+                          type="button"
+                          title="Remove"
+                          style={{ width: '32px', height: '32px', flexShrink: 0, border: '1px solid #e5e7eb', borderRadius: '6px', background: '#fff', color: '#ef4444', cursor: batchRows.length > 1 ? 'pointer' : 'not-allowed', opacity: batchRows.length > 1 ? 1 : 0.4 }}
+                          disabled={batchRows.length <= 1}
+                          onClick={() => setBatchRows((rows) => rows.filter((_, idx) => idx !== i))}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      {row.workerId && (
+                        <div style={{ fontSize: '0.72rem', color: '#6b7280', margin: '2px 0 0 2px' }}>
+                          → worker receives {rowCurrency}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
 
                 <button type="button" className="btn-secondary" style={{ alignSelf: 'flex-start' }}
-                  onClick={() => setBatchRows((rows) => [...rows, { workerId: '', amount: '' }])}>
+                  onClick={() => setBatchRows((rows) => [...rows, { workerId: '', amountUsd: '' }])}>
                   + Add worker
                 </button>
 
                 <div className="form-actions">
                   <button type="button" className="btn-secondary" onClick={() => setBatchOpen(false)}>Cancel</button>
                   <button type="submit" className="btn-primary" disabled={submitting}>
-                    {submitting ? 'Sending…' : `Send ${batchRows.filter(r => r.workerId && r.amount).length} payment(s)`}
+                    {submitting ? 'Sending…' : `Send ${batchRows.filter(r => r.workerId && r.amountUsd).length} payment(s)`}
                   </button>
                 </div>
               </form>

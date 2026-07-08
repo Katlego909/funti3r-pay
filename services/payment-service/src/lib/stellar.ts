@@ -11,7 +11,7 @@ import {
   Memo,
 } from '@stellar/stellar-sdk';
 import { createLogger } from '@funti3r/shared-utils';
-import { getRedis } from '@funti3r/database';
+import { getRedis, getJSON, setJSON } from '@funti3r/database';
 import axios from 'axios';
 
 const logger = createLogger('StellarService');
@@ -45,10 +45,20 @@ export async function fundWithFriendbot(publicKey: string): Promise<void> {
   }
 }
 
+// Short TTL cache-aside on top of Horizon — balances only change on confirmed
+// payments (~5s Stellar settlement), so this doesn't meaningfully stale the
+// data while cutting repeated Horizon calls under dashboard polling.
+const BALANCE_CACHE_TTL_SECONDS = 20;
+
 export async function getAccountBalance(
   publicKey: string,
 ): Promise<Array<Horizon.HorizonApi.BalanceLine>> {
+  const cacheKey = `stellar:balance:${publicKey}`;
+  const cached = await getJSON<Array<Horizon.HorizonApi.BalanceLine>>(cacheKey).catch(() => null);
+  if (cached) return cached;
+
   const account = await horizon.loadAccount(publicKey);
+  await setJSON(cacheKey, account.balances, BALANCE_CACHE_TTL_SECONDS).catch(() => {});
   return account.balances;
 }
 

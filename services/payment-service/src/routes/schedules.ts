@@ -171,13 +171,18 @@ router.post('/', async (req: Request, res: Response) => {
     );
     const scheduleId = scheduleRes.rows[0].id;
 
-    for (const item of items) {
-      await query(
-        `INSERT INTO payment_schedule_items (schedule_id, worker_id, amount_usd, memo)
-         VALUES ($1, $2, $3, $4)`,
-        [scheduleId, item.workerId, item.amountUsd, item.memo ?? null],
-      );
-    }
+    // One multi-row INSERT instead of one INSERT per item.
+    const values: unknown[] = [];
+    const placeholders = items.map((item, i) => {
+      const base = i * 4;
+      values.push(scheduleId, item.workerId, item.amountUsd, item.memo ?? null);
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
+    });
+    await query(
+      `INSERT INTO payment_schedule_items (schedule_id, worker_id, amount_usd, memo)
+       VALUES ${placeholders.join(', ')}`,
+      values,
+    );
 
     logger.info('Schedule created', { scheduleId, enterpriseId, name, frequency, nextRunAt });
     res.status(201).json({ scheduleId, nextRunAt });

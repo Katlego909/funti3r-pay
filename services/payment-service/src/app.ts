@@ -6,7 +6,7 @@ import { PaymentStatus } from '@funti3r/shared-types';
 import * as stellar from './lib/stellar.js';
 import { Asset } from '@stellar/stellar-sdk';
 import { getCurrency, isSupportedCurrency, PAYOUT_CURRENCIES } from './lib/currencies.js';
-import { usdToCurrencyRate, getUsdRates, amountToUsd } from './lib/fx.js';
+import { usdToCurrencyRate, getUsdRates, amountToUsd, getXlmUsd } from './lib/fx.js';
 import { getAllQuotes } from './rails/router.js';
 import walletLinkingRouter from './routes/wallet-linking.js';
 import schedulesRouter from './routes/schedules.js';
@@ -244,8 +244,18 @@ export async function executePayout(opts: {
   memo?: string;
   batchId?: string | null;
   idempotencyKey?: string;
+  /** Pre-resolved by a batch caller so N items don't each redo a compliance
+   *  HTTP round-trip and a worker SELECT inside the sequential Stellar loop —
+   *  when omitted (the single-payout path), executePayout resolves both itself.
+   *  complianceError, when set, is the exact error to fail this item with
+   *  (mirrors requireCompliance's two distinct messages: not-verified vs.
+   *  compliance-service-unavailable) — undefined means verified. */
+  precomputed?: {
+    complianceError?: string;
+    worker: { stellar_public_key?: string; stellar_secret_key?: string; email?: string } | undefined;
+  };
 }): Promise<PayoutResult> {
-  const { enterpriseId, sourceSecret, workerId, amountNum, asset, memo, batchId, idempotencyKey } = opts;
+  const { enterpriseId, sourceSecret, workerId, amountNum, asset, memo, batchId, idempotencyKey, precomputed } = opts;
   const base: PayoutResult = { workerId, amount: amountNum, currency: asset, status: 'failed' };
 
   const def = getCurrency(asset);
@@ -298,20 +308,25 @@ export async function executePayout(opts: {
   }
 
   // KYC gate (auto-approves on testnet).
-  try {
-    await requireCompliance(workerId);
-  } catch (err) {
-    return { ...base, error: err instanceof Error ? err.message : String(err) };
+  if (precomputed) {
+    if (precomputed.complianceError) {
+      return { ...base, error: precomputed.complianceError };
+    }
+  } else {
+    try {
+      await requireCompliance(workerId);
+    } catch (err) {
+      return { ...base, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   // Worker destination (+ secret for trustline setup on issued assets).
-  const wkrRes = await query(
-    'SELECT stellar_public_key, stellar_secret_key, email FROM users WHERE id = $1',
-    [workerId],
-  );
-  const destination: string | undefined = wkrRes.rows[0]?.stellar_public_key;
-  const workerEmail: string = wkrRes.rows[0]?.email ?? 'your worker';
-  const workerStoredSecret: string | undefined = wkrRes.rows[0]?.stellar_secret_key;
+  const workerRow = precomputed
+    ? precomputed.worker
+    : (await query('SELECT stellar_public_key, stellar_secret_key, email FROM users WHERE id = $1', [workerId])).rows[0];
+  const destination: string | undefined = workerRow?.stellar_public_key;
+  const workerEmail: string = workerRow?.email ?? 'your worker';
+  const workerStoredSecret: string | undefined = workerRow?.stellar_secret_key;
   if (!destination) {
     return { ...base, error: 'Worker Stellar account not found' };
   }
@@ -537,14 +552,16 @@ app.post('/payouts', async (req, res) => {
 
 /**
  * POST /payouts/batch — pay many workers in one request.
- * Body: { enterpriseId, currency?, items: [{ workerId, amount, memo? }] }
- * Payments execute sequentially (one Stellar source account → one sequence).
+ * Body: { items: [{ workerId, amountUsd, memo? }] }
+ * Each worker is paid in THEIR OWN preferred_currency, converted from
+ * amountUsd at the live FX rate — same USD-mode behavior as POST /payouts,
+ * just per-item. Payments execute sequentially (one Stellar source account →
+ * one sequence number), but each item's destination currency is independent.
  */
 app.post('/payouts/batch', async (req, res) => {
-  const { currency = 'XLM', items, idempotencyKey } = req.body as {
+  const { items, idempotencyKey } = req.body as {
     enterpriseId?: string;
-    currency?: string;
-    items: Array<{ workerId: string; amount: number | string; memo?: string }>;
+    items: Array<{ workerId: string; amountUsd: number | string; memo?: string }>;
     idempotencyKey?: string;
   };
 
@@ -562,30 +579,30 @@ app.post('/payouts/batch', async (req, res) => {
   if (items.length > 100) {
     return res.status(400).json({ error: 'A batch may contain at most 100 payments' });
   }
-  const asset = String(currency || 'XLM').toUpperCase();
-  if (!isSupportedCurrency(asset)) return res.status(400).json({ error: `Unsupported currency: ${asset}` });
 
-  // Validate every item up front.
-  const normalized: Array<{ workerId: string; amountNum: number; memo?: string }> = [];
+  // Validate every item up front. Each worker receives their own preferred
+  // currency (resolved per-item below, same as the single-payout USD mode)
+  // — no shared currency for the whole batch.
+  const normalized: Array<{ workerId: string; amountUsd: number; memo?: string }> = [];
   for (const it of items) {
-    const amountNum = Number(it.amount);
-    if (!it.workerId || !Number.isFinite(amountNum) || amountNum <= 0) {
-      return res.status(400).json({ error: 'Each item needs a workerId and a positive amount' });
+    const amountUsd = Number(it.amountUsd);
+    if (!it.workerId || !Number.isFinite(amountUsd) || amountUsd <= 0) {
+      return res.status(400).json({ error: 'Each item needs a workerId and a positive amountUsd' });
     }
-    normalized.push({ workerId: it.workerId, amountNum, memo: it.memo });
+    normalized.push({ workerId: it.workerId, amountUsd, memo: it.memo });
   }
 
   const { secret, error } = await resolveEnterpriseSecret(enterpriseId);
   if (error) return res.status(400).json({ error });
 
-  const totalRequested = normalized.reduce((s, i) => s + i.amountNum, 0);
+  const totalRequested = normalized.reduce((s, i) => s + i.amountUsd, 0);
 
   // ── Idempotency ────────────────────────────────────────────────────────────
   // Deliberately no item-level auto-resume of partial/failed batches — an
   // enterprise that wants to pay a failed subset submits a NEW batch (new key)
   // with just those workers. Keeps replay semantics simple and unambiguous.
   const batchPayloadHash = crypto.createHash('sha256')
-    .update(JSON.stringify({ asset, items: normalized }))
+    .update(JSON.stringify({ items: normalized }))
     .digest('hex');
 
   if (idempotencyKey) {
@@ -611,7 +628,7 @@ app.post('/payouts/batch', async (req, res) => {
       const cachedCompleted = cached.rows.filter((r: any) => r.status === 'completed');
       const cachedFailed = cached.rows.filter((r: any) => r.status === 'failed');
       return res.status(cachedFailed.length === 0 ? 201 : 207).json({
-        batchId: row.id, status: row.status, currency: asset, totalRequested,
+        batchId: row.id, status: row.status, totalRequested,
         completedCount: cachedCompleted.length, failedCount: cachedFailed.length, results: cached.rows,
       });
     }
@@ -633,13 +650,64 @@ app.post('/payouts/batch', async (req, res) => {
     throw err;
   }
 
-  // Execute sequentially (shared source account → strictly ordered sequence numbers).
+  // Resolve compliance + worker rows for every item ONCE, up front — the
+  // Stellar submission loop below must stay sequential (shared source account
+  // → strictly ordered sequence numbers), but neither of these lookups needs
+  // to be inside that per-item critical path (was previously one HTTP call to
+  // compliance-service and one Postgres SELECT per item, i.e. up to 2×100
+  // round-trips for a full batch).
+  const workerIds = normalized.map((i) => i.workerId);
+  const complianceErrorByWorker: Record<string, string | undefined> = {};
+  try {
+    const complianceResp = await axios.post(
+      `${COMPLIANCE_SERVICE_URL}/status/bulk`,
+      { userIds: workerIds },
+      { timeout: 10000 },
+    );
+    const statuses = complianceResp.data?.statuses ?? {};
+    for (const id of workerIds) {
+      complianceErrorByWorker[id] = statuses[id]?.status === 'verified' ? undefined : 'Worker KYC not verified';
+    }
+  } catch (err) {
+    // Compliance service unreachable — fail safe, block every item (mirrors
+    // requireCompliance's own catch-all behavior for the single-payout path).
+    logger.error('Bulk compliance check failed — blocking batch', { error: String(err) });
+    for (const id of workerIds) complianceErrorByWorker[id] = 'Compliance service unavailable';
+  }
+
+  const workersRes = await query(
+    'SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency FROM users WHERE id = ANY($1::uuid[])',
+    [workerIds],
+  );
+  const workerById = new Map(workersRes.rows.map((w) => [w.id, w]));
+
+  // Execute sequentially (shared source account → strictly ordered sequence
+  // numbers). Each item resolves its OWN destination currency from the
+  // worker's preferred_currency (same USD-mode resolution POST /payouts uses)
+  // — a batch is no longer one shared currency for every recipient.
   const results: PayoutResult[] = [];
   for (const item of normalized) {
-    const r = await executePayout({
-      enterpriseId, sourceSecret: secret!, workerId: item.workerId,
-      amountNum: item.amountNum, asset, memo: item.memo, batchId,
-    });
+    const worker = workerById.get(item.workerId);
+    const asset = (worker?.preferred_currency || 'USDC').toUpperCase();
+    let r: PayoutResult;
+    if (!isSupportedCurrency(asset)) {
+      r = { workerId: item.workerId, amount: item.amountUsd, currency: 'USD', status: 'failed', error: `Worker preferred currency unsupported: ${asset}` };
+    } else {
+      try {
+        const rate = await usdToCurrencyRate(asset);
+        const amountNum = Math.round(item.amountUsd * rate * 1e7) / 1e7;
+        r = await executePayout({
+          enterpriseId, sourceSecret: secret!, workerId: item.workerId,
+          amountNum, asset, memo: item.memo, batchId,
+          precomputed: {
+            complianceError: complianceErrorByWorker[item.workerId],
+            worker,
+          },
+        });
+      } catch (err) {
+        r = { workerId: item.workerId, amount: item.amountUsd, currency: 'USD', status: 'failed', error: err instanceof Error ? err.message : String(err) };
+      }
+    }
     results.push(r);
     // Heartbeat: lets the reconciliation watchdog tell "still legitimately
     // running" from "crashed" — without it, a large sequential batch is
@@ -651,16 +719,20 @@ app.post('/payouts/batch', async (req, res) => {
   const failed = results.filter((r) => r.status === 'failed');
   const batchStatus = failed.length === 0 ? 'completed' : completed.length === 0 ? 'failed' : 'partial';
 
+  // Sum USD (not raw amounts, which can now be in different currencies per item).
+  const completedUsdTotal = normalized.reduce(
+    (sum, item, i) => (results[i].status === 'completed' ? sum + item.amountUsd : sum),
+    0,
+  );
   await query(
     `UPDATE payment_batches SET status = $1, total_amount = $2, updated_at = NOW() WHERE id = $3`,
-    [batchStatus, completed.reduce((s, r) => s + r.amount, 0), batchId],
+    [batchStatus, completedUsdTotal, batchId],
   );
 
   logger.info('Batch payout finished', { batchId, status: batchStatus, completed: completed.length, failed: failed.length });
   return res.status(failed.length === 0 ? 201 : 207).json({
     batchId,
     status: batchStatus,
-    currency: asset,
     totalRequested,
     completedCount: completed.length,
     failedCount: failed.length,
@@ -931,26 +1003,13 @@ app.get('/payouts/fx', async (_req, res) => {
 /**
  * GET /payouts/xlm-price — current XLM→USD price (CoinGecko), cached 5 min.
  * Registered before /payouts/:id so it isn't captured by the :id param.
+ * Delegates to lib/fx.ts's getXlmUsd() (used elsewhere for amountToUsd
+ * conversions) instead of keeping a second, independent 5-minute cache of
+ * the same CoinGecko price.
  */
-let xlmPriceCache: { usd: number; ts: number } = { usd: 0, ts: 0 };
 app.get('/payouts/xlm-price', async (_req, res) => {
-  const FIVE_MIN = 5 * 60 * 1000;
-  const now = Date.now();
-  if (xlmPriceCache.usd && now - xlmPriceCache.ts < FIVE_MIN) {
-    return res.json({ usd: xlmPriceCache.usd, cached: true });
-  }
-  try {
-    const r = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
-      params: { ids: 'stellar', vs_currencies: 'usd' },
-      timeout: 5000,
-    });
-    const usd = Number(r.data?.stellar?.usd) || 0;
-    if (usd > 0) xlmPriceCache = { usd, ts: now };
-    res.json({ usd });
-  } catch (err) {
-    logger.warn('XLM price fetch failed; returning last known', { error: String(err) });
-    res.json({ usd: xlmPriceCache.usd || 0, stale: true });
-  }
+  const usd = await getXlmUsd();
+  res.json({ usd });
 });
 
 /**
