@@ -1,22 +1,16 @@
-[package]
-name = "funti3r-soroban"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = ["smart-wallet", "escrow"]
 
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
+[workspace.dependencies]
 soroban-sdk = "21"
-
-[dev-dependencies]
-soroban-sdk = { version = "21", features = ["testutils"] }
 
 [profile.release]
 opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
+overflow-checks = true
 
 [profile.release.build-override]
 opt-level = 3

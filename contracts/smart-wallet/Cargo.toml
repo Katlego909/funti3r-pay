@@ -1,0 +1,16 @@
+# Keeps the original crate name so the compiled artifact stays
+# target/wasm32-unknown-unknown/release/funti3r_soroban.wasm — deploy.ts
+# resolves that exact path.
+[package]
+name = "funti3r-soroban"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

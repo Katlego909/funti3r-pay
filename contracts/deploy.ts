@@ -29,9 +29,11 @@ import { readFileSync } from 'fs';
 import { randomBytes } from 'crypto';
 import { join } from 'path';
 
+// wasm32v1-none, not wasm32-unknown-unknown: modern rustc emits post-MVP
+// WASM features on the latter that the Soroban VM rejects at upload.
 const WASM_PATH = join(
   import.meta.dirname,
-  'target/wasm32-unknown-unknown/release/funti3r_soroban.wasm',
+  'target/wasm32v1-none/release/funti3r_soroban.wasm',
 );
 
 const SOROBAN_URL =

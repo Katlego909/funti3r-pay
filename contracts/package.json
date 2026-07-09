@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "deploy": "node --env-file=../.env.local --import tsx ./deploy.ts",
-    "build:wasm": "cargo build --target wasm32-unknown-unknown --release"
+    "build:wasm": "cargo build --target wasm32v1-none --release"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^16.0.0"

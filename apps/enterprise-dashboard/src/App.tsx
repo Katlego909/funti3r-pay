@@ -15,6 +15,7 @@ import {
   HiOutlineChevronLeft,
   HiOutlineChevronRight,
   HiOutlineBell,
+  HiOutlineLockClosed,
 } from 'react-icons/hi2';
 import { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
@@ -22,6 +23,7 @@ import { useNotificationStore } from './store/notificationStore.js';
 import Dashboard from './pages/Dashboard.js';
 import Payments from './pages/Payments.js';
 import Schedules from './pages/Schedules.js';
+import Escrows from './pages/Escrows.js';
 import Workers from './pages/Workers.js';
 import Profile from './pages/Profile.js';
 import Settings from './pages/Settings.js';
@@ -68,6 +70,7 @@ const ENTERPRISE_NAV = [
   { to: '/', icon: HiOutlineChartBar, label: 'Dashboard' },
   { to: '/payments', icon: HiOutlineArrowPathRoundedSquare, label: 'Payments' },
   { to: '/schedules', icon: HiOutlineClock, label: 'Schedules' },
+  { to: '/escrows', icon: HiOutlineLockClosed, label: 'Escrows' },
   { to: '/workers', icon: HiOutlineUsers, label: 'Workers' },
 ];
 
@@ -439,6 +442,7 @@ function AuthedApp({ role }: { role: string }) {
                 <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                 <Route path="/payments" element={<ProtectedRoute><Payments /></ProtectedRoute>} />
                 <Route path="/schedules" element={<ProtectedRoute><Schedules /></ProtectedRoute>} />
+                <Route path="/escrows" element={<ProtectedRoute><Escrows /></ProtectedRoute>} />
                 <Route path="/workers" element={<ProtectedRoute><Workers /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />

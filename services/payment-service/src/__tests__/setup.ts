@@ -19,6 +19,18 @@ vi.mock('axios');
 // wire protocol. Mocking lib/stellar.ts wholesale is the correct boundary
 // (it's also what avoids fighting the module's own load-time Horizon.Server
 // singleton construction).
+// Same boundary as lib/stellar.js — escrow routes orchestrate, the Soroban
+// wire protocol itself is exercised by scripts/escrow-e2e.ts on testnet.
+vi.mock('../lib/escrow.js', () => ({
+  createEscrow: vi.fn(),
+  approveMilestone: vi.fn(),
+  claimMilestone: vi.fn(),
+  refundEscrow: vi.fn(),
+  getEscrow: vi.fn(),
+  nativeTokenAddress: vi.fn(),
+  xlmToStroops: vi.fn(),
+}));
+
 vi.mock('../lib/stellar.js', () => ({
   sendPayment: vi.fn(),
   ensureTrustline: vi.fn(),

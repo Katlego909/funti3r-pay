@@ -13,6 +13,8 @@ import { api } from '../api/client.js';
 import { getPayoutCurrencies, getPreferredCurrency, setPreferredCurrency, type PayoutCurrency } from '../api/payments.js';
 import { CurrencyIcon } from '../components/CurrencyIcon.js';
 import CopyButton from '../components/CopyButton.js';
+import { StatusBadge } from '../components/StatusBadge.js';
+import { listEscrows, claimMilestone, type Escrow } from '../api/escrows.js';
 
 interface WalletBalance {
   asset_type: string;
@@ -55,6 +57,14 @@ export default function Wallet() {
   const [preferred, setPreferred] = useState('USDC');
   const [savingPref, setSavingPref] = useState(false);
 
+  // Milestone escrows (worker side)
+  const [escrows, setEscrows] = useState<Escrow[]>([]);
+  const [claiming, setClaiming] = useState<string | null>(null);
+
+  function loadEscrows() {
+    listEscrows().then(setEscrows).catch(() => {});
+  }
+
   useEffect(() => {
     if (!userId) {
       setLoading(false);
@@ -63,7 +73,22 @@ export default function Wallet() {
     fetchWallet();
     getPayoutCurrencies().then(setCurrencies);
     getPreferredCurrency(userId).then(setPreferred);
+    loadEscrows();
   }, [userId]);
+
+  async function handleClaim(escrowId: string, idx: number) {
+    setClaiming(`${escrowId}:${idx}`);
+    try {
+      const txHash = await claimMilestone(escrowId, idx);
+      toast.success(`Milestone claimed — funds are in your wallet (${txHash.slice(0, 8)}…)`);
+      loadEscrows();
+      fetchWallet();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error ?? 'Failed to claim milestone');
+    } finally {
+      setClaiming(null);
+    }
+  }
 
   async function changePreferred(code: string) {
     setSavingPref(true);
@@ -142,6 +167,56 @@ export default function Wallet() {
             </span>
           </div>
         </section>
+
+        {/* Milestone escrows — funds locked for this worker on-chain */}
+        {escrows.length > 0 && (
+          <section className="section">
+            <h3>Escrow Milestones</h3>
+            <p style={{ fontSize: '0.82rem', color: 'var(--gray-600)', marginTop: '-6px' }}>
+              Your employer locked these funds in an on-chain escrow. Approved milestones are yours to claim.
+            </p>
+            {escrows.map((e) => (
+              <div key={e.id} style={{ marginBottom: '14px' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '0.82rem', color: 'var(--gray-600)', marginBottom: '6px' }}>
+                  <StatusBadge variant={e.status === 'active' ? 'completed' : e.status === 'completed' ? 'completed' : 'pending'}>
+                    {e.status === 'active' ? 'Active' : e.status === 'completed' ? 'Completed' : 'Refunded'}
+                  </StatusBadge>
+                  <span>{e.totalXlm} XLM total · expires {new Date(e.expiresAt).toLocaleDateString()}</span>
+                </div>
+                <div className="status-list">
+                  {e.milestones.map((m) => (
+                    <div key={m.idx} className="status-item" style={{ cursor: 'default' }}>
+                      <div>
+                        <div className="status-name">{m.description || `Milestone ${m.idx + 1}`}</div>
+                        <div className="status-detail">{m.amountXlm} XLM</div>
+                      </div>
+                      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {m.status === 'approved' ? (
+                          <button
+                            className="btn-primary"
+                            style={{ padding: '7px 16px', fontSize: '0.82rem' }}
+                            disabled={claiming === `${e.id}:${m.idx}`}
+                            onClick={() => handleClaim(e.id, m.idx)}
+                          >
+                            {claiming === `${e.id}:${m.idx}` ? 'Claiming…' : `Claim ${m.amountXlm} XLM`}
+                          </button>
+                        ) : m.status === 'claimed' && m.claimTxHash ? (
+                          <a href={`https://stellar.expert/explorer/testnet/tx/${m.claimTxHash}`} target="_blank" rel="noopener noreferrer">
+                            <StatusBadge variant="completed">Claimed</StatusBadge>
+                          </a>
+                        ) : (
+                          <StatusBadge variant={m.status === 'refunded' ? 'failed' : 'pending'}>
+                            {m.status === 'refunded' ? 'Refunded' : 'Awaiting approval'}
+                          </StatusBadge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
 
         {/* Stellar Account */}
         <section className="section">
