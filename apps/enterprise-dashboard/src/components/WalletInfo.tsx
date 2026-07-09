@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { HiOutlineClipboard, HiCheck, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
+import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { useAuthStore } from '../store/authStore.js';
 import { api } from '../api/client.js';
+import CopyButton from './CopyButton.js';
+import { StatusBadge } from './StatusBadge.js';
 import './WalletInfo.css';
 
 interface WalletData {
@@ -21,7 +23,6 @@ export default function WalletInfo() {
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!user?.userId) return;
@@ -48,13 +49,6 @@ export default function WalletInfo() {
   const address = wallet.address;
   const isEnterprise = user?.role !== 'worker';
 
-  function copyAddress() {
-    if (!address) return;
-    navigator.clipboard?.writeText(address);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
   return (
     <div className="wallet-info">
       <div className="wallet-details">
@@ -63,9 +57,9 @@ export default function WalletInfo() {
             <label>Type</label>
             <span style={{ display: 'block', marginTop: 4 }}>Platform (Custodial)</span>
           </div>
-          <span className={`status ${!wallet.status || wallet.status.toLowerCase() === 'active' ? 'completed' : 'pending'}`}>
+          <StatusBadge variant={!wallet.status || wallet.status.toLowerCase() === 'active' ? 'completed' : 'pending'}>
             {wallet.status || 'Active'}
-          </span>
+          </StatusBadge>
         </div>
 
         <div className="detail-item">
@@ -82,13 +76,12 @@ export default function WalletInfo() {
               <code className="address" style={{ flex: 1, fontSize: '0.78rem', fontFamily: 'monospace', wordBreak: 'break-all', color: 'var(--gray-700)' }}>
                 {address}
               </code>
-              <button
-                onClick={copyAddress}
+              <CopyButton
+                text={address}
                 title="Copy address"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: copied ? 'var(--success)' : 'var(--gray-600)', padding: '2px 4px', flexShrink: 0, display: 'flex' }}
-              >
-                {copied ? <HiCheck size={15} /> : <HiOutlineClipboard size={15} />}
-              </button>
+                size={15}
+                style={{ padding: '2px 4px', flexShrink: 0 }}
+              />
               <a
                 href={`https://stellar.expert/explorer/testnet/account/${address}`}
                 target="_blank"

@@ -1,4 +1,4 @@
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { toast } from 'sonner';
 import { useAuthStore } from '../store/authStore.js';
@@ -11,12 +11,10 @@ import {
   HiOutlineShieldCheck,
   HiOutlineCheckCircle,
   HiOutlineUserGroup,
-  HiCheck,
-  HiOutlineClipboard,
-  HiOutlineXMark,
   HiOutlineTrash,
 } from 'react-icons/hi2';
 import ConfirmDialog from '../components/ConfirmDialog.js';
+import InviteLinkModal from '../components/InviteLinkModal.js';
 
 const card: React.CSSProperties = {
   background: '#fff',
@@ -130,11 +128,7 @@ export default function Settings() {
   const [myCompanyRole, setMyCompanyRole] = useState<string | null>(null);
   const [teamInvites, setTeamInvites] = useState<CompanyInvite[]>([]);
   const [teamInviteOpen, setTeamInviteOpen] = useState(false);
-  const [teamInviteEmail, setTeamInviteEmail] = useState('');
   const [teamInviteRole, setTeamInviteRole] = useState<'member' | 'admin'>('member');
-  const [teamInviteLink, setTeamInviteLink] = useState('');
-  const [teamInviteSending, setTeamInviteSending] = useState(false);
-  const [teamInviteCopied, setTeamInviteCopied] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<CompanyMember | null>(null);
 
   // Load existing company profile for enterprise users
@@ -177,35 +171,13 @@ export default function Settings() {
     if (canInviteTeam) loadTeamInvites();
   }, [canInviteTeam]);
 
-  async function handleTeamInvite(e: FormEvent) {
-    e.preventDefault();
-    setTeamInviteSending(true);
-    try {
-      const { data } = await api.post<{ inviteUrl: string }>('/company/invites', {
-        email: teamInviteEmail,
-        companyRole: teamInviteRole,
-      });
-      setTeamInviteLink(data.inviteUrl);
-      loadTeamInvites();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to create invite';
-      toast.error(msg.includes('409') ? 'This person is already on your team.' : msg);
-    } finally {
-      setTeamInviteSending(false);
-    }
-  }
-
-  function copyTeamInviteLink() {
-    navigator.clipboard.writeText(teamInviteLink);
-    setTeamInviteCopied(true);
-    setTimeout(() => setTeamInviteCopied(false), 2000);
-  }
-
-  function closeTeamInvite() {
-    setTeamInviteOpen(false);
-    setTeamInviteEmail('');
-    setTeamInviteLink('');
-    setTeamInviteCopied(false);
+  async function createTeamInvite(email: string): Promise<string> {
+    const { data } = await api.post<{ inviteUrl: string }>('/company/invites', {
+      email,
+      companyRole: teamInviteRole,
+    });
+    loadTeamInvites();
+    return data.inviteUrl;
   }
 
   async function confirmRemoveMember() {
@@ -423,67 +395,23 @@ export default function Settings() {
         onCancel={() => setPendingRemove(null)}
       />
 
-      {teamInviteOpen && (
-        <div className="modal-overlay" onClick={closeTeamInvite}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '420px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0 }}>Invite Teammate</h3>
-              <button onClick={closeTeamInvite} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }}>
-                <HiOutlineXMark size={20} />
-              </button>
-            </div>
-            {!teamInviteLink ? (
-              <form onSubmit={handleTeamInvite} className="payment-form">
-                <p style={{ fontSize: '0.85rem', color: '#6b7280', marginTop: 0 }}>
-                  Enter your teammate's email. They'll receive a registration link pre-linked to your company.
-                </p>
-                <label>Email
-                  <input
-                    type="email"
-                    value={teamInviteEmail}
-                    onChange={(e) => setTeamInviteEmail(e.target.value)}
-                    placeholder="teammate@company.com"
-                    required
-                  />
-                </label>
-                <label>Role
-                  <select value={teamInviteRole} onChange={(e) => setTeamInviteRole(e.target.value as 'member' | 'admin')}>
-                    <option value="member">Member</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </label>
-                <div className="form-actions">
-                  <button type="button" className="btn-secondary" onClick={closeTeamInvite}>Cancel</button>
-                  <button type="submit" className="btn-primary" disabled={teamInviteSending}>
-                    {teamInviteSending ? 'Generating…' : 'Generate invite link'}
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <p style={{ fontSize: '0.85rem', color: '#065f46', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px 12px', margin: 0 }}>
-                  Invite link generated for <strong>{teamInviteEmail}</strong>. Send it to them — it expires in 7 days.
-                </p>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <input
-                    readOnly
-                    value={teamInviteLink}
-                    style={{ flex: 1, fontSize: '0.78rem', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#f9fafb', fontFamily: 'monospace' }}
-                    onClick={(e) => (e.target as HTMLInputElement).select()}
-                  />
-                  <button className="btn-secondary" onClick={copyTeamInviteLink} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    {teamInviteCopied ? <><HiCheck size={14} /> Copied</> : <><HiOutlineClipboard size={14} /> Copy</>}
-                  </button>
-                </div>
-                <div className="form-actions">
-                  <button className="btn-secondary" onClick={() => { setTeamInviteLink(''); setTeamInviteEmail(''); }}>Invite another</button>
-                  <button className="btn-primary" onClick={closeTeamInvite}>Done</button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <InviteLinkModal
+        open={teamInviteOpen}
+        onClose={() => setTeamInviteOpen(false)}
+        title="Invite Teammate"
+        description="Enter your teammate's email. They'll receive a registration link pre-linked to your company."
+        emailLabel="Email"
+        emailPlaceholder="teammate@company.com"
+        extraFields={
+          <label>Role
+            <select value={teamInviteRole} onChange={(e) => setTeamInviteRole(e.target.value as 'member' | 'admin')}>
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+        }
+        onSubmit={createTeamInvite}
+      />
 
       {/* Payment preferences — read-only until backend supports them */}
       <div style={card}>

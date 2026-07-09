@@ -7,9 +7,10 @@ import {
   HiOutlineClock,
   HiOutlineCheckCircle,
   HiOutlineArrowTopRightOnSquare,
-  HiOutlineArrowDownTray,
 } from 'react-icons/hi2';
 import { exportAnalyticsCSV, exportAnalyticsPDF } from '../utils/export.js';
+import ExportButtons from '../components/ExportButtons.js';
+import { StatusBadge } from '../components/StatusBadge.js';
 import {
   getSummary,
   getRecentPayments,
@@ -177,14 +178,7 @@ export default function Dashboard() {
           // No alignItems — children stretch to the tallest button (same as Payments)
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             {summary && recent.length > 0 && (
-              <div className="export-btn-group">
-                <button className="btn-export" onClick={() => exportAnalyticsCSV(summary, recent)}>
-                  <HiOutlineArrowDownTray size={14} /> CSV
-                </button>
-                <button className="btn-export" onClick={() => exportAnalyticsPDF(summary, recent)}>
-                  <HiOutlineArrowDownTray size={14} /> PDF
-                </button>
-              </div>
+              <ExportButtons onCSV={() => exportAnalyticsCSV(summary, recent)} onPDF={() => exportAnalyticsPDF(summary, recent)} />
             )}
             <Link to="/payments" className="btn-cta">
               New Payout
@@ -345,7 +339,7 @@ export default function Dashboard() {
                       </td>
                       <td data-label="Rail">{p.rail ?? 'stellar'}</td>
                       <td data-label="Status">
-                        <span className={`status ${statusClass(p.status)}`}>{p.status}</span>
+                        <StatusBadge status={p.status} />
                       </td>
                       <td data-label="Date">{new Date(p.created_at).toLocaleDateString()}</td>
                       <td>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Schedule } from '../api/schedules.js';
 import SlideOver, { Row, SectionTitle } from './SlideOver.js';
+import { StatusBadge } from './StatusBadge.js';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string }
 
@@ -50,9 +51,9 @@ export default function ScheduleDetailModal({
           }}>
             <div style={{ fontSize: '1.9rem', fontWeight: 800 }}>{fmtUsd(total)}</div>
             <div style={{ color: '#6b7280', fontSize: '0.85rem', marginTop: '2px' }}>per run · {current.items.length} worker{current.items.length !== 1 ? 's' : ''}</div>
-            <span className={`status ${current.status === 'active' ? 'completed' : 'pending'}`} style={{ marginTop: '10px', display: 'inline-block' }}>
+            <StatusBadge variant={current.status === 'active' ? 'completed' : 'pending'} style={{ marginTop: '10px', display: 'inline-block' }}>
               {current.status === 'active' ? 'Active' : 'Paused'}
-            </span>
+            </StatusBadge>
           </div>
 
           <SectionTitle>Schedule</SectionTitle>

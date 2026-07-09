@@ -1,6 +1,6 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { HiOutlineClock, HiOutlinePause, HiOutlinePlay, HiOutlineTrash, HiOutlinePlus, HiOutlineXMark } from 'react-icons/hi2';
+import { HiOutlineClock, HiOutlinePause, HiOutlinePlay, HiOutlineTrash } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
@@ -10,6 +10,9 @@ import {
 } from '../api/schedules.js';
 import ScheduleDetailModal from '../components/ScheduleDetailModal.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
+import Modal from '../components/Modal.js';
+import PageHeader from '../components/PageHeader.js';
+import { StatusBadge } from '../components/StatusBadge.js';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string }
 interface ScheduleRow { workerId: string; amountUsd: string }
@@ -33,10 +36,10 @@ function totalUsd(items: ScheduleItem[]): number {
 }
 
 function statusBadge(s: Schedule) {
-  if (s.status === 'paused') return <span className="status pending">Paused</span>;
-  if (s.last_run_status === 'failed') return <span className="status failed">Last run failed</span>;
-  if (s.last_run_status === 'partial') return <span className="status pending">Last run partial</span>;
-  return <span className="status completed">Active</span>;
+  if (s.status === 'paused') return <StatusBadge variant="pending">Paused</StatusBadge>;
+  if (s.last_run_status === 'failed') return <StatusBadge variant="failed">Last run failed</StatusBadge>;
+  if (s.last_run_status === 'partial') return <StatusBadge variant="pending">Last run partial</StatusBadge>;
+  return <StatusBadge variant="completed">Active</StatusBadge>;
 }
 
 export default function Schedules() {
@@ -141,28 +144,18 @@ export default function Schedules() {
         <title>Schedules | Funti3rPay</title>
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
-      <div className="dashboard-header">
-        <div>
-          <h2>Schedules</h2>
-          <p className="subtitle">Automate recurring payroll runs</p>
-        </div>
-        <button className="btn-cta" onClick={openForm}>
-          New Schedule
-        </button>
-      </div>
+      <PageHeader
+        title="Schedules"
+        subtitle="Automate recurring payroll runs"
+        actions={
+          <button className="btn-cta" onClick={openForm}>
+            New Schedule
+          </button>
+        }
+      />
 
       {/* Create modal */}
-      {formOpen && (
-        <div className="modal-overlay" onClick={() => setFormOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '540px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <h3 style={{ margin: 0 }}>New Payroll Schedule</h3>
-              <button onClick={() => setFormOpen(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }}>
-                <HiOutlineXMark size={20} />
-              </button>
-            </div>
-
+      <Modal open={formOpen} onClose={() => setFormOpen(false)} title="New Payroll Schedule" closeButton maxWidth="540px">
             <form onSubmit={handleCreate} className="payment-form">
               <label>Schedule name
                 <input
@@ -250,9 +243,7 @@ export default function Schedules() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {loading ? (
         <div className="loading">Loading schedules…</div>

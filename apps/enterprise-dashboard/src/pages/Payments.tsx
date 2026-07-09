@@ -1,13 +1,18 @@
 import { useEffect, useState, useRef, FormEvent, useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMark, HiOutlineArrowDownTray, HiOutlineClipboard, HiCheck } from 'react-icons/hi2';
+import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMark } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
 import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, type Payment, type BatchResult } from '../api/payments.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
-import { statusClass, STATUS_TABS } from '../lib/status.js';
+import Modal from '../components/Modal.js';
+import PageHeader from '../components/PageHeader.js';
+import ExportButtons from '../components/ExportButtons.js';
+import CopyButton from '../components/CopyButton.js';
+import { StatusBadge } from '../components/StatusBadge.js';
+import { STATUS_TABS } from '../lib/status.js';
 import { CURRENCY_META } from '../lib/currencyMeta.js';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string; stellar_public_key?: string }
@@ -29,7 +34,6 @@ export default function Payments() {
   const [memo, setMemo] = useState('');
   const [fxRates, setFxRates] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [addressCopied, setAddressCopied] = useState(false);
   // Idempotency key for the in-flight (or about-to-be-sent) payment. A ref, not
   // state: a fast double-click can fire handleSend twice before a `disabled`
   // state update paints, but a ref read is synchronous so both invocations see
@@ -186,33 +190,27 @@ export default function Payments() {
         <title>Payments | Funti3rPay</title>
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
-      <div className="dashboard-header">
-        <div>
-          <h2>Payments</h2>
-          <p className="subtitle">Send XLM or USDC payouts to your workers on Stellar</p>
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <div className="export-btn-group">
-            <button className="btn-export" disabled={exporting} onClick={async () => { const all = await fetchAllForExport(); exportPaymentsCSV(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}>
-              <HiOutlineArrowDownTray size={14} /> {exporting ? 'Exporting…' : 'CSV'}
+      <PageHeader
+        title="Payments"
+        subtitle="Send XLM or USDC payouts to your workers on Stellar"
+        actions={
+          <>
+            <ExportButtons
+              exporting={exporting}
+              onCSV={async () => { const all = await fetchAllForExport(); exportPaymentsCSV(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}
+              onPDF={async () => { const all = await fetchAllForExport(); exportPaymentsPDF(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}
+            />
+            <button className="btn-secondary" onClick={() => { setBatchOpen(true); setBatchResult(null); setBatchRows([{ workerId: '', amountUsd: '' }]); }}>
+              Batch Payout
             </button>
-            <button className="btn-export" disabled={exporting} onClick={async () => { const all = await fetchAllForExport(); exportPaymentsPDF(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}>
-              <HiOutlineArrowDownTray size={14} /> {exporting ? 'Exporting…' : 'PDF'}
+            <button className="btn-cta" onClick={() => setFormOpen(true)}>
+              New Payment
             </button>
-          </div>
-          <button className="btn-secondary" onClick={() => { setBatchOpen(true); setBatchResult(null); setBatchRows([{ workerId: '', amountUsd: '' }]); }}>
-            Batch Payout
-          </button>
-          <button className="btn-cta" onClick={() => setFormOpen(true)}>
-            New Payment
-          </button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      {formOpen && (
-        <div className="modal-overlay" onClick={() => setFormOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>New Payment</h3>
+      <Modal open={formOpen} onClose={() => setFormOpen(false)} title="New Payment">
             <form onSubmit={handleSend} className="payment-form">
               <label>Worker
                 <select value={workerId} onChange={(e) => setWorkerId(e.target.value)} required>
@@ -241,18 +239,11 @@ export default function Payments() {
                           <span style={{ fontFamily: 'monospace', color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={selectedWorker.stellar_public_key}>
                             {selectedWorker.stellar_public_key}
                           </span>
-                          <button
-                            type="button"
+                          <CopyButton
+                            text={selectedWorker.stellar_public_key}
                             title="Copy Stellar address"
-                            onClick={() => {
-                              navigator.clipboard.writeText(selectedWorker.stellar_public_key!);
-                              setAddressCopied(true);
-                              setTimeout(() => setAddressCopied(false), 1500);
-                            }}
-                            style={{ flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: addressCopied ? 'var(--success, #059669)' : '#9ca3af', display: 'flex', padding: 0 }}
-                          >
-                            {addressCopied ? <HiCheck size={14} /> : <HiOutlineClipboard size={14} />}
-                          </button>
+                            style={{ flexShrink: 0 }}
+                          />
                         </span>
                       </>
                     )}
@@ -292,14 +283,9 @@ export default function Payments() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      </Modal>
 
-      {batchOpen && (
-        <div className="modal-overlay" onClick={() => setBatchOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
-            <h3>Batch Payout</h3>
+      <Modal open={batchOpen} onClose={() => setBatchOpen(false)} title="Batch Payout" maxWidth="560px">
             {!batchResult ? (
               <form onSubmit={handleSendBatch} className="payment-form">
                 <p style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: 0 }}>
@@ -381,8 +367,8 @@ export default function Payments() {
                           <td data-label="Amount">{r.amount} {r.currency}</td>
                           <td data-label="Status">
                             {r.status === 'completed'
-                              ? <a href={`https://stellar.expert/explorer/testnet/tx/${r.stellarTxHash}`} target="_blank" rel="noopener noreferrer"><span className="status completed">completed</span></a>
-                              : <span className="status failed" title={r.error}>failed</span>}
+                              ? <a href={`https://stellar.expert/explorer/testnet/tx/${r.stellarTxHash}`} target="_blank" rel="noopener noreferrer"><StatusBadge variant="completed">completed</StatusBadge></a>
+                              : <StatusBadge variant="failed" title={r.error}>failed</StatusBadge>}
                           </td>
                         </tr>
                       ))}
@@ -394,9 +380,7 @@ export default function Payments() {
                 </div>
               </div>
             )}
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Filter bar */}
       <div className="payments-filter-bar">
@@ -448,7 +432,7 @@ export default function Payments() {
                     <td data-label="ID">#{p.id.slice(0, 8)}</td>
                     <td data-label="Worker">{p.worker_email ?? p.worker_id.slice(0, 8)}</td>
                     <td data-label="Amount">{p.amount} {p.currency}</td>
-                    <td data-label="Status"><span className={`status ${statusClass(p.status)}`}>{p.status}</span></td>
+                    <td data-label="Status"><StatusBadge status={p.status} /></td>
                     <td data-label="Date">{new Date(p.created_at).toLocaleDateString()}</td>
                     <td>
                       {p.stellar_tx_hash && (

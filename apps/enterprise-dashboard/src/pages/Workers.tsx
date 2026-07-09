@@ -1,12 +1,16 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { HiOutlineArrowDownTray, HiOutlineEnvelope, HiOutlineClipboard, HiCheck, HiOutlineXMark } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { useAuthStore } from '../store/authStore.js';
 import { getKYCStatusBulk, getInvites, deleteInvite, type Worker, type KYCStatus, type WorkerInvite } from '../api/workers.js';
 import { api } from '../api/client.js';
 import WorkerDetailDrawer from '../components/WorkerDetailDrawer.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
+import Modal from '../components/Modal.js';
+import InviteLinkModal from '../components/InviteLinkModal.js';
+import PageHeader from '../components/PageHeader.js';
+import ExportButtons from '../components/ExportButtons.js';
+import { StatusBadge, KycBadge } from '../components/StatusBadge.js';
 import { exportWorkersCSV, exportWorkersPDF } from '../utils/export.js';
 
 interface WorkerRow extends Worker {
@@ -26,13 +30,6 @@ interface KYCDetail {
   updated_at: string;
 }
 
-function kycBadge(status?: string) {
-  if (status === 'verified') return <span className="status completed">Verified</span>;
-  if (status === 'rejected') return <span className="status failed">Rejected</span>;
-  if (status === 'pending') return <span className="status pending">Pending</span>;
-  return <span className="status pending">None</span>;
-}
-
 export default function Workers() {
   const user = useAuthStore((s) => s.user);
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
@@ -46,10 +43,6 @@ export default function Workers() {
 
   // Invite state
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteLink, setInviteLink] = useState('');
-  const [inviteSending, setInviteSending] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [invites, setInvites] = useState<WorkerInvite[]>([]);
   const [inviteToDelete, setInviteToDelete] = useState<WorkerInvite | null>(null);
 
@@ -57,19 +50,10 @@ export default function Workers() {
     getInvites().then(setInvites).catch(() => {});
   }
 
-  async function handleInvite(e: FormEvent) {
-    e.preventDefault();
-    setInviteSending(true);
-    setInviteLink('');
-    try {
-      const res = await api.post<{ inviteUrl: string }>('/invites', { email: inviteEmail });
-      setInviteLink(res.data.inviteUrl);
-      loadInvites();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? 'Failed to create invite');
-    } finally {
-      setInviteSending(false);
-    }
+  async function createInvite(email: string): Promise<string> {
+    const res = await api.post<{ inviteUrl: string }>('/invites', { email });
+    loadInvites();
+    return res.data.inviteUrl;
   }
 
   async function confirmDeleteInvite() {
@@ -83,19 +67,6 @@ export default function Workers() {
     } finally {
       setInviteToDelete(null);
     }
-  }
-
-  function copyLink() {
-    navigator.clipboard?.writeText(inviteLink);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  function closeInvite() {
-    setInviteOpen(false);
-    setInviteEmail('');
-    setInviteLink('');
-    setCopied(false);
   }
 
   useEffect(() => {
@@ -172,82 +143,28 @@ export default function Workers() {
         <title>Workers | Funti3rPay</title>
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
-      <div className="dashboard-header">
-        <div>
-          <h2>Workers</h2>
-          <p className="subtitle">Registered workers, wallets, and KYC status</p>
-        </div>
-        {/* No alignItems — children stretch to the tallest button (same as Payments) */}
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <div className="export-btn-group">
-            <button className="btn-export" onClick={() => exportWorkersCSV(workers)}>
-              <HiOutlineArrowDownTray size={14} /> CSV
+      <PageHeader
+        title="Workers"
+        subtitle="Registered workers, wallets, and KYC status"
+        actions={
+          <>
+            <ExportButtons onCSV={() => exportWorkersCSV(workers)} onPDF={() => exportWorkersPDF(workers)} />
+            <button className="btn-cta" onClick={() => setInviteOpen(true)}>
+              Invite Worker
             </button>
-            <button className="btn-export" onClick={() => exportWorkersPDF(workers)}>
-              <HiOutlineArrowDownTray size={14} /> PDF
-            </button>
-          </div>
-          <button className="btn-cta" onClick={() => setInviteOpen(true)}>
-            Invite Worker
-          </button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      {inviteOpen && (
-        <div className="modal-overlay" onClick={closeInvite}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '420px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0 }}>Invite Worker</h3>
-              <button onClick={closeInvite} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }}>
-                <HiOutlineXMark size={20} />
-              </button>
-            </div>
-            {!inviteLink ? (
-              <form onSubmit={handleInvite} className="payment-form">
-                <p style={{ fontSize: '0.85rem', color: '#6b7280', marginTop: 0 }}>
-                  Enter the worker's email. They'll receive a registration link pre-linked to your account.
-                </p>
-                <label>Worker email
-                  <input
-                    type="email"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="worker@example.com"
-                    required
-                  />
-                </label>
-                <div className="form-actions">
-                  <button type="button" className="btn-secondary" onClick={closeInvite}>Cancel</button>
-                  <button type="submit" className="btn-primary" disabled={inviteSending}>
-                    {inviteSending ? 'Generating…' : 'Generate invite link'}
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <p style={{ fontSize: '0.85rem', color: '#065f46', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px 12px', margin: 0 }}>
-                  Invite link generated for <strong>{inviteEmail}</strong>. Send it to them — it expires in 7 days.
-                </p>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <input
-                    readOnly
-                    value={inviteLink}
-                    style={{ flex: 1, fontSize: '0.78rem', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#f9fafb', fontFamily: 'monospace' }}
-                    onClick={(e) => (e.target as HTMLInputElement).select()}
-                  />
-                  <button className="btn-secondary" onClick={copyLink} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    {copied ? <><HiCheck size={14} /> Copied</> : <><HiOutlineClipboard size={14} /> Copy</>}
-                  </button>
-                </div>
-                <div className="form-actions">
-                  <button className="btn-secondary" onClick={() => { setInviteLink(''); setInviteEmail(''); }}>Invite another</button>
-                  <button className="btn-primary" onClick={closeInvite}>Done</button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <InviteLinkModal
+        open={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        title="Invite Worker"
+        description="Enter the worker's email. They'll receive a registration link pre-linked to your account."
+        emailLabel="Worker email"
+        emailPlaceholder="worker@example.com"
+        onSubmit={createInvite}
+      />
 
       {invites.some((i) => i.status === 'pending') && (
         <section className="section" style={{ marginBottom: '1.5rem' }}>
@@ -273,7 +190,7 @@ export default function Workers() {
                         <td data-label="Sent">{new Date(i.created_at).toLocaleDateString()}</td>
                         <td data-label="Expires">
                           {expired
-                            ? <span className="status failed">Expired</span>
+                            ? <StatusBadge variant="failed">Expired</StatusBadge>
                             : new Date(i.expires_at).toLocaleDateString()}
                         </td>
                         <td data-label="Actions">
@@ -314,14 +231,14 @@ export default function Workers() {
               ) : workers.map((w) => (
                 <tr key={w.id} onClick={() => setSelectedWorker(w.id)} style={{ cursor: 'pointer' }}>
                   <td data-label="Email">{w.email}</td>
-                  <td data-label="Status"><span className={`status ${w.status === 'active' ? 'completed' : 'pending'}`}>{w.status}</span></td>
-                  <td data-label="KYC">{kycBadge(w.kyc?.status)}</td>
+                  <td data-label="Status"><StatusBadge variant={w.status === 'active' ? 'completed' : 'pending'}>{w.status}</StatusBadge></td>
+                  <td data-label="KYC"><KycBadge status={w.kyc?.status} /></td>
                   <td data-label="Wallet">
                     {w.stellar_public_key
                       ? <a href={`https://stellar.expert/explorer/testnet/account/${w.stellar_public_key}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
                           {w.stellar_public_key.slice(0, 8)}…
                         </a>
-                      : <span className="status pending">None</span>}
+                      : <StatusBadge variant="pending">None</StatusBadge>}
                   </td>
                   <td data-label="Joined">{new Date(w.created_at).toLocaleDateString()}</td>
                   <td data-label="Actions">
@@ -334,7 +251,7 @@ export default function Workers() {
                         View KYC
                       </button>
                     ) : (
-                      <span className="status pending">No submission</span>
+                      <StatusBadge variant="pending">No submission</StatusBadge>
                     )}
                   </td>
                 </tr>
@@ -344,14 +261,12 @@ export default function Workers() {
         </div>
       </section>
 
-      {kycModalOpen && selectedKYC && (
-        <div className="modal-overlay" onClick={() => setKycModalOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-            <h3>KYC Details</h3>
+      {selectedKYC && (
+        <Modal open={kycModalOpen} onClose={() => setKycModalOpen(false)} title="KYC Details" maxWidth="500px">
             <div style={{ marginTop: '1.5rem' }}>
               <div style={{ marginBottom: '1rem' }}>
                 <p style={{ fontSize: '0.875rem', color: '#666', margin: '0 0 0.25rem 0' }}>Status</p>
-                <p style={{ margin: 0, fontWeight: 600 }}>{kycBadge(selectedKYC.status)}</p>
+                <p style={{ margin: 0, fontWeight: 600 }}><KycBadge status={selectedKYC.status} /></p>
               </div>
               <div style={{ marginBottom: '1rem' }}>
                 <p style={{ fontSize: '0.875rem', color: '#666', margin: '0 0 0.25rem 0' }}>ID Type</p>
@@ -409,8 +324,7 @@ export default function Workers() {
                 )}
               </div>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       <WorkerDetailDrawer workerId={selectedWorker} onClose={() => setSelectedWorker(null)} />

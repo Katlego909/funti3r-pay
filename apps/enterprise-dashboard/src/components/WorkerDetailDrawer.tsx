@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { HiOutlineArrowTopRightOnSquare, HiOutlineClipboard, HiCheck } from 'react-icons/hi2';
+import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { api } from '../api/client.js';
 import { getFxRates, getXlmPrice } from '../api/payments.js';
 import SlideOver, { Row, SectionTitle } from './SlideOver.js';
-import { statusClass } from '../lib/status.js';
+import CopyButton from './CopyButton.js';
+import { StatusBadge } from './StatusBadge.js';
 import { CURRENCY_META } from '../lib/currencyMeta.js';
 
 interface Profile {
@@ -42,7 +43,6 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [xlmUsd, setXlmUsd] = useState(0);
   const [fx, setFx] = useState<Record<string, number>>({});
-  const [copied, setCopied] = useState('');
 
   useEffect(() => {
     if (!workerId) return;
@@ -65,11 +65,6 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
       if (rates.status === 'fulfilled') setFx(rates.value);
     }).finally(() => setLoading(false));
   }, [workerId]);
-
-  const copy = (text: string, key: string) => {
-    navigator.clipboard?.writeText(text);
-    setCopied(key); setTimeout(() => setCopied(''), 1500);
-  };
 
   const pref = (profile?.preferred_currency || 'USDC').toUpperCase();
   const completed = payments.filter((p) => p.status === 'completed');
@@ -97,8 +92,8 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
             <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px', marginBottom: '8px' }}>
               <div style={{ fontSize: '1.05rem', fontWeight: 700, wordBreak: 'break-all' }}>{profile.email}</div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
-                <span className={`status ${statusClass(profile.status)}`}>{profile.status ?? 'active'}</span>
-                <span className={`status ${statusClass(kyc)}`}>KYC {kyc}</span>
+                <StatusBadge status={profile.status}>{profile.status ?? 'active'}</StatusBadge>
+                <StatusBadge status={kyc}>KYC {kyc}</StatusBadge>
               </div>
               <div style={{ marginTop: '12px', fontSize: '0.8rem', color: '#6b7280' }}>Total received from you</div>
               <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>${fmt(totalUsd)} <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280' }}>· {completed.length} payments</span></div>
@@ -112,9 +107,7 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
             {profile.country && <Row label="Country">{profile.country}</Row>}
             <Row label="Worker ID">
               <span style={{ fontFamily: 'monospace', fontSize: '0.76rem' }}>{profile.id.slice(0, 8)}…</span>
-              <button onClick={() => copy(profile.id, 'id')} title="Copy" style={{ marginLeft: 6, background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', verticalAlign: 'middle' }}>
-                {copied === 'id' ? <HiCheck size={14} /> : <HiOutlineClipboard size={14} />}
-              </button>
+              <CopyButton text={profile.id} style={{ marginLeft: 6, verticalAlign: 'middle' }} />
             </Row>
 
             <SectionTitle>Stellar account</SectionTitle>
@@ -138,7 +131,7 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
                 {payments.slice(0, 12).map((p) => (
                   <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '8px 10px', background: '#f9fafb', border: '1px solid #f1f5f9', borderRadius: '8px' }}>
                     <span style={{ fontWeight: 600, fontSize: '0.84rem' }}>{fmt(p.amount, 2)} {p.currency}</span>
-                    <span className={`status ${statusClass(p.status)}`} style={{ fontSize: '0.62rem' }}>{p.status}</span>
+                    <StatusBadge status={p.status} style={{ fontSize: '0.62rem' }} />
                     <span style={{ fontSize: '0.74rem', color: '#6b7280' }}>{fmtDate(p.created_at)}</span>
                     {p.stellar_tx_hash
                       ? <a href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`} target="_blank" rel="noopener noreferrer"><HiOutlineArrowTopRightOnSquare size={13} /></a>

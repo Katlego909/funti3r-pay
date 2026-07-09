@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { HiOutlineArrowTopRightOnSquare, HiOutlineClipboard, HiCheck, HiOutlineArrowPath, HiOutlineArrowDownTray } from 'react-icons/hi2';
+import { HiOutlineArrowTopRightOnSquare, HiOutlineArrowPath, HiOutlineArrowDownTray } from 'react-icons/hi2';
 import { api } from '../api/client.js';
 import { initiatePayment } from '../api/payments.js';
 import { generatePayslip, formatCompanyLabel } from '../utils/export.js';
 import SlideOver, { Row } from './SlideOver.js';
-import { statusClass } from '../lib/status.js';
+import CopyButton from './CopyButton.js';
+import { StatusBadge } from './StatusBadge.js';
 import { currencyColor } from '../lib/currencyMeta.js';
 
 interface PaymentDetail {
@@ -38,7 +39,6 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
   const [p, setP] = useState<PaymentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState('');
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState('');
   const [retrySuccess, setRetrySuccess] = useState(false);
@@ -53,12 +53,6 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
       .catch((e: any) => setError(e?.response?.data?.error ?? 'Failed to load payment'))
       .finally(() => setLoading(false));
   }, [paymentId]);
-
-  const copy = (text: string, key: string) => {
-    navigator.clipboard?.writeText(text);
-    setCopied(key);
-    setTimeout(() => setCopied(''), 1500);
-  };
 
   async function handleRetry() {
     if (!p) return;
@@ -124,7 +118,7 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
               {p.usd_value != null && (
                 <div style={{ color: '#6b7280', fontSize: '0.85rem', marginTop: '2px' }}>≈ ${p.usd_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</div>
               )}
-              <span className={`status ${statusClass(p.status)}`} style={{ marginTop: '10px', display: 'inline-block' }}>{p.status}</span>
+              <StatusBadge status={p.status} style={{ marginTop: '10px', display: 'inline-block' }} />
             </div>
 
             {isConverted && (
@@ -158,9 +152,7 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
             {p.batch_id && <Row label="Batch">#{p.batch_id.slice(0, 8)}</Row>}
             <Row label="Payment ID">
               <span style={{ fontFamily: 'monospace', fontSize: '0.76rem' }}>{p.id.slice(0, 8)}…</span>
-              <button onClick={() => copy(p.id, 'id')} title="Copy" style={{ marginLeft: 6, background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', verticalAlign: 'middle' }}>
-                {copied === 'id' ? <HiCheck size={14} /> : <HiOutlineClipboard size={14} />}
-              </button>
+              <CopyButton text={p.id} style={{ marginLeft: 6, verticalAlign: 'middle' }} />
             </Row>
 
             {p.stellar_tx_hash && (
@@ -173,9 +165,7 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
                 >
                   View on Stellar Explorer <HiOutlineArrowTopRightOnSquare size={15} />
                 </a>
-                <button onClick={() => copy(p.stellar_tx_hash!, 'tx')} className="btn-secondary">
-                  {copied === 'tx' ? 'Copied ✓' : 'Copy tx hash'}
-                </button>
+                <CopyButton text={p.stellar_tx_hash} className="btn-secondary" label="Copy tx hash" copiedLabel="Copied ✓" />
               </div>
             )}
 

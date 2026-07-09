@@ -3,7 +3,6 @@ import { Helmet } from 'react-helmet-async';
 import {
   HiOutlineArrowDownOnSquare,
   HiOutlineArrowTopRightOnSquare,
-  HiOutlineArrowDownTray,
   HiOutlineMagnifyingGlass,
   HiOutlineXMark,
 } from 'react-icons/hi2';
@@ -11,7 +10,10 @@ import { listPayments, type Payment } from '../api/payments.js';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
 import { useAuthStore } from '../store/authStore.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
-import { statusClass, STATUS_TABS } from '../lib/status.js';
+import PageHeader from '../components/PageHeader.js';
+import ExportButtons from '../components/ExportButtons.js';
+import { StatusBadge } from '../components/StatusBadge.js';
+import { STATUS_TABS } from '../lib/status.js';
 import '../styles/Dashboard.css';
 
 export default function PaymentHistory() {
@@ -81,22 +83,17 @@ export default function PaymentHistory() {
         <title>Payment History | Funti3rPay</title>
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
-      <div className="dashboard-header">
-        <div>
-          <h2>Payment History</h2>
-          <p className="subtitle">View all payments received</p>
-        </div>
-        {payments.length > 0 && (
-          <div className="export-btn-group">
-            <button className="btn-export" disabled={exporting} onClick={async () => { const all = await fetchAllForExport(); exportPaymentsCSV(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}>
-              <HiOutlineArrowDownTray size={14} /> {exporting ? 'Exporting…' : 'CSV'}
-            </button>
-            <button className="btn-export" disabled={exporting} onClick={async () => { const all = await fetchAllForExport(); exportPaymentsPDF(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}>
-              <HiOutlineArrowDownTray size={14} /> {exporting ? 'Exporting…' : 'PDF'}
-            </button>
-          </div>
+      <PageHeader
+        title="Payment History"
+        subtitle="View all payments received"
+        actions={payments.length > 0 && (
+          <ExportButtons
+            exporting={exporting}
+            onCSV={async () => { const all = await fetchAllForExport(); exportPaymentsCSV(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}
+            onPDF={async () => { const all = await fetchAllForExport(); exportPaymentsPDF(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}
+          />
         )}
-      </div>
+      />
 
       {/* Filter bar */}
       <div className="payments-filter-bar">
@@ -156,7 +153,7 @@ export default function PaymentHistory() {
                   ) : visiblePayments.map((p) => (
                     <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
                       <td data-label="Amount" style={{ fontWeight: 600 }}>{p.amount} {p.currency}</td>
-                      <td data-label="Status"><span className={`status ${statusClass(p.status)}`}>{p.status}</span></td>
+                      <td data-label="Status"><StatusBadge status={p.status} /></td>
                       <td data-label="Date">{new Date(p.created_at).toLocaleString()}</td>
                       <td data-label="Transaction">
                         {p.stellar_tx_hash ? (

@@ -12,6 +12,7 @@ import { useAuthStore } from '../store/authStore';
 import { api } from '../api/client.js';
 import { getPayoutCurrencies, getPreferredCurrency, setPreferredCurrency, type PayoutCurrency } from '../api/payments.js';
 import { CurrencyIcon } from '../components/CurrencyIcon.js';
+import CopyButton from '../components/CopyButton.js';
 
 interface WalletBalance {
   asset_type: string;
@@ -48,7 +49,6 @@ export default function Wallet() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
 
   // Payout-currency preference
   const [currencies, setCurrencies] = useState<PayoutCurrency[]>([]);
@@ -93,13 +93,6 @@ export default function Wallet() {
       setRefreshing(false);
     }
   };
-
-  function copyAddress() {
-    if (!address) return;
-    navigator.clipboard?.writeText(address);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
 
   if (loading) return <div className="loading">Loading wallet...</div>;
 
@@ -158,13 +151,13 @@ export default function Wallet() {
               <span style={{ fontFamily: 'monospace', fontSize: '14px', color: 'var(--gray-900)' }}>
                 {address.slice(0, 6)}…{address.slice(-6)}
               </span>
-              <button
+              <CopyButton
+                text={address ?? ''}
                 className="btn-secondary"
-                onClick={copyAddress}
                 style={{ padding: '5px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-              >
-                {copied ? <><HiCheck size={14} /> Copied</> : <><HiOutlineClipboard size={14} /> Copy</>}
-              </button>
+                label={<><HiOutlineClipboard size={14} /> Copy</>}
+                copiedLabel={<><HiCheck size={14} /> Copied</>}
+              />
               <a
                 href={`https://stellar.expert/explorer/testnet/account/${address}`}
                 target="_blank"

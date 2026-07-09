@@ -5,13 +5,9 @@ import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
 import InsightsCharts from '../components/InsightsCharts.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
+import { StatusBadge } from '../components/StatusBadge.js';
+import { statusClass } from '../lib/status.js';
 import '../styles/Dashboard.css';
-
-function statusClass(s: string) {
-  if (s === 'completed') return 'completed';
-  if (s === 'failed') return 'failed';
-  return 'pending';
-}
 
 const CURRENCY_COLORS: Record<string, string> = {
   XLM: '#3b82f6', USDC: '#16a34a', NGN: '#f59e0b', KES: '#8b5cf6',
@@ -201,7 +197,7 @@ export default function Dashboard() {
                     <td>{p.amount} {p.currency}</td>
                     <td>{p.rail ?? 'stellar'}</td>
                     <td>
-                      <span className={`status ${statusClass(p.status)}`}>{p.status}</span>
+                      <StatusBadge status={p.status} />
                     </td>
                     <td>{new Date(p.created_at).toLocaleDateString()}</td>
                     <td>

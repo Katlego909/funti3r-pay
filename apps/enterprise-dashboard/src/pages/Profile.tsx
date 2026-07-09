@@ -7,6 +7,7 @@ import {
   HiOutlineShieldCheck,
 } from 'react-icons/hi2';
 import WalletInfo from '../components/WalletInfo.js';
+import { StatusBadge } from '../components/StatusBadge.js';
 
 export default function Profile() {
   const user = useAuthStore((s) => s.user);
@@ -52,10 +53,9 @@ export default function Profile() {
             <p className="subtitle" style={{ marginTop: 2 }}>{user.email}</p>
           </div>
         </div>
-        <span className={`status ${user.role === 'enterprise' ? 'completed' : 'pending'}`}
-          style={{ fontSize: '0.8rem', padding: '5px 12px' }}>
+        <StatusBadge variant={user.role === 'enterprise' ? 'completed' : 'pending'} style={{ fontSize: '0.8rem', padding: '5px 12px' }}>
           {user.role === 'enterprise' ? 'Enterprise' : 'Worker'}
-        </span>
+        </StatusBadge>
       </div>
 
       {/* Account details */}
