@@ -8,6 +8,7 @@ import { getXlmPrice } from '../api/payments.js';
 import PageHeader from '../components/PageHeader.js';
 import Modal from '../components/Modal.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
+import SlideOver, { Row, SectionTitle } from '../components/SlideOver.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 
 interface WorkerOption { id: string; email: string }
@@ -27,6 +28,99 @@ const MILESTONE_BADGE: Record<string, ['completed' | 'failed' | 'pending', strin
 };
 
 const txLink = (hash: string) => `https://stellar.expert/explorer/testnet/tx/${hash}`;
+
+function EscrowDetailDrawer({
+  escrow, acting, onApprove, onRefund, onClose,
+}: {
+  escrow: Escrow | null;
+  acting: boolean;
+  onApprove: (escrow: Escrow, idx: number) => void;
+  onRefund: (escrow: Escrow) => void;
+  onClose: () => void;
+}) {
+  // Keep the last non-null escrow so content stays put during SlideOver's
+  // slide-out animation (same pattern as ScheduleDetailModal).
+  const [current, setCurrent] = useState<Escrow | null>(null);
+  useEffect(() => {
+    if (escrow) setCurrent(escrow);
+  }, [escrow]);
+  if (!current) return null;
+
+  const expired = new Date(current.expiresAt) < new Date();
+  const hasPending = current.milestones.some((m) => m.status === 'pending');
+
+  return (
+    <SlideOver openKey={escrow} title="Escrow Details" onClose={onClose}>
+      <div style={{ marginTop: '1rem' }}>
+        {/* Headline (same shape as the payment detail drawer) */}
+        <div style={{
+          background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: '12px',
+          padding: '16px', marginBottom: '8px', textAlign: 'center',
+        }}>
+          <div style={{ fontSize: '1.9rem', fontWeight: 800 }}>
+            {current.totalXlm} <span style={{ fontSize: '0.55em' }}>XLM</span>
+          </div>
+          <div style={{ color: '#6b7280', fontSize: '0.85rem', marginTop: '2px' }}>{current.workerEmail}</div>
+          <StatusBadge variant={ESCROW_BADGE[current.status][0]} style={{ marginTop: '10px', display: 'inline-block' }}>
+            {ESCROW_BADGE[current.status][1]}
+          </StatusBadge>
+        </div>
+
+        <SectionTitle>Escrow</SectionTitle>
+        <Row label="Expires">{new Date(current.expiresAt).toLocaleDateString()}</Row>
+        <Row label="On-chain ID">#{current.onchainEscrowId}</Row>
+        {current.createTxHash && (
+          <Row label="Funding tx">
+            <a href={txLink(current.createTxHash)} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+              View on Explorer <HiOutlineArrowTopRightOnSquare size={13} />
+            </a>
+          </Row>
+        )}
+
+        <SectionTitle>Milestones</SectionTitle>
+        {current.milestones.map((m) => (
+          <div key={m.idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{m.description || `Milestone ${m.idx + 1}`}</div>
+              <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>{m.amountXlm} XLM</div>
+            </div>
+            {m.status === 'pending' && current.status === 'active' ? (
+              <button
+                className="btn-secondary"
+                style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem', flexShrink: 0 }}
+                disabled={acting}
+                onClick={() => onApprove(current, m.idx)}
+              >
+                Approve
+              </button>
+            ) : m.claimTxHash ? (
+              <a href={txLink(m.claimTxHash)} target="_blank" rel="noopener noreferrer" style={{ flexShrink: 0 }}>
+                <StatusBadge variant={MILESTONE_BADGE[m.status][0]}>{MILESTONE_BADGE[m.status][1]}</StatusBadge>
+              </a>
+            ) : (
+              <StatusBadge variant={MILESTONE_BADGE[m.status][0]} style={{ flexShrink: 0 }}>
+                {MILESTONE_BADGE[m.status][1]}
+              </StatusBadge>
+            )}
+          </div>
+        ))}
+
+        {current.status === 'active' && hasPending && (
+          <button
+            className="btn-secondary"
+            style={{ marginTop: '16px', width: '100%', color: 'var(--danger)', borderColor: '#fecaca' }}
+            disabled={!expired || acting}
+            title={expired ? 'Reclaim all unapproved funds' : 'Available after the expiry date'}
+            onClick={() => onRefund(current)}
+          >
+            {expired ? 'Refund unapproved funds' : 'Refund unlocks after expiry'}
+          </button>
+        )}
+      </div>
+    </SlideOver>
+  );
+}
 
 export default function Escrows() {
   const [escrows, setEscrows] = useState<Escrow[]>([]);
@@ -272,68 +366,14 @@ export default function Escrows() {
         </form>
       </Modal>
 
-      {/* Detail modal */}
-      {selected && (
-        <Modal open={!!selected} onClose={() => setSelected(null)} title={`Escrow — ${selected.workerEmail}`} closeButton maxWidth="540px">
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '1rem', fontSize: '0.85rem', color: '#6b7280' }}>
-            <StatusBadge variant={ESCROW_BADGE[selected.status][0]}>{ESCROW_BADGE[selected.status][1]}</StatusBadge>
-            <span>{selected.totalXlm} XLM total</span>
-            <span>· expires {new Date(selected.expiresAt).toLocaleDateString()}</span>
-          </div>
-
-          <div className="table-responsive">
-            <table className="data-table">
-              <thead>
-                <tr><th>#</th><th>Description</th><th>Amount</th><th>Status</th><th></th></tr>
-              </thead>
-              <tbody>
-                {selected.milestones.map((m) => (
-                  <tr key={m.idx}>
-                    <td>{m.idx + 1}</td>
-                    <td>{m.description || '—'}</td>
-                    <td>{m.amountXlm} XLM</td>
-                    <td>
-                      {m.claimTxHash ? (
-                        <a href={txLink(m.claimTxHash)} target="_blank" rel="noopener noreferrer">
-                          <StatusBadge variant={MILESTONE_BADGE[m.status][0]}>{MILESTONE_BADGE[m.status][1]}</StatusBadge>
-                        </a>
-                      ) : (
-                        <StatusBadge variant={MILESTONE_BADGE[m.status][0]}>{MILESTONE_BADGE[m.status][1]}</StatusBadge>
-                      )}
-                    </td>
-                    <td>
-                      {m.status === 'pending' && selected.status === 'active' && (
-                        <button
-                          className="btn-secondary"
-                          style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
-                          disabled={acting}
-                          onClick={() => setPendingApprove({ escrow: selected, idx: m.idx })}
-                        >
-                          Approve
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {selected.status === 'active' && selected.milestones.some((m) => m.status === 'pending') && (
-            <div className="form-actions" style={{ marginTop: '1rem' }}>
-              <button
-                className="btn-secondary"
-                style={{ color: 'var(--danger)', borderColor: '#fecaca' }}
-                disabled={!isExpired(selected) || acting}
-                title={isExpired(selected) ? 'Reclaim all unapproved funds' : 'Available after the expiry date'}
-                onClick={() => setPendingRefund(selected)}
-              >
-                {isExpired(selected) ? 'Refund unapproved funds' : 'Refund unlocks after expiry'}
-              </button>
-            </div>
-          )}
-        </Modal>
-      )}
+      {/* Detail drawer */}
+      <EscrowDetailDrawer
+        escrow={selected}
+        acting={acting}
+        onApprove={(escrow, idx) => setPendingApprove({ escrow, idx })}
+        onRefund={(escrow) => setPendingRefund(escrow)}
+        onClose={() => setSelected(null)}
+      />
 
       <ConfirmDialog
         open={!!pendingApprove}
