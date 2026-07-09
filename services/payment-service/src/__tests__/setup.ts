@@ -19,6 +19,13 @@ vi.mock('axios');
 // wire protocol. Mocking lib/stellar.ts wholesale is the correct boundary
 // (it's also what avoids fighting the module's own load-time Horizon.Server
 // singleton construction).
+// The anchor rail's SEP wire protocol is exercised by scripts/anchor-e2e.ts
+// on testnet; here only the routing decision is under test.
+vi.mock('../rails/anchor.js', () => ({
+  anchorConfigured: vi.fn(() => true),
+  sendAnchorPayout: vi.fn(),
+}));
+
 // Same boundary as lib/stellar.js — escrow routes orchestrate, the Soroban
 // wire protocol itself is exercised by scripts/escrow-e2e.ts on testnet.
 vi.mock('../lib/escrow.js', () => ({

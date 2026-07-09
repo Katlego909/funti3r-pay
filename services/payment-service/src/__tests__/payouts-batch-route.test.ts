@@ -97,7 +97,7 @@ describe('POST /payouts/batch — per-worker currency conversion', () => {
   const ZAR_WORKER = 'worker-zar-0000-0000-000000000000';
 
   const MIXED_CURRENCY_HANDLER = {
-    match: /SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency FROM users WHERE id = ANY/,
+    match: /SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency/,
     handler: (params: unknown[]) => ({
       rows: ((params[0] as string[]) ?? []).map((id) => ({
         id,
@@ -139,7 +139,7 @@ describe('POST /payouts/batch — per-worker currency conversion', () => {
   it('fails only the item whose preferred currency is unsupported, others still complete', async () => {
     const UNSUPPORTED_WORKER = 'worker-unsupported-0000-0000-000000';
     const handler = {
-      match: /SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency FROM users WHERE id = ANY/,
+      match: /SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency/,
       handler: (params: unknown[]) => ({
         rows: ((params[0] as string[]) ?? []).map((id) => ({
           id,

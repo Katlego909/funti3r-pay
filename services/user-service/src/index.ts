@@ -853,7 +853,8 @@ app.get('/users', async (req, res) => {
     const limit = Math.min(Number(req.query.limit ?? 50), 500);
     const offset = Number(req.query.offset ?? 0);
 
-    let sql = `SELECT u.id, u.email, u.role, u.status, u.country, u.preferred_currency, u.stellar_public_key, u.created_at
+    let sql = `SELECT u.id, u.email, u.role, u.status, u.country, u.preferred_currency, u.stellar_public_key,
+                      u.payout_method, u.created_at
                  FROM enterprise_workers ew JOIN users u ON u.id = ew.worker_id
                 WHERE ew.enterprise_id = $1 AND ew.status = 'active'`;
     const params: any[] = [enterpriseId];
@@ -906,7 +907,8 @@ app.get('/users/:id', async (req, res) => {
     // same company name as the owner — same fix as the Phase 2 cutover.
     const companyId = isSelf ? (membership?.companyId ?? null) : null;
     const result = await query(
-      `SELECT u.id, u.email, u.role, u.status, u.country, u.preferred_currency, u.created_at,
+      `SELECT u.id, u.email, u.role, u.status, u.country, u.preferred_currency,
+              u.payout_method, u.payout_details, u.created_at,
               e.company_name, e.company_registration, e.country AS company_country
          FROM users u
          LEFT JOIN enterprises e ON e.id = $2
@@ -947,6 +949,44 @@ const setPreferredCurrencyHandler = async (req: express.Request, res: express.Re
 };
 app.put('/users/me/preferred-currency', setPreferredCurrencyHandler);
 app.put('/api/users/me/preferred-currency', setPreferredCurrencyHandler);
+
+/**
+ * PUT /users/me/payout-method — how the worker receives payouts.
+ * Body: { method: 'stellar' | 'anchor', details?: Record<string,string> }.
+ * `details` holds the SEP-12 KYC fields an anchor disbursement needs
+ * (names, birth date, bank account/routing) — stored as payout_details.
+ */
+const setPayoutMethodHandler = async (req: express.Request, res: express.Response) => {
+  const userId = req.headers['x-user-id'] as string | undefined;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+  const { method, details } = req.body as { method?: string; details?: Record<string, string> };
+  if (!method || !['stellar', 'anchor'].includes(method)) {
+    return res.status(400).json({ error: "method must be 'stellar' or 'anchor'" });
+  }
+  if (details !== undefined && (typeof details !== 'object' || details === null || Array.isArray(details))) {
+    return res.status(400).json({ error: 'details must be an object' });
+  }
+
+  try {
+    const result = await query(
+      `UPDATE users
+          SET payout_method = $1,
+              payout_details = COALESCE($2::jsonb, payout_details),
+              updated_at = NOW()
+        WHERE id = $3
+        RETURNING payout_method, payout_details`,
+      [method, details ? JSON.stringify(details) : null, userId],
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    res.json({ payoutMethod: result.rows[0].payout_method, payoutDetails: result.rows[0].payout_details });
+  } catch (err) {
+    logger.error('Failed to set payout method', { error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+app.put('/users/me/payout-method', setPayoutMethodHandler);
+app.put('/api/users/me/payout-method', setPayoutMethodHandler);
 
 /**
  * PATCH /users/me — update mutable profile fields for the authenticated user.

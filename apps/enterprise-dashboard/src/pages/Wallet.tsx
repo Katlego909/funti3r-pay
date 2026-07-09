@@ -10,7 +10,10 @@ import {
 import { toast } from 'sonner';
 import { useAuthStore } from '../store/authStore';
 import { api } from '../api/client.js';
-import { getPayoutCurrencies, getPreferredCurrency, setPreferredCurrency, type PayoutCurrency } from '../api/payments.js';
+import {
+  getPayoutCurrencies, getPreferredCurrency, setPreferredCurrency,
+  getPayoutMethod, setPayoutMethod, type PayoutCurrency, type PayoutMethod,
+} from '../api/payments.js';
 import { CurrencyIcon } from '../components/CurrencyIcon.js';
 import CopyButton from '../components/CopyButton.js';
 import { StatusBadge } from '../components/StatusBadge.js';
@@ -61,6 +64,11 @@ export default function Wallet() {
   const [escrows, setEscrows] = useState<Escrow[]>([]);
   const [claiming, setClaiming] = useState<string | null>(null);
 
+  // Payout method (Stellar wallet vs anchor bank/cash disbursement)
+  const [payoutMethod, setPayoutMethodState] = useState<PayoutMethod>('stellar');
+  const [anchorDetails, setAnchorDetails] = useState<Record<string, string>>({});
+  const [savingMethod, setSavingMethod] = useState(false);
+
   function loadEscrows() {
     listEscrows().then(setEscrows).catch(() => {});
   }
@@ -73,8 +81,40 @@ export default function Wallet() {
     fetchWallet();
     getPayoutCurrencies().then(setCurrencies);
     getPreferredCurrency(userId).then(setPreferred);
+    getPayoutMethod(userId).then((info) => {
+      setPayoutMethodState(info.method);
+      setAnchorDetails(info.details ?? {});
+    });
     loadEscrows();
   }, [userId]);
+
+  async function changePayoutMethod(method: PayoutMethod) {
+    setPayoutMethodState(method);
+    if (method === 'stellar') {
+      setSavingMethod(true);
+      try {
+        await setPayoutMethod('stellar');
+        toast.success('Payouts go straight to your Stellar wallet');
+      } catch (err: any) {
+        toast.error(err?.response?.data?.error ?? 'Failed to update payout method');
+      } finally {
+        setSavingMethod(false);
+      }
+    }
+    // 'anchor' persists on Save, once the details are filled in.
+  }
+
+  async function saveAnchorDetails() {
+    setSavingMethod(true);
+    try {
+      await setPayoutMethod('anchor', anchorDetails);
+      toast.success('Payouts will be disbursed to your bank / cash pickup');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error ?? 'Failed to save payout details');
+    } finally {
+      setSavingMethod(false);
+    }
+  }
 
   async function handleClaim(escrowId: string, idx: number) {
     setClaiming(`${escrowId}:${idx}`);
@@ -165,6 +205,64 @@ export default function Wallet() {
             <span style={{ fontSize: '13px', color: 'var(--gray-600)' }}>
               {savingPref ? 'Saving…' : 'Employers send USD — you receive this currency.'}
             </span>
+          </div>
+
+          {/* Payout method: on-chain wallet vs anchor disbursement */}
+          <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid var(--gray-200)' }}>
+            <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--gray-700)', marginBottom: '8px' }}>
+              How you receive payouts
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <select
+                value={payoutMethod}
+                disabled={savingMethod}
+                onChange={(e) => changePayoutMethod(e.target.value as PayoutMethod)}
+                style={{ padding: '9px 12px', borderRadius: '8px', border: '1.5px solid var(--gray-200)', fontSize: '14px', minWidth: '220px', fontFamily: 'inherit' }}
+              >
+                <option value="stellar">Stellar wallet (on-chain)</option>
+                <option value="anchor">Bank / cash pickup (via anchor)</option>
+              </select>
+              {payoutMethod === 'stellar' && (
+                <span style={{ fontSize: '13px', color: 'var(--gray-600)' }}>Funds arrive directly in the wallet below.</span>
+              )}
+            </div>
+
+            {payoutMethod === 'anchor' && (
+              <div style={{ marginTop: '12px' }}>
+                <p style={{ fontSize: '13px', color: 'var(--gray-600)', margin: '0 0 10px' }}>
+                  Payouts are converted and disbursed through a regulated Stellar anchor.
+                  The anchor needs these details to pay you out:
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', maxWidth: '640px' }}>
+                  {([
+                    ['first_name', 'First name', 'text'],
+                    ['last_name', 'Last name', 'text'],
+                    ['email_address', 'Email', 'email'],
+                    ['birth_date', 'Date of birth', 'date'],
+                    ['bank_account_number', 'Bank account number', 'text'],
+                    ['bank_number', 'Bank routing number', 'text'],
+                  ] as const).map(([key, label, type]) => (
+                    <label key={key} style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--gray-700)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {label}
+                      <input
+                        type={type}
+                        value={anchorDetails[key] ?? ''}
+                        onChange={(e) => setAnchorDetails((d) => ({ ...d, [key]: e.target.value }))}
+                        style={{ padding: '8px 10px', borderRadius: '8px', border: '1.5px solid var(--gray-200)', fontSize: '13px', fontFamily: 'inherit', fontWeight: 400 }}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <button
+                  className="btn-primary"
+                  style={{ marginTop: '12px', padding: '9px 18px', fontSize: '0.85rem' }}
+                  disabled={savingMethod || !anchorDetails.first_name || !anchorDetails.last_name}
+                  onClick={saveAnchorDetails}
+                >
+                  {savingMethod ? 'Saving…' : 'Save payout details'}
+                </button>
+              </div>
+            )}
           </div>
         </section>
 

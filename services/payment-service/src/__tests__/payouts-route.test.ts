@@ -172,7 +172,7 @@ describe('POST /payouts — success and failure mapping', () => {
     vi.mocked(query).mockImplementation(
       createQueryMock([
         ENTERPRISE_SECRET_HANDLER,
-        { match: /SELECT stellar_public_key, stellar_secret_key, email FROM users/, handler: () => ({ rows: [] }) },
+        { match: /SELECT stellar_public_key, stellar_secret_key, email/, handler: () => ({ rows: [] }) },
       ]),
     );
 

@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMark } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
-import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, type Payment, type BatchResult } from '../api/payments.js';
+import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, getXlmPrice, type Payment, type BatchResult } from '../api/payments.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
@@ -15,7 +15,7 @@ import { StatusBadge } from '../components/StatusBadge.js';
 import { STATUS_TABS } from '../lib/status.js';
 import { CURRENCY_META } from '../lib/currencyMeta.js';
 
-interface WorkerOption { id: string; email: string; preferred_currency?: string; stellar_public_key?: string }
+interface WorkerOption { id: string; email: string; preferred_currency?: string; stellar_public_key?: string; payout_method?: string }
 interface BatchRow { workerId: string; amountUsd: string }
 
 export default function Payments() {
@@ -33,6 +33,12 @@ export default function Payments() {
   const [amount, setAmount] = useState('');
   const [memo, setMemo] = useState('');
   const [fxRates, setFxRates] = useState<Record<string, number>>({});
+  const [xlmUsd, setXlmUsd] = useState(0);
+  const [anchorLimits, setAnchorLimits] = useState<{ minXlm: number | null; maxXlm: number | null } | null>(null);
+  // Live payout method for the selected worker. The worker may have switched
+  // methods (on their Wallet page) since this page's worker list was loaded,
+  // so we fetch the current value rather than trust the cached list.
+  const [selectedPayoutMethod, setSelectedPayoutMethod] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
   // Idempotency key for the in-flight (or about-to-be-sent) payment. A ref, not
   // state: a fast double-click can fire handleSend twice before a `disabled`
@@ -106,11 +112,33 @@ export default function Payments() {
       .then((res) => setWorkers(res.data.users ?? []))
       .catch(() => setWorkers([]));
     getFxRates().then(setFxRates);
+    getXlmPrice().then(setXlmUsd);
+    api.get<{ configured: boolean; minXlm: number | null; maxXlm: number | null }>('/payouts/anchor-limits')
+      .then((res) => setAnchorLimits(res.data.configured ? { minXlm: res.data.minXlm, maxXlm: res.data.maxXlm } : null))
+      .catch(() => setAnchorLimits(null));
   }, []);
 
   const selectedWorker = workers.find((w) => w.id === workerId);
+
+  // Refresh the selected worker's payout method live whenever the selection
+  // changes — falls back to the cached list value if the lookup fails.
+  useEffect(() => {
+    if (!workerId) { setSelectedPayoutMethod(undefined); return; }
+    let cancelled = false;
+    api.get<{ payout_method?: string }>(`/users/${workerId}`)
+      .then((res) => { if (!cancelled) setSelectedPayoutMethod(res.data.payout_method); })
+      .catch(() => { if (!cancelled) setSelectedPayoutMethod(undefined); });
+    return () => { cancelled = true; };
+  }, [workerId]);
+
   const payCurrency = (selectedWorker?.preferred_currency || 'USDC').toUpperCase();
   const fxRate = fxRates[payCurrency] ?? (payCurrency === 'USDC' ? 1 : undefined);
+  const isAnchorPayout = (selectedPayoutMethod ?? selectedWorker?.payout_method) === 'anchor';
+  const anchorXlmEquivalent = isAnchorPayout && amount && xlmUsd ? Number(amount) / xlmUsd : null;
+  const anchorLimitWarning =
+    isAnchorPayout && anchorXlmEquivalent != null && anchorLimits?.maxXlm != null && anchorXlmEquivalent > anchorLimits.maxXlm
+      ? `This worker is paid via bank/cash anchor, which caps a single disbursement at ${anchorLimits.maxXlm} XLM (≈ $${(anchorLimits.maxXlm * xlmUsd).toFixed(2)}). This payout is ≈ ${anchorXlmEquivalent.toFixed(2)} XLM — reduce the amount or it will fail.`
+      : null;
   const localPreview = amount && fxRate
     ? `${(Number(amount) * fxRate).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${payCurrency}`
     : '';
@@ -261,10 +289,21 @@ export default function Payments() {
                   placeholder="e.g. 50.00"
                 />
               </label>
-              {workerId && localPreview && (
+              {workerId && isAnchorPayout && anchorXlmEquivalent != null && (
+                <p style={{ margin: '-8px 0 4px', fontSize: '0.85rem', color: anchorLimitWarning ? '#b45309' : '#065f46', fontWeight: 600 }}>
+                  Worker receives ≈ {anchorXlmEquivalent.toFixed(2)} XLM via bank/cash disbursement
+                  <span style={{ color: '#6b7280', fontWeight: 400 }}> · paid out through the anchor, not the Stellar DEX</span>
+                </p>
+              )}
+              {workerId && !isAnchorPayout && localPreview && (
                 <p style={{ margin: '-8px 0 4px', fontSize: '0.85rem', color: '#065f46', fontWeight: 600 }}>
                   Worker receives ≈ {localPreview}
                   {payCurrency !== 'USDC' && <span style={{ color: '#6b7280', fontWeight: 400 }}> · converted from USD via the Stellar DEX</span>}
+                </p>
+              )}
+              {anchorLimitWarning && (
+                <p style={{ margin: '-4px 0 4px', fontSize: '0.8rem', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '8px 10px' }}>
+                  ⚠ {anchorLimitWarning}
                 </p>
               )}
               <label>Memo (optional)
@@ -278,7 +317,7 @@ export default function Payments() {
 
               <div className="form-actions">
                 <button type="button" className="btn-secondary" onClick={() => setFormOpen(false)}>Cancel</button>
-                <button type="submit" className="btn-primary" disabled={submitting}>
+                <button type="submit" className="btn-primary" disabled={submitting || !!anchorLimitWarning} title={anchorLimitWarning ?? undefined}>
                   {submitting ? 'Sending…' : 'Send Payment'}
                 </button>
               </div>

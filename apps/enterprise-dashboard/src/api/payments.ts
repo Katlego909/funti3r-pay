@@ -162,3 +162,25 @@ export async function setPreferredCurrency(currency: string): Promise<string> {
   const { data } = await api.put<{ preferredCurrency: string }>('/users/me/preferred-currency', { currency });
   return data.preferredCurrency;
 }
+
+export type PayoutMethod = 'stellar' | 'anchor';
+export interface PayoutMethodInfo {
+  method: PayoutMethod;
+  details: Record<string, string> | null;
+}
+
+export async function getPayoutMethod(userId: string): Promise<PayoutMethodInfo> {
+  try {
+    const { data } = await api.get<{ payout_method?: string; payout_details?: Record<string, string> | null }>(`/users/${userId}`);
+    return {
+      method: data.payout_method === 'anchor' ? 'anchor' : 'stellar',
+      details: data.payout_details ?? null,
+    };
+  } catch {
+    return { method: 'stellar', details: null };
+  }
+}
+
+export async function setPayoutMethod(method: PayoutMethod, details?: Record<string, string>): Promise<void> {
+  await api.put('/users/me/payout-method', { method, ...(details ? { details } : {}) });
+}

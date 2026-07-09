@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import { query } from '@funti3r/database';
 import * as stellar from '../lib/stellar.js';
+import * as anchorRail from '../rails/anchor.js';
 import { amountToUsd, getXlmUsd } from '../lib/fx.js';
 import { executePayout, payoutPayloadHash } from '../app.js';
 
@@ -75,7 +76,7 @@ describe('executePayout — legacy path (no idempotency key)', () => {
 
   it('worker with no Stellar account fails, no payment row inserted', async () => {
     vi.mocked(query).mockImplementation(
-      createQueryMock([{ match: /SELECT stellar_public_key, stellar_secret_key, email FROM users/, handler: () => ({ rows: [] }) }]),
+      createQueryMock([{ match: /SELECT stellar_public_key, stellar_secret_key, email/, handler: () => ({ rows: [] }) }]),
     );
 
     const result = await executePayout({ ...baseOpts, amountNum: 5, asset: 'XLM' });
@@ -138,6 +139,45 @@ describe('executePayout — legacy path (no idempotency key)', () => {
 
     expect(result.status).toBe('failed');
     expect(result.error).toMatch(/FX rate unavailable/);
+    expect(stellar.createClaimableBalance).not.toHaveBeenCalled();
+  });
+
+  it('anchor-method worker routes through the anchor rail with the XLM conversion', async () => {
+    const anchorWorker = {
+      match: /SELECT stellar_public_key, stellar_secret_key, email/,
+      handler: () => ({ rows: [{ ...WORKER_ROW, payout_method: 'anchor', payout_details: { first_name: 'K' } }] }),
+    };
+    vi.mocked(query).mockImplementation(createQueryMock([anchorWorker, HANDLER_INSERT_PAYMENT]));
+    vi.mocked(anchorRail.sendAnchorPayout).mockResolvedValue({
+      settlementHash: 'tx-anchor-settle', anchorTxId: 'anchor-tx-1', anchorStatus: 'completed',
+    });
+
+    const result = await executePayout({ ...baseOpts, amountNum: 10, asset: 'USDC' });
+
+    expect(result.status).toBe('completed');
+    expect(result.stellarTxHash).toBe('tx-anchor-settle');
+    // $10 at $0.25/XLM → 40 XLM disbursed via the anchor.
+    expect(anchorRail.sendAnchorPayout).toHaveBeenCalledWith(
+      expect.objectContaining({ amountXlm: '40.0000000', kyc: { first_name: 'K' } }),
+    );
+    // No on-chain wallet payment happened.
+    expect(stellar.sendPayment).not.toHaveBeenCalled();
+    expect(stellar.payExactWithXlm).not.toHaveBeenCalled();
+  });
+
+  it('anchor rail failure fails the payout loudly — no silent XLM fallback', async () => {
+    const anchorWorker = {
+      match: /SELECT stellar_public_key, stellar_secret_key, email/,
+      handler: () => ({ rows: [{ ...WORKER_ROW, payout_method: 'anchor' }] }),
+    };
+    vi.mocked(query).mockImplementation(createQueryMock([anchorWorker, HANDLER_INSERT_PAYMENT]));
+    vi.mocked(anchorRail.sendAnchorPayout).mockRejectedValue(new Error('Anchor minimum disbursement is 1 XLM'));
+
+    const result = await executePayout({ ...baseOpts, amountNum: 10, asset: 'USDC' });
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toMatch(/Anchor minimum/);
+    expect(stellar.sendPayment).not.toHaveBeenCalled();
     expect(stellar.createClaimableBalance).not.toHaveBeenCalled();
   });
 

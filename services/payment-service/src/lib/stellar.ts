@@ -70,7 +70,9 @@ export async function sendPayment(
   amount: string,
   assetCode: string = 'XLM',
   assetIssuer?: string,
-  memoHash?: Buffer,
+  // Buffer = sha256 hash memo (the payout convention); a prebuilt Memo covers
+  // anchor-dictated memo types (id/text) for settlement payments.
+  memoHash?: Buffer | Memo,
 ): Promise<string> {
   const sourceKeypair = Keypair.fromSecret(sourceSecret);
   logger.info('Preparing payment', {
@@ -90,7 +92,7 @@ export async function sendPayment(
   });
 
   if (memoHash) {
-    builder.addMemo(Memo.hash(memoHash));
+    builder.addMemo(Buffer.isBuffer(memoHash) ? Memo.hash(memoHash) : memoHash);
   }
 
   const tx = builder

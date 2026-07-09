@@ -22,6 +22,8 @@ interface PaymentDetail {
   fee_paid_xlm?: string | null;
   batch_id?: string | null;
   idempotency_key?: string | null;
+  rail?: string | null;
+  provider_reference?: string | null;
   company_name?: string | null;
   created_at: string;
   completed_at?: string | null;
@@ -149,6 +151,16 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
             {p.fee_paid_xlm && <Row label="Conversion cost">{fmtAmt(p.fee_paid_xlm)} XLM</Row>}
             <Row label="Created">{fmtDate(p.created_at)}</Row>
             {p.completed_at && <Row label="Completed">{fmtDate(p.completed_at)}</Row>}
+            {p.rail && p.rail !== 'stellar' && (
+              <Row label="Rail">
+                <span style={{ textTransform: 'capitalize' }}>{p.rail}</span> (bank / cash disbursement)
+              </Row>
+            )}
+            {p.provider_reference && (
+              <Row label="Anchor reference">
+                <span style={{ fontFamily: 'monospace', fontSize: '0.76rem' }}>{p.provider_reference}</span>
+              </Row>
+            )}
             {p.batch_id && <Row label="Batch">#{p.batch_id.slice(0, 8)}</Row>}
             <Row label="Payment ID">
               <span style={{ fontFamily: 'monospace', fontSize: '0.76rem' }}>{p.id.slice(0, 8)}…</span>

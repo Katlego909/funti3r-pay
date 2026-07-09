@@ -63,6 +63,8 @@ export const WORKER_ROW = {
   stellar_public_key: 'GDESTWORKERPUBLICKEYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
   stellar_secret_key: 'SWORKERSECRETKEYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
   email: 'worker@test.com',
+  payout_method: 'stellar',
+  payout_details: null,
 };
 
 export const HANDLER_NO_EXISTING_IDEMPOTENCY_ROW: QueryHandler = {
@@ -71,7 +73,7 @@ export const HANDLER_NO_EXISTING_IDEMPOTENCY_ROW: QueryHandler = {
 };
 
 export const HANDLER_WORKER_FOUND: QueryHandler = {
-  match: /SELECT stellar_public_key, stellar_secret_key, email FROM users/,
+  match: /SELECT stellar_public_key, stellar_secret_key, email/,
   handler: () => ({ rows: [WORKER_ROW] }),
 };
 
@@ -83,7 +85,7 @@ export const HANDLER_WORKER_FOUND: QueryHandler = {
  * per-worker currency mix should supply their own handler for this query.
  */
 export const HANDLER_WORKER_FOUND_BULK: QueryHandler = {
-  match: /SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency FROM users WHERE id = ANY/,
+  match: /SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency/,
   handler: (params) => ({
     rows: ((params[0] as string[]) ?? []).map((id) => ({ id, ...WORKER_ROW, preferred_currency: 'USDC' })),
   }),
