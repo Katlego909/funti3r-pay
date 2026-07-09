@@ -10,7 +10,7 @@
   },
   "scripts": {
     "predev": "node scripts/free-ports.mjs",
-    "dev": "turbo run dev --parallel",
+    "dev": "turbo run dev",
     "free-ports": "node scripts/free-ports.mjs",
     "build": "turbo run build",
     "test": "turbo run test",

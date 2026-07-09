@@ -41,5 +41,6 @@ export interface IPaymentRail {
   readonly name: string;
   readonly supportedCountries: string[];
   getQuote(params: RailQuoteParams): Promise<RailQuote>;
-  sendPayment(params: RailPaymentParams): Promise<RailResult>;
+  /** Fiat rails only. On-chain payouts bypass the rail abstraction — see executePayout (src/app.ts). */
+  sendPayment?(params: RailPaymentParams): Promise<RailResult>;
 }

@@ -360,6 +360,7 @@ export async function executePayout(opts: {
     const memoHash = crypto.createHash('sha256').update(paymentId).digest();
     let txHash: string;
     let feePaidXlm: string | null = null;
+    let claimableXlm: string | null = null;
     let paymentStatus: PayoutResult['status'] = 'completed';
 
     if (def.kind === 'native') {
@@ -380,6 +381,9 @@ export async function executePayout(opts: {
           sourceSecret, destination, def.code, def.issuer!, String(amountNum), 0.05, memoHash,
         );
         txHash = result.hash;
+        // Despite the column name, payments.fee_paid_xlm holds the TOTAL XLM the
+        // enterprise spent to fund this payout (the discovery-time path quote),
+        // not the network fee.
         feePaidXlm = result.sourceAmountXlm;
       } catch (pathErr: any) {
         // If the destination lacks a trustline (op_no_trust / op_no_destination),
@@ -390,15 +394,28 @@ export async function executePayout(opts: {
         const isNoTrust = codes.includes('op_no_trust') || codes.includes('op_no_destination');
         if (!isNoTrust) throw pathErr;
 
+        // The claimable balance is XLM, but amountNum is denominated in `asset`
+        // (e.g. NGN) — convert to the equivalent XLM so the worker gets the same
+        // value, not the same number.
+        const [usdValue, xlmUsd] = await Promise.all([
+          amountToUsd(asset, amountNum),
+          getXlmUsd(),
+        ]);
+        const xlmEquivalent = usdValue > 0 && xlmUsd > 0 ? (usdValue / xlmUsd).toFixed(7) : '0';
+        if (Number(xlmEquivalent) <= 0) {
+          throw new Error(`Cannot price XLM fallback for ${amountNum} ${asset} — FX rate unavailable`);
+        }
+        claimableXlm = xlmEquivalent;
+
         logger.warn('Destination lacks trustline — creating claimable XLM balance', {
-          paymentId, workerId, asset,
+          paymentId, workerId, asset, amountLocal: amountNum, claimableXlm,
         });
 
         txHash = await stellar.createClaimableBalance(
           sourceSecret,
           destination,
           Asset.native(),
-          String(amountNum),
+          claimableXlm,
           memoHash,
         );
         paymentStatus = 'pending_claim';
@@ -441,7 +458,7 @@ export async function executePayout(opts: {
           query(
             `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
              VALUES ($1, 'payment_pending_claim', 'Payment waiting for you', $2, 'payment', $3)`,
-            [workerId, `A payment of ${amountNum} XLM is held for you. Set up your wallet to claim it.`, paymentId],
+            [workerId, `A payment of ${claimableXlm} XLM is held for you. Set up your wallet to claim it.`, paymentId],
           ),
         ]);
       }

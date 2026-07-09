@@ -162,7 +162,8 @@ export default function Workers() {
           <h2>Workers</h2>
           <p className="subtitle">Registered workers, wallets, and KYC status</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* No alignItems — children stretch to the tallest button (same as Payments) */}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           <div className="export-btn-group">
             <button className="btn-export" onClick={() => exportWorkersCSV(workers)}>
               <HiOutlineArrowDownTray size={14} /> CSV

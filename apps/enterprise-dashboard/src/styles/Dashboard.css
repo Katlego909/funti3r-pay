@@ -41,27 +41,6 @@
   margin: 0;
 }
 
-.btn-new-payout {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  background: var(--accent);
-  color: #fff;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 700;
-  text-decoration: none;
-  transition: background 0.15s, box-shadow 0.15s;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.btn-new-payout:hover {
-  background: var(--accent-dark);
-  box-shadow: 0 4px 14px rgba(254, 119, 41, 0.35);
-}
-
 /* ── Metric cards ────────────────────────────────────────────────────────── */
 
 .metrics-grid {
@@ -298,7 +277,6 @@
   .content-grid { grid-template-columns: 1fr; }
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }
   .dashboard-header { flex-direction: column; align-items: flex-start; gap: 16px; }
-  .btn-new-payout { align-self: flex-start; }
 }
 
 @media (max-width: 768px) {

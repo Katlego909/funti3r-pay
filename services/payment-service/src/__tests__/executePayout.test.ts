@@ -2,7 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import { query } from '@funti3r/database';
 import * as stellar from '../lib/stellar.js';
+import { amountToUsd, getXlmUsd } from '../lib/fx.js';
 import { executePayout, payoutPayloadHash } from '../app.js';
+
+// The claimable-balance fallback prices the payout in XLM via live FX — pin the
+// rates so the conversion is assertable (and no real HTTP is attempted).
+vi.mock('../lib/fx.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/fx.js')>();
+  return { ...actual, amountToUsd: vi.fn(), getXlmUsd: vi.fn() };
+});
 import {
   createQueryMock,
   WORKER_ID,
@@ -26,6 +34,9 @@ beforeEach(() => {
   vi.mocked(stellar.ensureTrustline).mockReset();
   vi.mocked(stellar.payExactWithXlm).mockReset();
   vi.mocked(stellar.createClaimableBalance).mockReset();
+  // Defaults: USDC is 1:1 with USD, XLM trades at $0.25.
+  vi.mocked(amountToUsd).mockReset().mockImplementation(async (code, amount) => (code === 'USDC' ? amount : 0));
+  vi.mocked(getXlmUsd).mockReset().mockResolvedValue(0.25);
 });
 
 describe('executePayout — legacy path (no idempotency key)', () => {
@@ -97,6 +108,37 @@ describe('executePayout — legacy path (no idempotency key)', () => {
     expect(result.status).toBe('pending_claim');
     expect(result.stellarTxHash).toBe('tx-hash-claimable-1');
     expect(stellar.createClaimableBalance).toHaveBeenCalledTimes(1);
+    // $10 of USDC at $0.25/XLM → 40 XLM held for the worker.
+    expect(vi.mocked(stellar.createClaimableBalance).mock.calls[0][3]).toBe('40.0000000');
+  });
+
+  it('op_no_trust fallback converts a local-currency amount to XLM, not the raw number', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT]));
+    vi.mocked(stellar.payExactWithXlm).mockRejectedValue({
+      response: { data: { extras: { result_codes: { operations: ['op_no_trust'] } } } },
+    });
+    vi.mocked(stellar.createClaimableBalance).mockResolvedValue('tx-hash-claimable-ngn');
+    vi.mocked(amountToUsd).mockResolvedValue(50); // 75,000 NGN ≈ $50
+
+    const result = await executePayout({ ...baseOpts, amountNum: 75000, asset: 'NGN' });
+
+    expect(result.status).toBe('pending_claim');
+    // $50 at $0.25/XLM → 200 XLM — NOT a 75,000 XLM claimable balance.
+    expect(vi.mocked(stellar.createClaimableBalance).mock.calls[0][3]).toBe('200.0000000');
+  });
+
+  it('op_no_trust fallback fails the payout when FX is unavailable instead of guessing an amount', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT]));
+    vi.mocked(stellar.payExactWithXlm).mockRejectedValue({
+      response: { data: { extras: { result_codes: { operations: ['op_no_trust'] } } } },
+    });
+    vi.mocked(getXlmUsd).mockResolvedValue(0);
+
+    const result = await executePayout({ ...baseOpts, amountNum: 75000, asset: 'NGN' });
+
+    expect(result.status).toBe('failed');
+    expect(result.error).toMatch(/FX rate unavailable/);
+    expect(stellar.createClaimableBalance).not.toHaveBeenCalled();
   });
 
   it('a genuine Stellar submission error marks the payment failed', async () => {

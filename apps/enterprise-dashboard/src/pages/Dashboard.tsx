@@ -7,7 +7,6 @@ import {
   HiOutlineClock,
   HiOutlineCheckCircle,
   HiOutlineArrowTopRightOnSquare,
-  HiOutlineArrowRight,
   HiOutlineArrowDownTray,
 } from 'react-icons/hi2';
 import { exportAnalyticsCSV, exportAnalyticsPDF } from '../utils/export.js';
@@ -175,7 +174,8 @@ export default function Dashboard() {
           </p>
         </div>
         {isEnterprise ? (
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          // No alignItems — children stretch to the tallest button (same as Payments)
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             {summary && recent.length > 0 && (
               <div className="export-btn-group">
                 <button className="btn-export" onClick={() => exportAnalyticsCSV(summary, recent)}>
@@ -186,13 +186,13 @@ export default function Dashboard() {
                 </button>
               </div>
             )}
-            <Link to="/payments" className="btn-new-payout">
-              New Payout <HiOutlineArrowRight size={16} />
+            <Link to="/payments" className="btn-cta">
+              New Payout
             </Link>
           </div>
         ) : (
-          <Link to="/wallet" className="btn-new-payout">
-            My Wallet <HiOutlineArrowRight size={16} />
+          <Link to="/wallet" className="btn-cta">
+            My Wallet
           </Link>
         )}
       </div>

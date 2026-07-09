@@ -1,8 +1,6 @@
 {
   "$schema": "https://turbo.build/json-schema.json",
-  "extends": [
-    "//"
-  ],
+  "concurrency": "15",
   "globalDependencies": [
     "**/.env",
     "**/.env.local"
