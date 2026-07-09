@@ -1119,6 +1119,36 @@ app.get('/invites', async (req, res) => {
   }
 });
 
+app.delete('/invites/:id', async (req, res) => {
+  const requesterId = req.headers['x-user-id'] as string;
+  const requesterRole = req.headers['x-user-role'] as string;
+  if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
+
+  // Guard the uuid cast — a malformed id would otherwise throw in pg and 500.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.id)) {
+    return res.status(404).json({ error: 'Pending invite not found' });
+  }
+
+  try {
+    // Same authorization as POST /invites: any active member of the company
+    // may manage its worker invites, scoped via the owner's users.id.
+    const membership = await resolveActiveMembership(requesterId);
+    if (!membership) return res.status(403).json({ error: 'You do not belong to a company' });
+
+    // Hard delete, pending rows only — accepted invites are join history, and
+    // deleting the row kills the emailed link (GET /invites/:token → 404).
+    const result = await query(
+      `DELETE FROM worker_invites WHERE id = $1 AND enterprise_id = $2 AND status = 'pending' RETURNING id`,
+      [req.params.id, membership.ownerUserId],
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Pending invite not found' });
+    return res.json({ ok: true });
+  } catch (err) {
+    logger.error('Delete invite failed', { error: String(err) });
+    return res.status(500).json({ error: 'Failed to delete invite' });
+  }
+});
+
 app.get('/invites/:token', async (req, res) => {
   try {
     const result = await query(

@@ -3,9 +3,10 @@ import { Helmet } from 'react-helmet-async';
 import { HiOutlineArrowDownTray, HiOutlineEnvelope, HiOutlineClipboard, HiCheck, HiOutlineXMark } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { useAuthStore } from '../store/authStore.js';
-import { getKYCStatusBulk, getInvites, type Worker, type KYCStatus, type WorkerInvite } from '../api/workers.js';
+import { getKYCStatusBulk, getInvites, deleteInvite, type Worker, type KYCStatus, type WorkerInvite } from '../api/workers.js';
 import { api } from '../api/client.js';
 import WorkerDetailDrawer from '../components/WorkerDetailDrawer.js';
+import ConfirmDialog from '../components/ConfirmDialog.js';
 import { exportWorkersCSV, exportWorkersPDF } from '../utils/export.js';
 
 interface WorkerRow extends Worker {
@@ -50,6 +51,7 @@ export default function Workers() {
   const [inviteSending, setInviteSending] = useState(false);
   const [copied, setCopied] = useState(false);
   const [invites, setInvites] = useState<WorkerInvite[]>([]);
+  const [inviteToDelete, setInviteToDelete] = useState<WorkerInvite | null>(null);
 
   function loadInvites() {
     getInvites().then(setInvites).catch(() => {});
@@ -67,6 +69,19 @@ export default function Workers() {
       toast.error(err?.response?.data?.error ?? 'Failed to create invite');
     } finally {
       setInviteSending(false);
+    }
+  }
+
+  async function confirmDeleteInvite() {
+    if (!inviteToDelete) return;
+    try {
+      await deleteInvite(inviteToDelete.id);
+      setInvites((prev) => prev.filter((i) => i.id !== inviteToDelete.id));
+      toast.success('Invite deleted');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error ?? 'Failed to delete invite');
+    } finally {
+      setInviteToDelete(null);
     }
   }
 
@@ -244,6 +259,7 @@ export default function Workers() {
                   <th>Email</th>
                   <th>Sent</th>
                   <th>Expires</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -259,6 +275,16 @@ export default function Workers() {
                           {expired
                             ? <span className="status failed">Expired</span>
                             : new Date(i.expires_at).toLocaleDateString()}
+                        </td>
+                        <td data-label="Actions">
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem', color: 'var(--danger)', borderColor: '#fecaca' }}
+                            onClick={() => setInviteToDelete(i)}
+                          >
+                            Delete
+                          </button>
                         </td>
                       </tr>
                     );
@@ -388,6 +414,16 @@ export default function Workers() {
       )}
 
       <WorkerDetailDrawer workerId={selectedWorker} onClose={() => setSelectedWorker(null)} />
+
+      <ConfirmDialog
+        open={!!inviteToDelete}
+        title="Delete invite"
+        message={`Delete the invite for ${inviteToDelete?.email}? Their invite link will stop working.`}
+        confirmLabel="Delete"
+        danger
+        onConfirm={confirmDeleteInvite}
+        onCancel={() => setInviteToDelete(null)}
+      />
     </div>
   );
 }

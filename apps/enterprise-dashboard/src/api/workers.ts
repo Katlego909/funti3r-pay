@@ -31,6 +31,10 @@ export async function getInvites(): Promise<WorkerInvite[]> {
   return data.invites;
 }
 
+export async function deleteInvite(id: string): Promise<void> {
+  await api.delete(`/invites/${id}`);
+}
+
 export async function getUserSummary(): Promise<{ total: number; byRole: Record<string, number> }> {
   const { data } = await api.get('/users/summary');
   return data;
