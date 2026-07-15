@@ -17,6 +17,13 @@ interface WorkerRow extends Worker {
   kyc?: KYCStatus;
 }
 
+interface SanctionsMatch {
+  candidateName: string;
+  matchedName: string;
+  program: string;
+  list: string;
+}
+
 interface KYCDetail {
   id: string;
   user_id: string;
@@ -28,6 +35,8 @@ interface KYCDetail {
   verified_at: string | null;
   created_at: string;
   updated_at: string;
+  sanctions_status?: string;
+  sanctions_matches?: SanctionsMatch[];
 }
 
 export default function Workers() {
@@ -97,7 +106,7 @@ export default function Workers() {
     setApproving(true);
     try {
       await api.post(`/compliance/${selectedKYC.user_id}/approve`, {});
-      setSelectedKYC({ ...selectedKYC, status: 'verified' });
+      setSelectedKYC({ ...selectedKYC, status: 'verified', sanctions_status: 'clear' });
       setWorkers((prev) =>
         prev.map((w) =>
           w.id === selectedKYC.user_id
@@ -268,6 +277,19 @@ export default function Workers() {
                 <p style={{ fontSize: '0.875rem', color: '#666', margin: '0 0 0.25rem 0' }}>Status</p>
                 <p style={{ margin: 0, fontWeight: 600 }}><KycBadge status={selectedKYC.status} /></p>
               </div>
+              {selectedKYC.sanctions_status === 'flagged' && (
+                <div style={{
+                  marginBottom: '1rem', padding: '0.75rem', borderRadius: '6px',
+                  backgroundColor: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b',
+                }}>
+                  <p style={{ margin: '0 0 0.35rem 0', fontWeight: 600 }}>⚠ Sanctions list match</p>
+                  {(selectedKYC.sanctions_matches ?? []).map((m, i) => (
+                    <p key={i} style={{ margin: 0, fontSize: '0.85rem' }}>
+                      "{m.candidateName}" ≈ "{m.matchedName}" ({m.list} — {m.program})
+                    </p>
+                  ))}
+                </div>
+              )}
               <div style={{ marginBottom: '1rem' }}>
                 <p style={{ fontSize: '0.875rem', color: '#666', margin: '0 0 0.25rem 0' }}>ID Type</p>
                 <p style={{ margin: 0 }}>{selectedKYC.id_type}</p>
@@ -300,7 +322,7 @@ export default function Workers() {
                 >
                   Close
                 </button>
-                {selectedKYC.status === 'pending' && (
+                {(selectedKYC.status === 'pending' || selectedKYC.sanctions_status === 'flagged') && (
                   <>
                     <button
                       type="button"
@@ -308,8 +330,9 @@ export default function Workers() {
                       onClick={approveKYC}
                       disabled={approving || rejecting}
                       style={{ backgroundColor: '#10b981' }}
+                      title={selectedKYC.sanctions_status === 'flagged' ? 'Manually clear as a false positive' : undefined}
                     >
-                      {approving ? 'Approving…' : 'Approve'}
+                      {approving ? 'Approving…' : selectedKYC.sanctions_status === 'flagged' ? 'Clear match & approve' : 'Approve'}
                     </button>
                     <button
                       type="button"

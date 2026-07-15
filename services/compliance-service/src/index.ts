@@ -1,6 +1,7 @@
 import express from 'express';
 import { createLogger, NotFoundError } from '@funti3r/shared-utils';
 import { initPostgres, query } from '@funti3r/database';
+import { screenNames } from './sanctions/screen.js';
 
 const logger = createLogger('ComplianceService');
 
@@ -29,6 +30,18 @@ app.get('/health', (_, res) => {
 // ── Submit KYC ────────────────────────────────────────────────────────────────
 // Stores the whole submission payload in the `data` JSONB column. Auto-approves
 // when AUTO_APPROVE is on. One record per user (upsert on user_id).
+//
+// Sanctions screening runs on every submission regardless of AUTO_APPROVE — a
+// list match always forces 'rejected' so testnet auto-approve can never wave
+// through a flagged name.
+
+function candidateNamesFromSubmission(details: Record<string, any>): string[] {
+  return [
+    details?.identity?.fullName,
+    details?.identity?.legalName,
+    details?.bankAccount?.accountHolderName,
+  ].filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
+}
 
 const submitKycHandler = async (req: express.Request, res: express.Response) => {
   const { userId, ...details } = req.body ?? {};
@@ -37,29 +50,38 @@ const submitKycHandler = async (req: express.Request, res: express.Response) => 
   }
 
   try {
-    const status = AUTO_APPROVE ? 'approved' : 'pending';
-    const verifiedAt = AUTO_APPROVE ? new Date().toISOString() : null;
+    const sanctionsMatches = screenNames(candidateNamesFromSubmission(details));
+    const sanctionsStatus = sanctionsMatches.length > 0 ? 'flagged' : 'clear';
+
+    const status = sanctionsStatus === 'flagged' ? 'rejected' : (AUTO_APPROVE ? 'approved' : 'pending');
+    const verifiedAt = status === 'approved' ? new Date().toISOString() : null;
 
     const result = await query(
-      `INSERT INTO kyc_records (user_id, provider, status, data, verified_at, updated_at)
-         VALUES ($1, 'manual', $2, $3, $4, NOW())
+      `INSERT INTO kyc_records (user_id, provider, status, data, verified_at, sanctions_status, sanctions_matches, sanctions_checked_at, updated_at)
+         VALUES ($1, 'manual', $2, $3, $4, $5, $6, NOW(), NOW())
        ON CONFLICT (user_id) DO UPDATE SET
          status = EXCLUDED.status,
          data = EXCLUDED.data,
          verified_at = EXCLUDED.verified_at,
+         sanctions_status = EXCLUDED.sanctions_status,
+         sanctions_matches = EXCLUDED.sanctions_matches,
+         sanctions_checked_at = EXCLUDED.sanctions_checked_at,
          updated_at = NOW()
-       RETURNING id, status, verified_at, created_at`,
-      [userId, status, JSON.stringify(details), verifiedAt],
+       RETURNING id, status, verified_at, sanctions_status, created_at`,
+      [userId, status, JSON.stringify(details), verifiedAt, sanctionsStatus, JSON.stringify(sanctionsMatches)],
     );
 
     const row = result.rows[0];
-    logger.info('KYC submitted', { userId, status, autoApprove: AUTO_APPROVE });
+    logger.info('KYC submitted', { userId, status, sanctionsStatus, matchCount: sanctionsMatches.length, autoApprove: AUTO_APPROVE });
     res.status(201).json({
       id: row.id,
       status: toFrontendStatus(row.status),
       verified_at: row.verified_at,
       submitted_at: row.created_at,
-      message: AUTO_APPROVE ? 'Auto-approved (testnet)' : 'Under review',
+      sanctions_status: row.sanctions_status,
+      message: sanctionsStatus === 'flagged'
+        ? 'Blocked pending compliance review (sanctions list match)'
+        : (AUTO_APPROVE ? 'Auto-approved (testnet)' : 'Under review'),
     });
   } catch (err) {
     logger.error('KYC submission failed', { userId, error: String(err) });
@@ -74,7 +96,7 @@ app.post('/submit', submitKycHandler);
 const statusHandler = async (req: express.Request, res: express.Response) => {
   try {
     const result = await query(
-      `SELECT id, status, verified_at, created_at, updated_at
+      `SELECT id, status, verified_at, created_at, updated_at, sanctions_status
          FROM kyc_records WHERE user_id = $1`,
       [req.params.userId],
     );
@@ -95,6 +117,7 @@ const statusHandler = async (req: express.Request, res: express.Response) => {
       verified_at: row.verified_at,
       submitted_at: row.created_at,
       updated_at: row.updated_at,
+      sanctions_status: row.sanctions_status,
     });
   } catch (err) {
     logger.error('Status check failed', { error: String(err) });
@@ -116,7 +139,7 @@ const statusBulkHandler = async (req: express.Request, res: express.Response) =>
 
   try {
     const result = await query(
-      `SELECT user_id, status, verified_at, created_at, updated_at
+      `SELECT user_id, status, verified_at, created_at, updated_at, sanctions_status
          FROM kyc_records WHERE user_id = ANY($1::uuid[])`,
       [userIds],
     );
@@ -129,6 +152,7 @@ const statusBulkHandler = async (req: express.Request, res: express.Response) =>
         verified_at: row.verified_at,
         submitted_at: row.created_at,
         updated_at: row.updated_at,
+        sanctions_status: row.sanctions_status,
       };
     }
 
@@ -149,6 +173,29 @@ const statusBulkHandler = async (req: express.Request, res: express.Response) =>
 
 app.post('/status/bulk', statusBulkHandler);
 
+// ── Flagged (sanctions match) records, admin only ─────────────────────────────
+// Registered ahead of the `/:userId` param route below so this literal path
+// isn't swallowed as a userId.
+
+const flaggedHandler = async (req: express.Request, res: express.Response) => {
+  const role = req.headers['x-user-role'];
+  if (role !== 'admin') {
+    return res.status(403).json({ error: 'Admin role required' });
+  }
+  try {
+    const result = await query(
+      `SELECT user_id, status, sanctions_matches, sanctions_checked_at, created_at
+         FROM kyc_records WHERE sanctions_status = 'flagged' ORDER BY sanctions_checked_at DESC`,
+    );
+    res.json({ flagged: result.rows });
+  } catch (err) {
+    logger.error('Flagged sanctions list failed', { error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+app.get('/flagged', flaggedHandler);
+
 // ── Full KYC details (owner, admin, or enterprise) ────────────────────────────
 
 const getKycHandler = async (req: express.Request, res: express.Response) => {
@@ -162,7 +209,7 @@ const getKycHandler = async (req: express.Request, res: express.Response) => {
 
   try {
     const result = await query(
-      `SELECT id, user_id, status, data, verified_at, created_at, updated_at
+      `SELECT id, user_id, status, data, verified_at, created_at, updated_at, sanctions_status, sanctions_matches
          FROM kyc_records WHERE user_id = $1`,
       [targetUserId],
     );
@@ -183,6 +230,8 @@ const getKycHandler = async (req: express.Request, res: express.Response) => {
       verified_at: row.verified_at,
       created_at: row.created_at,
       updated_at: row.updated_at,
+      sanctions_status: row.sanctions_status,
+      sanctions_matches: row.sanctions_matches,
     });
   } catch (err) {
     logger.error('Get KYC details failed', { error: String(err) });
@@ -200,10 +249,14 @@ const setStatusHandler = (newStatus: 'approved' | 'rejected') => async (req: exp
     return res.status(403).json({ error: 'Admin or enterprise role required' });
   }
   try {
+    // A manual approve clears a sanctions flag too — the reviewer has just
+    // confirmed it was a false positive. A manual reject leaves the flag
+    // alone (it's still relevant history for a rejection either way).
     const result = await query(
       `UPDATE kyc_records
           SET status = $1,
               verified_at = CASE WHEN $1 = 'approved' THEN NOW() ELSE verified_at END,
+              sanctions_status = CASE WHEN $1 = 'approved' THEN 'clear' ELSE sanctions_status END,
               updated_at = NOW()
         WHERE user_id = $2
         RETURNING status`,
