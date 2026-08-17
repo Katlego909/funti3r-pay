@@ -16,6 +16,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - funti3r-network
 
   redis:
     image: redis:7-alpine
@@ -29,6 +31,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - funti3r-network
 
   # ── Microservices ─────────────────────────────────────────────────────────────
   user-service:
@@ -133,6 +137,18 @@ services:
       - payment-service
       - compliance-service
       - analytics-service
+    networks:
+      - funti3r-network
+
+  enterprise-dashboard:
+    build:
+      context: .
+      dockerfile: apps/enterprise-dashboard/Dockerfile
+    container_name: funti3r-enterprise-dashboard
+    ports:
+      - "3100:80"
+    depends_on:
+      - api-gateway
     networks:
       - funti3r-network
 

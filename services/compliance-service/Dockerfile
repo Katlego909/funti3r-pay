@@ -3,14 +3,14 @@ WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json tsconfig.json ./
 COPY packages/ ./packages/
 COPY services/compliance-service/ ./services/compliance-service/
 
 RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @funti3r/shared-types build
 RUN pnpm --filter @funti3r/shared-utils build
-RUN pnpm --filter @funti3r/shared-types build || true
-RUN pnpm --filter @funti3r/database build || true
+RUN pnpm --filter @funti3r/database build
 RUN pnpm --filter @funti3r/compliance-service build
 
 FROM node:20-alpine
@@ -26,4 +26,5 @@ COPY --from=builder /app/services/compliance-service/package.json ./services/com
 RUN pnpm install --frozen-lockfile --prod
 
 EXPOSE 3003
-CMD ["node", "services/compliance-service/dist/index.js"]
+# --conditions=production makes @funti3r/* resolve to compiled dist instead of TS source
+CMD ["node", "--conditions=production", "services/compliance-service/dist/index.js"]

@@ -3,17 +3,14 @@ WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json tsconfig.json ./
 COPY packages/ ./packages/
 COPY services/payment-service/ ./services/payment-service/
-# Include compiled WASM if available
-COPY contracts/target/wasm32-unknown-unknown/release/funti3r_soroban.wasm \
-     ./contracts/target/wasm32-unknown-unknown/release/ 2>/dev/null || true
 
 RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @funti3r/shared-types build
 RUN pnpm --filter @funti3r/shared-utils build
-RUN pnpm --filter @funti3r/shared-types build || true
-RUN pnpm --filter @funti3r/database build || true
+RUN pnpm --filter @funti3r/database build
 RUN pnpm --filter @funti3r/payment-service build
 
 FROM node:20-alpine
@@ -25,9 +22,11 @@ COPY --from=builder /app/pnpm-lock.yaml /app/pnpm-workspace.yaml /app/package.js
 COPY --from=builder /app/packages/ ./packages/
 COPY --from=builder /app/services/payment-service/dist/ ./services/payment-service/dist/
 COPY --from=builder /app/services/payment-service/package.json ./services/payment-service/
-COPY --from=builder /app/contracts/ ./contracts/ 2>/dev/null || true
+# runInitialMigrations() reads these at boot, resolved relative to dist/
+COPY services/database/migrations/ ./services/database/migrations/
 
 RUN pnpm install --frozen-lockfile --prod
 
 EXPOSE 3002
-CMD ["node", "services/payment-service/dist/index.js"]
+# --conditions=production makes @funti3r/* resolve to compiled dist instead of TS source
+CMD ["node", "--conditions=production", "services/payment-service/dist/index.js"]
