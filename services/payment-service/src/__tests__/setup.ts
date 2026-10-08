@@ -31,6 +31,7 @@ vi.mock('../rails/anchor.js', () => ({
 vi.mock('../lib/escrow.js', () => ({
   setFrozen: vi.fn(),
   isCleared: vi.fn(),
+  complianceAuthorityPublic: vi.fn(() => 'GCOMPLIANCEXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'),
   setClearance: vi.fn(),
   revokeClearance: vi.fn(),
   attestationHash: vi.fn(),

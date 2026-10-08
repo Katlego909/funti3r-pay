@@ -3,6 +3,7 @@ import axios from 'axios';
 import { query } from '@funti3r/database';
 import { createLogger } from '@funti3r/shared-utils';
 import { nextRunDate } from './lib/scheduling.js';
+import { reconcileEscrows } from './lib/escrowReconcile.js';
 
 const logger = createLogger('Scheduler');
 
@@ -214,6 +215,17 @@ export function startScheduler(): void {
       logger.error('Unhandled error in reconcileStuckPayments', { error: String(err) }),
     );
   });
+
+  // Keep the escrows mirror in line with the contract (chain is the source of
+  // truth): every 5 minutes, and once shortly after boot.
+  const runEscrowReconcile = () =>
+    reconcileEscrows()
+      .then((r) => {
+        if (r.drift.length || r.unreadable) logger.warn('Escrow reconcile finished with findings', r);
+      })
+      .catch((err) => logger.error('Unhandled error in reconcileEscrows', { error: String(err) }));
+  cron.schedule('*/5 * * * *', runEscrowReconcile);
+  setTimeout(runEscrowReconcile, 15_000);
 
   logger.info('Scheduler started — checking for due schedules every hour, reconciling stuck payments every 2 minutes');
 }

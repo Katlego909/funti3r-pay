@@ -6,6 +6,7 @@ import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from '../l
 import * as escrow from '../lib/escrow.js';
 import { ComplianceBlockedError, ensureCleared } from '../lib/clearance.js';
 import { anchorConfigured, sendAnchorPayout } from '../rails/anchor.js';
+import { reconcileEscrows } from '../lib/escrowReconcile.js';
 import { AnchorActionRequiredError, AnchorAmountMismatchError, interactiveUrlUsable } from '../lib/anchor.js';
 import { requireCompliance, resolveEnterpriseSecret } from '../app.js';
 
@@ -536,6 +537,25 @@ router.post('/:id/freeze', async (req: Request, res: Response) => {
   } catch (err) {
     logger.error('Failed to change escrow freeze', { id, error: String(err) });
     sendChainError(res, err, 'Failed to change freeze on-chain');
+  }
+});
+
+// ── POST /escrows/reconcile (admin) ───────────────────────────────────────────
+// Compare every active escrow with the chain and repair the database to match.
+// { "repair": false } is a dry run that only reports the drift.
+
+router.post('/reconcile', async (req: Request, res: Response) => {
+  if (req.headers['x-user-role'] !== 'admin') {
+    return res.status(403).json({ error: 'Admin role required' });
+  }
+  try {
+    const repair = (req.body as { repair?: unknown } | undefined)?.repair !== false;
+    const report = await reconcileEscrows({ repair });
+    logger.info('Manual escrow reconcile', { by: req.headers['x-user-id'], repair, ...report });
+    res.json({ repair, ...report });
+  } catch (err) {
+    logger.error('Escrow reconcile failed', { error: String(err) });
+    res.status(502).json({ error: err instanceof Error ? err.message : 'Reconcile failed' });
   }
 });
 
