@@ -4,6 +4,7 @@ import { query } from '@funti3r/database';
 import { createLogger } from '@funti3r/shared-utils';
 import { nextRunDate } from './lib/scheduling.js';
 import { reconcileEscrows } from './lib/escrowReconcile.js';
+import { syncPendingRamps } from './lib/rampsSync.js';
 
 const logger = createLogger('Scheduler');
 
@@ -225,6 +226,13 @@ export function startScheduler(): void {
       })
       .catch((err) => logger.error('Unhandled error in reconcileEscrows', { error: String(err) }));
   cron.schedule('*/5 * * * *', runEscrowReconcile);
+
+  // MoneyGram cash-outs we've paid but MoneyGram hasn't acknowledged yet.
+  cron.schedule('* * * * *', () => {
+    syncPendingRamps().catch((err) =>
+      logger.error('Unhandled error in syncPendingRamps', { error: String(err) }),
+    );
+  });
   setTimeout(runEscrowReconcile, 15_000);
 
   logger.info('Scheduler started — checking for due schedules every hour, reconciling stuck payments every 2 minutes');

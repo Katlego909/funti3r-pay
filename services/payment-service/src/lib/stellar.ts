@@ -246,6 +246,11 @@ export async function ensureTrustline(
  * a strict-receive path payment. Returns the tx hash and how much XLM was spent.
  *
  * The destination must already hold a trustline to destAsset.
+ *
+ * `sendMaxXlm` is a hard ceiling on the XLM spent (the network rejects the payment
+ * if the DEX would need more) — pass it to cap a payout at a known amount instead
+ * of relying on the default price-plus-slippage ceiling. `memo` overrides the
+ * default hash memo (e.g. a numeric ID memo an anchor requires).
  */
 export async function payExactWithXlm(
   sourceSecret: string,
@@ -255,6 +260,7 @@ export async function payExactWithXlm(
   destAmount: string,
   slippage = 0.05,
   memoHash?: Buffer,
+  options: { sendMaxXlm?: string; memo?: Memo } = {},
 ): Promise<{ hash: string; sourceAmountXlm: string }> {
   const sourceKeypair = Keypair.fromSecret(sourceSecret);
   const destAsset = new Asset(destAssetCode, destAssetIssuer);
@@ -266,10 +272,20 @@ export async function payExactWithXlm(
   if (!paths.records || paths.records.length === 0) {
     throw new Error(`No DEX path to deliver ${destAmount} ${destAssetCode}`);
   }
-  const best = paths.records.reduce((a, b) =>
+  // Only paths that START in XLM: the payment below spends native XLM. Without this
+  // filter a sender who also holds the destination asset (or any other) would match
+  // their own cheaper non-XLM path and we would build a payment that can't succeed.
+  const xlmPaths = paths.records.filter((r) => r.source_asset_type === 'native');
+  if (xlmPaths.length === 0) {
+    throw new Error(`No DEX path from XLM to deliver ${destAmount} ${destAssetCode}`);
+  }
+  const best = xlmPaths.reduce((a, b) =>
     Number(a.source_amount) <= Number(b.source_amount) ? a : b,
   );
-  const sendMax = (Number(best.source_amount) * (1 + slippage)).toFixed(7);
+  const sendMax = options.sendMaxXlm ?? (Number(best.source_amount) * (1 + slippage)).toFixed(7);
+  if (Number(best.source_amount) > Number(sendMax)) {
+    throw new Error(`Delivering ${destAmount} ${destAssetCode} needs ${best.source_amount} XLM, above the ${sendMax} XLM limit`);
+  }
 
   const account = await horizon.loadAccount(sourceKeypair.publicKey());
   const fee = await horizon.fetchBaseFee();
@@ -277,7 +293,8 @@ export async function payExactWithXlm(
     fee: String(Math.max(fee * 10, 100)),
     networkPassphrase: NETWORK_PASSPHRASE,
   });
-  if (memoHash) builder.addMemo(Memo.hash(memoHash));
+  if (options.memo) builder.addMemo(options.memo);
+  else if (memoHash) builder.addMemo(Memo.hash(memoHash));
 
   const path = (best.path || []).map((p: any) =>
     p.asset_type === 'native' ? Asset.native() : new Asset(p.asset_code, p.asset_issuer),
