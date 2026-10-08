@@ -27,6 +27,8 @@ COPY services/database/migrations/ ./services/database/migrations/
 
 RUN pnpm install --frozen-lockfile --prod
 
+# Run unprivileged: nothing here needs root once the dependencies are installed.
+USER node
 EXPOSE 3001
 # --conditions=production makes @funti3r/* resolve to compiled dist instead of TS source
 CMD ["node", "--conditions=production", "services/user-service/dist/index.js"]

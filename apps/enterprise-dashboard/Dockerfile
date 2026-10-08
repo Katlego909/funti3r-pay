@@ -17,9 +17,9 @@ COPY apps/enterprise-dashboard/ ./apps/enterprise-dashboard/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 RUN pnpm --filter @funti3r/enterprise-dashboard build
 
-# Serve with nginx
-FROM nginx:alpine
+# Serve with nginx (unprivileged image: listens on 8080 as a non-root user)
+FROM nginxinc/nginx-unprivileged:alpine
 COPY --from=builder /app/apps/enterprise-dashboard/dist /usr/share/nginx/html
 COPY apps/enterprise-dashboard/nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+EXPOSE 8080
 CMD ["nginx", "-g", "daemon off;"]

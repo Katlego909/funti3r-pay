@@ -1,16 +1,37 @@
+# Production-shaped stack. Only the Caddy proxy (80/443) is reachable from outside; the gateway, services,
+# Postgres and Redis live on the internal network and publish nothing.
+#
+#   Production:  docker compose -f docker-compose.yml up -d        (set the variables listed in .env.example)
+#   Local dev:   docker compose up -d                              (also loads docker-compose.override.yml, which
+#                                                                   publishes the database ports and the dashboard)
+#
+# Required variables (compose refuses to start without them): POSTGRES_PASSWORD, REDIS_PASSWORD.
+# Everything else the services need is read from .env.local (INTERNAL_AUTH_SECRET, JWT_SECRET, MASTER_ENCRYPTION_KEY …).
+
+x-service-hardening: &service-hardening
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
 services:
   # ── Databases ────────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: funti3r-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: funti3r_dev
-      POSTGRES_PASSWORD: dev_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: funti3r_dev
-    ports:
-      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U funti3r_dev"]
       interval: 10s
@@ -22,139 +43,192 @@ services:
   redis:
     image: redis:7-alpine
     container_name: funti3r-redis
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    # Append-only file so a restart does not drop the sessions' short-lived state; password required.
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}"]
     volumes:
       - redis_data:/data
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     networks:
       - funti3r-network
 
   # ── Microservices ─────────────────────────────────────────────────────────────
   user-service:
+    <<: *service-hardening
     build:
       context: .
       dockerfile: services/user-service/Dockerfile
     container_name: funti3r-user-service
     env_file: .env.local
     environment:
-      DATABASE_URL: postgresql://funti3r_dev:dev_password@postgres:5432/funti3r_dev
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://funti3r_dev:${POSTGRES_PASSWORD}@postgres:5432/funti3r_dev
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       USER_SERVICE_PORT: "3001"
       PAYMENT_SERVICE_URL: http://payment-service:3002
-    ports:
-      - "3001:3001"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     networks:
       - funti3r-network
 
   payment-service:
+    <<: *service-hardening
     build:
       context: .
       dockerfile: services/payment-service/Dockerfile
     container_name: funti3r-payment-service
     env_file: .env.local
     environment:
-      DATABASE_URL: postgresql://funti3r_dev:dev_password@postgres:5432/funti3r_dev
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://funti3r_dev:${POSTGRES_PASSWORD}@postgres:5432/funti3r_dev
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       PAYMENT_SERVICE_PORT: "3002"
       COMPLIANCE_SERVICE_URL: http://compliance-service:3003
       STELLAR_HORIZON_URL: https://horizon-testnet.stellar.org
       STELLAR_SOROBAN_URL: https://soroban-testnet.stellar.org
       STELLAR_NETWORK: TESTNET
-    ports:
-      - "3002:3002"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     networks:
       - funti3r-network
 
   compliance-service:
+    <<: *service-hardening
     build:
       context: .
       dockerfile: services/compliance-service/Dockerfile
     container_name: funti3r-compliance-service
     env_file: .env.local
     environment:
-      DATABASE_URL: postgresql://funti3r_dev:dev_password@postgres:5432/funti3r_dev
+      DATABASE_URL: postgresql://funti3r_dev:${POSTGRES_PASSWORD}@postgres:5432/funti3r_dev
       COMPLIANCE_SERVICE_PORT: "3003"
-      COMPLIANCE_AUTO_APPROVE: "true"
-    ports:
-      - "3003:3003"
+      # Reviewed approvals by default; only the local override turns testnet auto-approval on.
+      COMPLIANCE_AUTO_APPROVE: ${COMPLIANCE_AUTO_APPROVE:-false}
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     networks:
       - funti3r-network
 
   analytics-service:
+    <<: *service-hardening
     build:
       context: .
       dockerfile: services/analytics-service/Dockerfile
     container_name: funti3r-analytics-service
     env_file: .env.local
     environment:
-      DATABASE_URL: postgresql://funti3r_dev:dev_password@postgres:5432/funti3r_dev
+      DATABASE_URL: postgresql://funti3r_dev:${POSTGRES_PASSWORD}@postgres:5432/funti3r_dev
       ANALYTICS_SERVICE_PORT: "3004"
-    ports:
-      - "3004:3004"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3004/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     networks:
       - funti3r-network
 
   api-gateway:
+    <<: *service-hardening
     build:
       context: .
       dockerfile: services/api-gateway/Dockerfile
     container_name: funti3r-api-gateway
     env_file: .env.local
     environment:
-      DATABASE_URL: postgresql://funti3r_dev:dev_password@postgres:5432/funti3r_dev
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://funti3r_dev:${POSTGRES_PASSWORD}@postgres:5432/funti3r_dev
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       API_PORT: "3000"
       USER_SERVICE_URL: http://user-service:3001
       PAYMENT_SERVICE_URL: http://payment-service:3002
       COMPLIANCE_SERVICE_URL: http://compliance-service:3003
       ANALYTICS_SERVICE_URL: http://analytics-service:3004
-      ALLOWED_ORIGINS: http://localhost:3100
-    ports:
-      - "3000:3000"
+      ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:3100}
     depends_on:
       - user-service
       - payment-service
       - compliance-service
       - analytics-service
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     networks:
       - funti3r-network
 
   enterprise-dashboard:
+    <<: *service-hardening
     build:
       context: .
       dockerfile: apps/enterprise-dashboard/Dockerfile
     container_name: funti3r-enterprise-dashboard
-    ports:
-      - "3100:80"
+    # nginx-unprivileged needs these writable at runtime.
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
     depends_on:
       - api-gateway
+    networks:
+      - funti3r-network
+
+  # ── Edge: the only thing reachable from outside. Terminates TLS (automatic certificates) and forwards to the dashboard,
+  # whose nginx serves the app and proxies /api to the gateway.
+  caddy:
+    image: caddy:2-alpine
+    container_name: funti3r-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - enterprise-dashboard
     networks:
       - funti3r-network
 
 volumes:
   postgres_data:
   redis_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   funti3r-network:

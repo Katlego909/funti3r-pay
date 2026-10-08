@@ -1,0 +1,24 @@
+# Edge proxy: automatic HTTPS for PUBLIC_HOST (a real domain in production; `localhost` gets a local certificate).
+{$PUBLIC_HOST:localhost} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Money-moving requests are small; refuse anything large before it reaches an app.
+	request_body {
+		max_size 2MB
+	}
+
+	reverse_proxy enterprise-dashboard:8080 {
+		header_up X-Forwarded-Proto {scheme}
+		transport http {
+			response_header_timeout 60s
+		}
+	}
+}
