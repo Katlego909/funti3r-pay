@@ -1,18 +1,28 @@
-//! Funti3r milestone escrow.
+//! Funti3r milestone escrow with an on-chain compliance gate.
 //!
 //! An enterprise funds an escrow for a worker with N milestone tranches of a
 //! SAC token (native XLM on testnet, USDC on mainnet — same code). Flow:
 //!
-//!   create (enterprise deposits total)
+//!   create (enterprise deposits total; worker must be cleared)
 //!     └─ per milestone: Pending ──approve(enterprise)──► Approved ──claim(worker)──► Claimed
 //!   refund (enterprise, only after expiry): every still-Pending tranche is
 //!   returned; Approved tranches stay claimable — the worker earned them.
+//!
+//! Compliance gate: a dedicated `compliance` authority (the platform's
+//! KYC/AML screening service, a different key from any enterprise or worker)
+//! records a time-boxed clearance per worker, bound to the hash of the
+//! screening record that justified it. create/approve/claim all fail unless
+//! the worker holds a live clearance, and the authority can `freeze` a single
+//! escrow (e.g. a sanctions hit mid-flight) which blocks every movement of
+//! its funds until unfrozen.
 //!
 //! Escrow status: Active ─► Completed (≥1 claimed, nothing open)
 //!                        └► Refunded (nothing claimed, nothing open)
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, token, Address, BytesN,
+    ContractExecutable,
+    Env, Vec,
 };
 
 // ~1 day threshold / ~30 day extension, in ledgers (~5s each).
@@ -46,13 +56,26 @@ pub struct Escrow {
     pub milestones: Vec<MilestoneStatus>,
     pub expiry: u64,
     pub status: EscrowStatus,
+    pub frozen: bool,
+}
+
+/// A worker's compliance clearance: valid until `expiry` (unix seconds) and
+/// bound to the hash of the off-chain screening record behind it.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Clearance {
+    pub expiry: u64,
+    pub attestation: BytesN<32>,
 }
 
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
+    Admin,
+    Compliance,
     NextId,
     Escrow(u64),
+    Clearance(Address),
 }
 
 #[contracterror]
@@ -69,7 +92,66 @@ pub enum Error {
     MilestoneNotApproved = 8,
     NotExpired = 9,
     NothingToRefund = 10,
+    NotCleared = 11,
+    EscrowFrozen = 12,
+    InvalidClearance = 13,
 }
+
+// ── Events ───────────────────────────────────────────────────────────────────
+
+#[contractevent]
+pub struct Created {
+    #[topic]
+    pub id: u64,
+    pub enterprise: Address,
+    pub worker: Address,
+    pub total: i128,
+}
+
+#[contractevent]
+pub struct Approved {
+    #[topic]
+    pub id: u64,
+    pub idx: u32,
+}
+
+#[contractevent]
+pub struct Claimed {
+    #[topic]
+    pub id: u64,
+    pub idx: u32,
+    pub amount: i128,
+}
+
+#[contractevent]
+pub struct Refunded {
+    #[topic]
+    pub id: u64,
+    pub total: i128,
+}
+
+#[contractevent]
+pub struct ClearanceSet {
+    #[topic]
+    pub worker: Address,
+    pub expiry: u64,
+    pub attestation: BytesN<32>,
+}
+
+#[contractevent]
+pub struct ClearanceRevoked {
+    #[topic]
+    pub worker: Address,
+}
+
+#[contractevent]
+pub struct FreezeChanged {
+    #[topic]
+    pub id: u64,
+    pub frozen: bool,
+}
+
+// ── Storage helpers ──────────────────────────────────────────────────────────
 
 fn load(env: &Env, id: u64) -> Result<Escrow, Error> {
     env.storage()
@@ -84,6 +166,43 @@ fn save(env: &Env, id: u64, escrow: &Escrow) {
     env.storage()
         .persistent()
         .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+}
+
+fn bump_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+}
+
+fn compliance_authority(env: &Env) -> Address {
+    // Set by the constructor, so always present on a deployed contract.
+    env.storage()
+        .instance()
+        .get(&DataKey::Compliance)
+        .expect("constructor sets compliance")
+}
+
+fn admin(env: &Env) -> Address {
+    env.storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .expect("constructor sets admin")
+}
+
+fn is_cleared(env: &Env, worker: &Address) -> bool {
+    let clearance: Option<Clearance> = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Clearance(worker.clone()));
+    matches!(clearance, Some(c) if c.expiry > env.ledger().timestamp())
+}
+
+fn require_cleared(env: &Env, worker: &Address) -> Result<(), Error> {
+    if is_cleared(env, worker) {
+        Ok(())
+    } else {
+        Err(Error::NotCleared)
+    }
 }
 
 /// When no milestone is Pending or Approved anymore, the escrow is final:
@@ -112,8 +231,102 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
+    /// Runs once, atomically, at deploy time. `admin` can rotate the
+    /// compliance authority and upgrade the code; `compliance` grants and
+    /// revokes worker clearances and freezes escrows.
+    pub fn __constructor(env: Env, admin: Address, compliance: Address) {
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::Compliance, &compliance);
+        bump_instance(&env);
+    }
+
+    // ── Administration ───────────────────────────────────────────────────────
+
+    pub fn set_compliance(env: Env, new_compliance: Address) {
+        admin(&env).require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::Compliance, &new_compliance);
+        bump_instance(&env);
+    }
+
+    /// Swap the contract code (upload the new wasm first, pass its hash).
+    /// Address and storage survive; the constructor does not re-run.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        admin(&env).require_auth();
+        env.deployer().update_current_contract(ContractExecutable::Wasm(new_wasm_hash));
+    }
+
+    // ── Compliance ───────────────────────────────────────────────────────────
+
+    /// Compliance authority clears `worker` until `expiry`, recording the hash
+    /// of the screening record that justifies it.
+    pub fn set_clearance(
+        env: Env,
+        worker: Address,
+        expiry: u64,
+        attestation: BytesN<32>,
+    ) -> Result<(), Error> {
+        compliance_authority(&env).require_auth();
+        if expiry <= env.ledger().timestamp() {
+            return Err(Error::InvalidClearance);
+        }
+        let key = DataKey::Clearance(worker.clone());
+        env.storage().persistent().set(
+            &key,
+            &Clearance {
+                expiry,
+                attestation: attestation.clone(),
+            },
+        );
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        bump_instance(&env);
+
+        ClearanceSet {
+            worker,
+            expiry,
+            attestation,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Immediately removes a worker's clearance (e.g. a new sanctions hit).
+    pub fn revoke_clearance(env: Env, worker: Address) {
+        compliance_authority(&env).require_auth();
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Clearance(worker.clone()));
+        ClearanceRevoked { worker }.publish(&env);
+    }
+
+    /// Compliance hold on a single escrow: while frozen, no milestone can be
+    /// approved or claimed and nothing can be refunded.
+    pub fn set_frozen(env: Env, id: u64, frozen: bool) -> Result<(), Error> {
+        compliance_authority(&env).require_auth();
+        let mut escrow = load(&env, id)?;
+        escrow.frozen = frozen;
+        save(&env, id, &escrow);
+        FreezeChanged { id, frozen }.publish(&env);
+        Ok(())
+    }
+
+    pub fn is_cleared(env: Env, worker: Address) -> bool {
+        is_cleared(&env, &worker)
+    }
+
+    pub fn get_clearance(env: Env, worker: Address) -> Option<Clearance> {
+        env.storage().persistent().get(&DataKey::Clearance(worker))
+    }
+
+    // ── Escrow lifecycle ─────────────────────────────────────────────────────
+
     /// Enterprise funds a new escrow: transfers the sum of `amounts` into the
-    /// contract and returns the escrow id.
+    /// contract and returns the escrow id. The worker must hold a clearance.
     pub fn create(
         env: Env,
         enterprise: Address,
@@ -123,6 +336,7 @@ impl EscrowContract {
         expiry: u64,
     ) -> Result<u64, Error> {
         enterprise.require_auth();
+        require_cleared(&env, &worker)?;
 
         if amounts.is_empty() {
             return Err(Error::NoMilestones);
@@ -146,9 +360,7 @@ impl EscrowContract {
 
         let id: u64 = env.storage().instance().get(&DataKey::NextId).unwrap_or(0);
         env.storage().instance().set(&DataKey::NextId, &(id + 1));
-        env.storage()
-            .instance()
-            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        bump_instance(&env);
 
         let mut milestones = Vec::new(&env);
         for _ in 0..amounts.len() {
@@ -163,11 +375,17 @@ impl EscrowContract {
             milestones,
             expiry,
             status: EscrowStatus::Active,
+            frozen: false,
         };
         save(&env, id, &escrow);
 
-        env.events()
-            .publish((symbol_short!("created"), id), (enterprise, worker, total));
+        Created {
+            id,
+            enterprise,
+            worker,
+            total,
+        }
+        .publish(&env);
         Ok(id)
     }
 
@@ -179,6 +397,10 @@ impl EscrowContract {
         if escrow.status != EscrowStatus::Active {
             return Err(Error::EscrowNotActive);
         }
+        if escrow.frozen {
+            return Err(Error::EscrowFrozen);
+        }
+        require_cleared(&env, &escrow.worker)?;
         match escrow.milestones.get(idx) {
             None => return Err(Error::MilestoneOutOfBounds),
             Some(MilestoneStatus::Pending) => {}
@@ -187,12 +409,13 @@ impl EscrowContract {
         escrow.milestones.set(idx, MilestoneStatus::Approved);
         save(&env, id, &escrow);
 
-        env.events().publish((symbol_short!("approved"), id), idx);
+        Approved { id, idx }.publish(&env);
         Ok(())
     }
 
     /// Worker claims an approved milestone — the tranche is paid out.
-    /// Deliberately NOT gated on expiry: an approved tranche is earned.
+    /// Deliberately NOT gated on expiry: an approved tranche is earned. It IS
+    /// gated on a live clearance and on the escrow not being frozen.
     pub fn claim(env: Env, id: u64, idx: u32) -> Result<(), Error> {
         let mut escrow = load(&env, id)?;
         escrow.worker.require_auth();
@@ -200,6 +423,10 @@ impl EscrowContract {
         if escrow.status != EscrowStatus::Active {
             return Err(Error::EscrowNotActive);
         }
+        if escrow.frozen {
+            return Err(Error::EscrowFrozen);
+        }
+        require_cleared(&env, &escrow.worker)?;
         match escrow.milestones.get(idx) {
             None => return Err(Error::MilestoneOutOfBounds),
             Some(MilestoneStatus::Approved) => {}
@@ -217,8 +444,7 @@ impl EscrowContract {
             &amount,
         );
 
-        env.events()
-            .publish((symbol_short!("claimed"), id), (idx, amount));
+        Claimed { id, idx, amount }.publish(&env);
         Ok(())
     }
 
@@ -230,6 +456,9 @@ impl EscrowContract {
 
         if escrow.status != EscrowStatus::Active {
             return Err(Error::EscrowNotActive);
+        }
+        if escrow.frozen {
+            return Err(Error::EscrowFrozen);
         }
         if env.ledger().timestamp() <= escrow.expiry {
             return Err(Error::NotExpired);
@@ -256,7 +485,7 @@ impl EscrowContract {
             &total,
         );
 
-        env.events().publish((symbol_short!("refunded"), id), total);
+        Refunded { id, total }.publish(&env);
         Ok(total)
     }
 
@@ -266,204 +495,4 @@ impl EscrowContract {
 }
 
 #[cfg(test)]
-mod test {
-    use super::*;
-    use soroban_sdk::testutils::{Address as _, Events, Ledger};
-    use soroban_sdk::{vec, Address, Env};
-
-    struct Setup {
-        env: Env,
-        client: EscrowContractClient<'static>,
-        token: token::Client<'static>,
-        enterprise: Address,
-        worker: Address,
-        token_address: Address,
-    }
-
-    fn setup() -> Setup {
-        let env = Env::default();
-        env.mock_all_auths();
-        env.ledger().with_mut(|li| li.timestamp = 1_000);
-
-        let token_admin = Address::generate(&env);
-        let token_address = env.register_stellar_asset_contract(token_admin.clone());
-        let enterprise = Address::generate(&env);
-        let worker = Address::generate(&env);
-
-        token::StellarAssetClient::new(&env, &token_address).mint(&enterprise, &1_000);
-
-        let contract_id = env.register_contract(None, EscrowContract);
-        let client = EscrowContractClient::new(&env, &contract_id);
-        let token = token::Client::new(&env, &token_address);
-
-        Setup { env, client, token, enterprise, worker, token_address }
-    }
-
-    fn create_default(s: &Setup) -> u64 {
-        s.client.create(
-            &s.enterprise,
-            &s.worker,
-            &s.token_address,
-            &vec![&s.env, 100_i128, 200_i128],
-            &2_000_u64,
-        )
-    }
-
-    #[test]
-    fn full_lifecycle_completes() {
-        let s = setup();
-        let id = create_default(&s);
-
-        // Funding moved into the contract.
-        assert_eq!(s.token.balance(&s.enterprise), 700);
-        assert_eq!(s.token.balance(&s.client.address), 300);
-
-        s.client.approve(&id, &0);
-        s.client.claim(&id, &0);
-        assert_eq!(s.token.balance(&s.worker), 100);
-
-        s.client.approve(&id, &1);
-        s.client.claim(&id, &1);
-        assert_eq!(s.token.balance(&s.worker), 300);
-        assert_eq!(s.token.balance(&s.client.address), 0);
-
-        let escrow = s.client.get_escrow(&id);
-        assert_eq!(escrow.status, EscrowStatus::Completed);
-    }
-
-    #[test]
-    fn create_requires_enterprise_auth() {
-        let s = setup();
-        create_default(&s);
-        // mock_all_auths records what require_auth demanded — the first
-        // recorded auth must belong to the enterprise.
-        let auths = s.env.auths();
-        assert!(!auths.is_empty());
-        assert_eq!(auths[0].0, s.enterprise);
-    }
-
-    #[test]
-    fn claim_before_approve_rejected() {
-        let s = setup();
-        let id = create_default(&s);
-        assert_eq!(
-            s.client.try_claim(&id, &0),
-            Err(Ok(Error::MilestoneNotApproved))
-        );
-    }
-
-    #[test]
-    fn double_claim_rejected() {
-        let s = setup();
-        let id = create_default(&s);
-        s.client.approve(&id, &0);
-        s.client.claim(&id, &0);
-        assert_eq!(
-            s.client.try_claim(&id, &0),
-            Err(Ok(Error::MilestoneNotApproved))
-        );
-    }
-
-    #[test]
-    fn double_approve_rejected() {
-        let s = setup();
-        let id = create_default(&s);
-        s.client.approve(&id, &0);
-        assert_eq!(
-            s.client.try_approve(&id, &0),
-            Err(Ok(Error::MilestoneNotPending))
-        );
-    }
-
-    #[test]
-    fn out_of_bounds_milestone_rejected() {
-        let s = setup();
-        let id = create_default(&s);
-        assert_eq!(
-            s.client.try_approve(&id, &9),
-            Err(Ok(Error::MilestoneOutOfBounds))
-        );
-    }
-
-    #[test]
-    fn invalid_create_args_rejected() {
-        let s = setup();
-        let empty: Vec<i128> = vec![&s.env];
-        assert_eq!(
-            s.client.try_create(&s.enterprise, &s.worker, &s.token_address, &empty, &2_000),
-            Err(Ok(Error::NoMilestones))
-        );
-        assert_eq!(
-            s.client.try_create(
-                &s.enterprise, &s.worker, &s.token_address,
-                &vec![&s.env, 0_i128], &2_000,
-            ),
-            Err(Ok(Error::InvalidAmount))
-        );
-        // expiry in the past (ledger timestamp is 1_000)
-        assert_eq!(
-            s.client.try_create(
-                &s.enterprise, &s.worker, &s.token_address,
-                &vec![&s.env, 100_i128], &500,
-            ),
-            Err(Ok(Error::InvalidExpiry))
-        );
-    }
-
-    #[test]
-    fn refund_before_expiry_rejected() {
-        let s = setup();
-        let id = create_default(&s);
-        assert_eq!(s.client.try_refund(&id), Err(Ok(Error::NotExpired)));
-    }
-
-    #[test]
-    fn refund_returns_pending_but_approved_stays_claimable() {
-        let s = setup();
-        let id = create_default(&s); // milestones: 100, 200 — expiry 2_000
-        s.client.approve(&id, &0);
-
-        s.env.ledger().with_mut(|li| li.timestamp = 3_000);
-        let refunded = s.client.refund(&id);
-        assert_eq!(refunded, 200); // only the Pending tranche
-        assert_eq!(s.token.balance(&s.enterprise), 900);
-
-        // The approved tranche survives expiry — worker claims it.
-        s.client.claim(&id, &0);
-        assert_eq!(s.token.balance(&s.worker), 100);
-        assert_eq!(s.token.balance(&s.client.address), 0);
-
-        let escrow = s.client.get_escrow(&id);
-        assert_eq!(escrow.status, EscrowStatus::Completed);
-    }
-
-    #[test]
-    fn refund_all_pending_marks_escrow_refunded() {
-        let s = setup();
-        let id = create_default(&s);
-        s.env.ledger().with_mut(|li| li.timestamp = 3_000);
-        assert_eq!(s.client.refund(&id), 300);
-        assert_eq!(s.token.balance(&s.enterprise), 1_000);
-
-        let escrow = s.client.get_escrow(&id);
-        assert_eq!(escrow.status, EscrowStatus::Refunded);
-        // Nothing further works on a finalized escrow.
-        assert_eq!(s.client.try_refund(&id), Err(Ok(Error::EscrowNotActive)));
-        assert_eq!(s.client.try_approve(&id, &0), Err(Ok(Error::EscrowNotActive)));
-    }
-
-    #[test]
-    fn unknown_escrow_rejected() {
-        let s = setup();
-        assert_eq!(s.client.try_get_escrow(&42), Err(Ok(Error::EscrowNotFound)));
-    }
-
-    #[test]
-    fn emits_created_event() {
-        let s = setup();
-        create_default(&s);
-        let contract_events: soroban_sdk::Vec<_> = s.env.events().all();
-        // Token transfer + created — at minimum the escrow contract published one.
-        assert!(contract_events.iter().any(|(addr, _, _)| addr == s.client.address));
-    }
-}
+mod test;
