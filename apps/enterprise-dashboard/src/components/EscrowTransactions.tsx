@@ -1,6 +1,8 @@
 import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import type { Escrow } from '../api/escrows.js';
 import CopyButton from './CopyButton.js';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
+import type { DisplayCurrency } from '../lib/displayCurrency.js';
 
 const EXPLORER = 'https://stellar.expert/explorer/testnet';
 
@@ -22,13 +24,13 @@ const fmtDate = (iso?: string | null) =>
 const short = (h: string) => (h.length <= 16 ? h : `${h.slice(0, 8)}…${h.slice(-6)}`);
 
 /** Every step of an escrow in the order it happens. */
-function buildRows(escrow: Escrow): TxRow[] {
+function buildRows(escrow: Escrow, dc: DisplayCurrency): TxRow[] {
   const rows: TxRow[] = [
     { key: 'funded', step: 'Escrow funded', at: escrow.createdAt, hash: escrow.createTxHash },
   ];
 
   for (const m of escrow.milestones) {
-    const milestone = `#${m.idx + 1}${m.description ? ` ${m.description}` : ''} · ${m.amountXlm} XLM`;
+    const milestone = `#${m.idx + 1}${m.description ? ` ${m.description}` : ''} · ${dc.format(m.amountXlm, 'XLM')}`;
 
     if (m.approveTxHash || m.status === 'approved' || m.status === 'claimed') {
       rows.push({ key: `a${m.idx}`, step: 'Approved', milestone, at: m.approvedAt, hash: m.approveTxHash });
@@ -68,7 +70,8 @@ function buildRows(escrow: Escrow): TxRow[] {
 
 /** Transaction history of one escrow — same `data-table` look as Payments. */
 export default function EscrowTransactions({ escrow }: { escrow: Escrow }) {
-  const rows = buildRows(escrow);
+  const dc = useDisplayCurrency();
+  const rows = buildRows(escrow, dc);
 
   return (
     <div className="table-responsive">

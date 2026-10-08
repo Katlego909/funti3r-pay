@@ -84,6 +84,7 @@
 .metric-card[data-accent="green"]   .metric-icon { background: rgba(5, 150, 105, 0.1);  color: var(--success); }
 .metric-card[data-accent="purple"]  .metric-icon { background: rgba(66, 10, 99, 0.08);  color: var(--primary); }
 .metric-card[data-accent="warning"] .metric-icon { background: rgba(217, 119, 6, 0.1);  color: var(--warning); }
+.metric-card[data-accent="blue"]    .metric-icon { background: rgba(37, 99, 235, 0.1);  color: #2563eb; }
 
 .metric-header {
   display: flex;

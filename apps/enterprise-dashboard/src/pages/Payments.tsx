@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, FormEvent, useMemo } from 'react';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { Helmet } from 'react-helmet-async';
 import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMark } from 'react-icons/hi2';
 import { toast } from 'sonner';
@@ -19,6 +20,7 @@ interface WorkerOption { id: string; email: string; preferred_currency?: string;
 interface BatchRow { workerId: string; amountUsd: string }
 
 export default function Payments() {
+  const dc = useDisplayCurrency();
   const user = useAuthStore((s) => s.user);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [total, setTotal] = useState(0);
@@ -291,7 +293,7 @@ export default function Payments() {
               </label>
               {workerId && isAnchorPayout && anchorXlmEquivalent != null && (
                 <p style={{ margin: '-8px 0 4px', fontSize: '0.85rem', color: anchorLimitWarning ? '#b45309' : '#065f46', fontWeight: 600 }}>
-                  Worker receives ≈ {anchorXlmEquivalent.toFixed(2)} XLM via bank/cash disbursement
+                  Worker receives ≈ {dc.format(anchorXlmEquivalent, 'XLM')} via bank/cash disbursement
                   <span style={{ color: '#6b7280', fontWeight: 400 }}> · paid out through the anchor, not the Stellar DEX</span>
                 </p>
               )}
@@ -403,7 +405,7 @@ export default function Payments() {
                       {batchResult.results.map((r, i) => (
                         <tr key={i}>
                           <td data-label="Worker">{workerEmail(r.workerId)}</td>
-                          <td data-label="Amount">{r.amount} {r.currency}</td>
+                          <td data-label="Amount">{dc.format(r.amount, r.currency)}</td>
                           <td data-label="Status">
                             {r.status === 'completed'
                               ? <a href={`https://stellar.expert/explorer/testnet/tx/${r.stellarTxHash}`} target="_blank" rel="noopener noreferrer"><StatusBadge variant="completed">completed</StatusBadge></a>
@@ -470,7 +472,7 @@ export default function Payments() {
                   <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
                     <td data-label="ID">#{p.id.slice(0, 8)}</td>
                     <td data-label="Worker">{p.worker_email ?? p.worker_id.slice(0, 8)}</td>
-                    <td data-label="Amount">{p.amount} {p.currency}</td>
+                    <td data-label="Amount">{dc.format(p.amount, p.currency)}</td>
                     <td data-label="Status"><StatusBadge status={p.status} /></td>
                     <td data-label="Date">{new Date(p.created_at).toLocaleDateString()}</td>
                     <td>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { api } from '../api/client.js';
-import { getFxRates, getXlmPrice } from '../api/payments.js';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import SlideOver, { Row, SectionTitle } from './SlideOver.js';
 import CopyButton from './CopyButton.js';
 import { StatusBadge } from './StatusBadge.js';
@@ -27,13 +27,6 @@ function kycLabel(s?: string) {
   return 'pending';
 }
 
-function usdOf(currency: string, amount: number, xlmUsd: number, fx: Record<string, number>): number {
-  if (currency === 'XLM') return amount * xlmUsd;
-  if (currency === 'USDC') return amount;
-  const r = Number(fx[currency]);
-  return r > 0 ? amount / r : 0;
-}
-
 export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: string | null; onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -41,8 +34,7 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
   const [kyc, setKyc] = useState<string>('none');
   const [payments, setPayments] = useState<PaymentRow[]>([]);
-  const [xlmUsd, setXlmUsd] = useState(0);
-  const [fx, setFx] = useState<Record<string, number>>({});
+  const dc = useDisplayCurrency();
 
   useEffect(() => {
     if (!workerId) return;
@@ -54,21 +46,17 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
       api.get<WalletInfo>(`/wallets/${workerId}`),
       api.get<{ status?: string }>(`/compliance/${workerId}/status`),
       api.get<{ payments: PaymentRow[] }>(`/payouts?workerId=${workerId}&limit=50`),
-      getXlmPrice(),
-      getFxRates(),
-    ]).then(([pr, wl, kc, pay, price, rates]) => {
+    ]).then(([pr, wl, kc, pay]) => {
       if (pr.status === 'fulfilled') setProfile(pr.value.data); else setError('Failed to load worker');
       if (wl.status === 'fulfilled') setWallet(wl.value.data);
       if (kc.status === 'fulfilled') setKyc(kycLabel(kc.value.data.status));
       if (pay.status === 'fulfilled') setPayments(pay.value.data.payments ?? []);
-      if (price.status === 'fulfilled') setXlmUsd(price.value);
-      if (rates.status === 'fulfilled') setFx(rates.value);
     }).finally(() => setLoading(false));
   }, [workerId]);
 
   const pref = (profile?.preferred_currency || 'USDC').toUpperCase();
   const completed = payments.filter((p) => p.status === 'completed');
-  const totalUsd = completed.reduce((s, p) => s + usdOf(p.currency, Number(p.amount), xlmUsd, fx), 0);
+  const totalReceived = completed.reduce((s, p) => s + (dc.convert(Number(p.amount), p.currency) ?? 0), 0);
   const balances = (wallet?.balances ?? []).filter((b) => Number(b.balance) > 0);
 
   return (
@@ -96,7 +84,7 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
                 <StatusBadge status={kyc}>KYC {kyc}</StatusBadge>
               </div>
               <div style={{ marginTop: '12px', fontSize: '0.8rem', color: '#6b7280' }}>Total received from you</div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>${fmt(totalUsd)} <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280' }}>· {completed.length} payments</span></div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{dc.formatValue(totalReceived)} <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280' }}>· {completed.length} payments</span></div>
             </div>
 
             <SectionTitle>Account</SectionTitle>
@@ -118,10 +106,12 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
                 </a>
               </Row>
             ) : <Row label="Address">—</Row>}
-            {balances.length > 0 ? balances.map((b) => {
-              const code = b.asset_type === 'native' ? 'XLM' : (b.asset_code ?? '?');
-              return <Row key={code} label={`${CURRENCY_META[code]?.name ?? code} balance`}><span style={{ color: CURRENCY_META[code]?.color }}>{fmt(b.balance, 7)} {code}</span></Row>;
-            }) : <Row label="Balance">No funds yet</Row>}
+            {(() => {
+              if (balances.length === 0) return <Row label="Balance">No funds yet</Row>;
+              const parts = balances.map((b) => dc.convert(Number(b.balance), b.asset_type === 'native' ? 'XLM' : (b.asset_code ?? '')));
+              const total = parts.every((v) => v !== null) ? (parts as number[]).reduce((sum, v) => sum + v, 0) : null;
+              return <Row label="Balance">{total !== null ? dc.formatValue(total) : '—'}</Row>;
+            })()}
 
             <SectionTitle>Payments to this worker</SectionTitle>
             {payments.length === 0 ? (
@@ -130,7 +120,7 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {payments.slice(0, 12).map((p) => (
                   <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '8px 10px', background: '#f9fafb', border: '1px solid #f1f5f9', borderRadius: '8px' }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.84rem' }}>{fmt(p.amount, 2)} {p.currency}</span>
+                    <span style={{ fontWeight: 600, fontSize: '0.84rem' }}>{dc.format(Number(p.amount), p.currency)}</span>
                     <StatusBadge status={p.status} style={{ fontSize: '0.62rem' }} />
                     <span style={{ fontSize: '0.74rem', color: '#6b7280' }}>{fmtDate(p.created_at)}</span>
                     {p.stellar_tx_hash

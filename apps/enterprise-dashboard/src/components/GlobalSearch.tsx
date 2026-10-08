@@ -10,6 +10,7 @@ import {
 import { api } from '../api/client.js';
 import { listPayments, type Payment } from '../api/payments.js';
 import { useAuthStore } from '../store/authStore.js';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 
 interface WorkerResult { id: string; email: string; role: string; preferred_currency?: string }
 interface SearchResults {
@@ -29,6 +30,7 @@ function useDebounce(value: string, ms: number) {
 }
 
 export default function GlobalSearch() {
+  const dc = useDisplayCurrency();
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
 
@@ -172,7 +174,7 @@ export default function GlobalSearch() {
                 <button key={p.id} className="gs-item" onClick={() => goToPayment(p)}>
                   <span className={`gs-item-dot gs-dot-${p.status === 'completed' ? 'green' : p.status === 'failed' ? 'red' : 'amber'}`} />
                   <span className="gs-item-main">
-                    <span className="gs-item-title">#{p.id.slice(0, 8)} · {p.amount} {p.currency}</span>
+                    <span className="gs-item-title">#{p.id.slice(0, 8)} · {dc.format(Number(p.amount), p.currency)}</span>
                     <span className="gs-item-sub">{p.worker_email ?? p.worker_id.slice(0, 8)} · {p.status}</span>
                   </span>
                 </button>

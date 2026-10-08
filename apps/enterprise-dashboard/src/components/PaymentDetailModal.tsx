@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
+import { RAIL_LABELS } from './InsightsCharts.js';
 import { HiOutlineArrowTopRightOnSquare, HiOutlineArrowPath, HiOutlineArrowDownTray } from 'react-icons/hi2';
 import { api } from '../api/client.js';
 import { initiatePayment } from '../api/payments.js';
@@ -38,6 +40,7 @@ const fmtAmt = (n: string | number) => Number(n).toLocaleString(undefined, { max
 const fmtDate = (s?: string | null) => (s ? new Date(s).toLocaleString() : '—');
 
 export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: string | null; onClose: () => void }) {
+  const dc = useDisplayCurrency();
   const [p, setP] = useState<PaymentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -115,11 +118,11 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
               padding: '16px', marginBottom: '16px', textAlign: 'center',
             }}>
               <div style={{ fontSize: '1.9rem', fontWeight: 800, color }}>
-                {fmtAmt(p.amount)} <span style={{ fontSize: '0.55em' }}>{p.currency}</span>
+                {dc.format(Number(p.amount), p.currency)}
               </div>
-              {p.usd_value != null && (
-                <div style={{ color: '#6b7280', fontSize: '0.85rem', marginTop: '2px' }}>≈ ${p.usd_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</div>
-              )}
+              <div style={{ color: '#6b7280', fontSize: '0.8rem', marginTop: '2px' }}>
+                Paid as {fmtAmt(p.amount)} {p.currency}
+              </div>
               <StatusBadge status={p.status} style={{ marginTop: '10px', display: 'inline-block' }} />
             </div>
 
@@ -153,7 +156,9 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
             {p.completed_at && <Row label="Completed">{fmtDate(p.completed_at)}</Row>}
             {p.rail && p.rail !== 'stellar' && (
               <Row label="Rail">
-                <span style={{ textTransform: 'capitalize' }}>{p.rail}</span> (bank / cash disbursement)
+                {p.rail === 'escrow'
+                  ? `${RAIL_LABELS.escrow} (released from the escrow contract)`
+                  : <><span style={{ textTransform: 'capitalize' }}>{p.rail}</span> (bank / cash disbursement)</>}
               </Row>
             )}
             {p.provider_reference && (

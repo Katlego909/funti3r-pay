@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import Modal from './Modal.js';
 import MoneyGramWidget, { type DepositPayload } from './MoneyGramWidget.js';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { startMoneyGramCashout, submitMoneyGramDeposit, type MoneyGramSession } from '../api/escrows.js';
 
 interface Props {
@@ -15,6 +16,7 @@ interface Props {
 export default function MoneyGramCashoutModal({ target, onClose, onChanged }: Props) {
   const [session, setSession] = useState<MoneyGramSession | null>(null);
   const [error, setError] = useState('');
+  const dc = useDisplayCurrency();
 
   useEffect(() => {
     if (!target) return;
@@ -52,7 +54,7 @@ export default function MoneyGramCashoutModal({ target, onClose, onChanged }: Pr
       {target && (
         <p style={{ fontSize: '0.82rem', color: '#6b7280', marginTop: 0 }}>
           <strong>{target.title}</strong> — pick a pickup country and location, then confirm.
-          {session && <> This cash-out can use up to {session.maxXlm} XLM from your wallet.</>}
+          {session && <> This cash-out can use up to {dc.format(session.maxXlm, 'XLM')} from your wallet.</>}
         </p>
       )}
       {error && <div className="error-banner">{error}</div>}

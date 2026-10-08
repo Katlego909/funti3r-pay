@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { Helmet } from 'react-helmet-async';
 import {
   HiOutlineArrowDownOnSquare,
@@ -17,6 +18,7 @@ import { STATUS_TABS } from '../lib/status.js';
 import '../styles/Dashboard.css';
 
 export default function PaymentHistory() {
+  const dc = useDisplayCurrency();
   const user = useAuthStore((s) => s.user);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [total, setTotal] = useState(0);
@@ -152,7 +154,7 @@ export default function PaymentHistory() {
                     <tr><td colSpan={4} style={{ textAlign: 'center', padding: '2rem' }}>No payments found.</td></tr>
                   ) : visiblePayments.map((p) => (
                     <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
-                      <td data-label="Amount" style={{ fontWeight: 600 }}>{p.amount} {p.currency}</td>
+                      <td data-label="Amount" style={{ fontWeight: 600 }}>{dc.format(p.amount, p.currency)}</td>
                       <td data-label="Status"><StatusBadge status={p.status} /></td>
                       <td data-label="Date">{new Date(p.created_at).toLocaleString()}</td>
                       <td data-label="Transaction">

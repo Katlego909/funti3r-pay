@@ -7,6 +7,7 @@ import {
   HiOutlineClock,
   HiOutlineCheckCircle,
   HiOutlineArrowTopRightOnSquare,
+  HiOutlineLockClosed,
 } from 'react-icons/hi2';
 import { exportAnalyticsCSV, exportAnalyticsPDF } from '../utils/export.js';
 import ExportButtons from '../components/ExportButtons.js';
@@ -14,59 +15,32 @@ import { StatusBadge } from '../components/StatusBadge.js';
 import {
   getSummary,
   getRecentPayments,
-  getXlmPrice,
-  getFxRates,
   listPayments,
   type Payment,
   type PaymentSummary,
 } from '../api/payments.js';
 import { getUserSummary } from '../api/workers.js';
+import { getEscrowSummary, type EscrowSummary } from '../api/escrows.js';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
-import InsightsCharts from '../components/InsightsCharts.js';
+import InsightsCharts, { RAIL_LABELS } from '../components/InsightsCharts.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
 import { statusClass } from '../lib/status.js';
-import { currencyColor } from '../lib/currencyMeta.js';
 import '../styles/Dashboard.css';
-
-/**
- * A list of equal-weight currency rows (color dot + amount + code), used by
- * both the Wallet Balance and Total Received/Payments cards so a user learns
- * one visual pattern instead of two different ones (a hero number + fine
- * print vs. a hero number + pills) for numbers that mean different things.
- */
-function CurrencyBreakdown({ items }: { items: Array<{ code: string; amount: number }> }) {
-  const entries = items.filter((i) => i.amount > 0);
-  if (entries.length === 0) return null;
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px' }}>
-      {entries.map(({ code, amount }) => {
-        const color = currencyColor(code);
-        return (
-          <div key={code} style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
-            <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--gray-900)' }}>
-              {amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </span>
-            <span style={{ fontSize: '12px', fontWeight: 600, color }}>{code}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 export default function Dashboard() {
   const user = useAuthStore((s) => s.user);
   const isEnterprise = user?.role !== 'worker';
+  // One currency for this viewer: a worker's preferred currency, USD for employers.
+  const dc = useDisplayCurrency();
 
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [userCount, setUserCount] = useState<number | null>(null);
   const [companyName, setCompanyName] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [otherBalances, setOtherBalances] = useState<Array<{ code: string; balance: string }>>([]);
-  const [xlmUsd, setXlmUsd] = useState(0);
-  const [fxRates, setFxRates] = useState<Record<string, number>>({});
+  const [escrow, setEscrow] = useState<EscrowSummary | null>(null);
   const [recent, setRecent] = useState<Payment[]>([]);
   const [chartPayments, setChartPayments] = useState<Payment[]>([]);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -109,8 +83,7 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
 
     fetchWalletBalance();
-    getXlmPrice().then(setXlmUsd);
-    getFxRates().then(setFxRates);
+    getEscrowSummary().then(setEscrow).catch(() => setEscrow(null));
 
     if (isEnterprise) {
       api.get<{ company_name?: string }>(`/users/${user.userId}`)
@@ -137,17 +110,14 @@ export default function Dashboard() {
       {lbl}
     </span>
   );
-  const fmtMoney = (n: number) =>
-    n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  // Combined USD estimate across every currency the wallet actually holds —
-  // not just the native XLM figure — so the footer total matches what the
-  // CurrencyBreakdown rows above it show.
-  const combinedWalletUsd =
-    balanceXlm * xlmUsd +
-    otherBalances.reduce((sum, b) => {
-      const rate = fxRates[b.code];
-      return rate ? sum + parseFloat(b.balance) / rate : sum;
-    }, 0);
+  // The whole wallet as one figure. If any asset can't be priced, say so instead of under-counting.
+  const walletParts = [
+    dc.convert(balanceXlm, 'XLM'),
+    ...otherBalances.map((b) => dc.convert(parseFloat(b.balance), b.code)),
+  ];
+  const walletTotal = walletParts.every((v) => v !== null)
+    ? (walletParts as number[]).reduce((sum, v) => sum + v, 0)
+    : null;
 
   return (
     <div className="dashboard">
@@ -203,14 +173,8 @@ export default function Dashboard() {
           </div>
           {walletBalance ? (
             <>
-              <div className="metric-value">${fmtMoney(combinedWalletUsd)}</div>
+              <div className="metric-value">{walletTotal !== null ? dc.formatValue(walletTotal) : '—'}</div>
               <div className="metric-change">Current on-chain balance</div>
-              <CurrencyBreakdown
-                items={[
-                  { code: 'XLM', amount: balanceXlm },
-                  ...otherBalances.map((b) => ({ code: b.code, amount: parseFloat(b.balance) })),
-                ]}
-              />
             </>
           ) : (
             <div className="metric-value">—</div>
@@ -227,13 +191,30 @@ export default function Dashboard() {
           </div>
           {summary ? (
             <>
-              <div className="metric-value">${fmtMoney(summary.completedVolumeUsd)}</div>
+              <div className="metric-value">{dc.format(summary.completedVolumeUsd, 'USD')}</div>
               <div className="metric-change">
                 Lifetime total {isEnterprise ? 'sent' : 'received'} · {summary.totalCount} transactions
               </div>
-              <CurrencyBreakdown
-                items={Object.entries(summary.byCurrency).map(([code, amount]) => ({ code, amount }))}
-              />
+            </>
+          ) : (
+            <div className="metric-value">—</div>
+          )}
+        </div>
+
+        {/* Escrow: money locked in the contract and what has been released */}
+        <div className="metric-card" data-accent="blue">
+          <div className="metric-header">
+            <span className="metric-icon">
+              <HiOutlineLockClosed size={18} />
+            </span>
+            <h3>{isEnterprise ? 'Locked in Escrow' : 'In Escrow for You'}</h3>
+          </div>
+          {escrow ? (
+            <>
+              <div className="metric-value">{dc.format(escrow.lockedXlm, 'XLM')}</div>
+              <div className="metric-change">
+                {dc.format(escrow.claimedXlm, 'XLM')} released {isEnterprise ? 'to workers' : 'to your wallet'}
+              </div>
             </>
           ) : (
             <div className="metric-value">—</div>
@@ -302,10 +283,8 @@ export default function Dashboard() {
       {/* Charts */}
       <InsightsCharts
         payments={chartPayments}
-        xlmUsd={xlmUsd}
-        fx={fxRates}
+        dc={dc}
         byStatus={summary?.byStatus ?? {}}
-        byCurrency={summary?.byCurrency ?? {}}
         isWorker={!isEnterprise}
       />
 
@@ -334,10 +313,8 @@ export default function Dashboard() {
                     <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
                       <td data-label="ID">#{p.id.slice(0, 8)}</td>
                       <td data-label={isEnterprise ? 'Worker' : 'From'}>{p.worker_email ?? p.worker_id.slice(0, 8)}</td>
-                      <td data-label="Amount">
-                        {p.amount} {p.currency}
-                      </td>
-                      <td data-label="Rail">{p.rail ?? 'stellar'}</td>
+                      <td data-label="Amount">{dc.format(p.amount, p.currency)}</td>
+                      <td data-label="Rail" style={{ whiteSpace: 'nowrap' }}>{RAIL_LABELS[p.rail ?? 'stellar'] ?? p.rail}</td>
                       <td data-label="Status">
                         <StatusBadge status={p.status} />
                       </td>

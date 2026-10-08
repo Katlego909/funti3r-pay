@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore.js';
 import { api } from '../api/client.js';
 import CopyButton from './CopyButton.js';
 import { StatusBadge } from './StatusBadge.js';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import './WalletInfo.css';
 
 interface WalletData {
@@ -20,6 +21,7 @@ interface WalletData {
 
 export default function WalletInfo() {
   const user = useAuthStore((s) => s.user);
+  const dc = useDisplayCurrency();
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -45,7 +47,10 @@ export default function WalletInfo() {
   if (error) return <div className="wallet-info loading" style={{ color: '#ef4444' }}>{error}</div>;
   if (!wallet) return null;
 
-  const xlmBalance = wallet.balances?.find((b) => b.asset_type === 'native')?.balance || '0';
+  // The whole wallet as one figure in the viewer's currency (not just the XLM line).
+  const parts = (wallet.balances ?? []).map((b) =>
+    dc.convert(parseFloat(b.balance), b.asset_type === 'native' ? 'XLM' : (b.asset_code ?? '')));
+  const balanceTotal = parts.every((v) => v !== null) ? (parts as number[]).reduce((sum, v) => sum + v, 0) : null;
   const address = wallet.address;
   const isEnterprise = user?.role !== 'worker';
 
@@ -63,10 +68,8 @@ export default function WalletInfo() {
         </div>
 
         <div className="detail-item">
-          <label>XLM Balance</label>
-          <span className="xlm-amount">
-            {parseFloat(xlmBalance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 7 })} XLM
-          </span>
+          <label>Balance</label>
+          <span className="xlm-amount">{balanceTotal !== null ? dc.formatValue(balanceTotal) : '—'}</span>
         </div>
 
         {address && (

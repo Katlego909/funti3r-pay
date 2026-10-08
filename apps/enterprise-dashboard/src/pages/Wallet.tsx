@@ -14,13 +14,13 @@ import {
   getPayoutCurrencies, getPreferredCurrency, setPreferredCurrency,
   getPayoutMethod, setPayoutMethod, type PayoutCurrency, type PayoutMethod,
 } from '../api/payments.js';
-import { CurrencyIcon } from '../components/CurrencyIcon.js';
 import CopyButton from '../components/CopyButton.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 import EscrowTransactionsDrawer from '../components/EscrowTransactionsDrawer.js';
 import SubmitWorkModal from '../components/SubmitWorkModal.js';
 import { listEscrows, claimMilestone, cashOutMilestone, getCashoutOptions, type CashoutResult, type Escrow } from '../api/escrows.js';
 import MoneyGramCashoutModal from '../components/MoneyGramCashoutModal.js';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 
 interface WalletBalance {
   asset_type: string;
@@ -33,20 +33,6 @@ interface WalletInfo {
   walletType: string;
   address?: string | null;
   balances?: WalletBalance[];
-}
-
-const ASSET_LABELS: Record<string, string> = {
-  XLM: 'Stellar Lumens',
-  USDC: 'USD Coin',
-  NGN: 'Nigerian Naira',
-  KES: 'Kenyan Shilling',
-  GHS: 'Ghanaian Cedi',
-  ZAR: 'South African Rand',
-  UGX: 'Ugandan Shilling',
-};
-
-function fmtBalance(n: string) {
-  return Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** The employer's most recent "changes requested" note for a milestone. */
@@ -81,6 +67,8 @@ export default function Wallet() {
   const userId = user?.userId;
   const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(null);
   const [balances, setBalances] = useState<WalletBalance[]>([]);
+  // One currency for this viewer (their preferred currency): no per-asset lists.
+  const dc = useDisplayCurrency();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -356,13 +344,20 @@ export default function Wallet() {
                             </div>
                           )}
                         </td>
-                        <td data-label="Amount">{m.amountXlm} XLM</td>
+                        <td data-label="Amount">{dc.format(m.amountXlm, 'XLM')}</td>
                         <td data-label="Expires">{new Date(e.expiresAt).toLocaleDateString()}</td>
                         <td data-label="Status">
                           <StatusBadge variant={variant} title={m.cashoutError ?? undefined}>{label}</StatusBadge>
                           {m.status === 'pending' && m.reviewStatus === 'rejected' && lastRejection(e, m.idx) && (
                             <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
                               {lastRejection(e, m.idx)}
+                            </div>
+                          )}
+                          {m.cashoutXlmSpent != null && m.cashoutStatus === 'completed' && (
+                            <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
+                              {dc.format(m.amountXlm, 'XLM')} claimed · {dc.format(m.cashoutXlmSpent, 'XLM')} cashed out
+                              {m.amountXlm - m.cashoutXlmSpent > 0.0000001
+                                && ` · ${dc.format(m.amountXlm - m.cashoutXlmSpent, 'XLM')} still in your wallet`}
                             </div>
                           )}
                           {m.payout?.rail === 'moneygram' && (
@@ -499,45 +494,35 @@ export default function Wallet() {
           )}
         </section>
 
-        {/* Balances Section */}
+        {/* Balance: the whole wallet as one figure in the viewer's currency */}
         <section className="section">
-          <h3>Balances</h3>
-          {balances.length === 0 ? (
-            <div className="empty-state" style={{ textAlign: 'center' }}>
-              <HiOutlineBanknotes size={40} style={{ color: '#d1d5db', margin: '0 auto 12px' }} />
-              <p style={{ margin: 0 }}>No balances yet. Once your wallet receives payments, they will appear here.</p>
-            </div>
-          ) : (
-            <div className="status-list">
-              {balances.map((balance) => {
-                const code = balance.asset_code || (balance.asset_type === 'native' ? 'XLM' : balance.asset_type);
-                return (
-                  <div key={code} className="status-item" style={{ cursor: 'default' }}>
-                    <span style={{ flexShrink: 0, display: 'flex' }}>
-                      <CurrencyIcon code={code} size={32} />
-                    </span>
-                    <div>
-                      <div className="status-name">{code}</div>
-                      <div className="status-detail">{ASSET_LABELS[code] ?? 'Stablecoin'}</div>
-                    </div>
-                    <div
-                      title={`${balance.balance} ${code}`}
-                      style={{
-                        marginLeft: 'auto',
-                        fontFamily: "'Archivo Black', sans-serif",
-                        fontSize: '19px',
-                        fontWeight: 800,
-                        color: 'var(--gray-900)',
-                        letterSpacing: '-0.3px',
-                      }}
-                    >
-                      {fmtBalance(balance.balance)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <h3>Balance</h3>
+          {(() => {
+            const parts = balances.map((bal) => {
+              const code = bal.asset_code || (bal.asset_type === 'native' ? 'XLM' : bal.asset_type);
+              return dc.convert(parseFloat(bal.balance), code);
+            });
+            if (balances.length === 0) {
+              return (
+                <div className="empty-state" style={{ textAlign: 'center' }}>
+                  <HiOutlineBanknotes size={40} style={{ color: '#d1d5db', margin: '0 auto 12px' }} />
+                  <p style={{ margin: 0 }}>No balance yet. Once your wallet receives payments, they will appear here.</p>
+                </div>
+              );
+            }
+            // If any asset can't be priced, say so rather than quietly under-counting.
+            const total = parts.every((v) => v !== null) ? (parts as number[]).reduce((sum, v) => sum + v, 0) : null;
+            return (
+              <div>
+                <div style={{ fontFamily: "'Archivo Black', sans-serif", fontSize: '28px', fontWeight: 800, letterSpacing: '-0.5px', color: 'var(--gray-900)' }}>
+                  {total !== null ? dc.formatValue(total) : '—'}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--gray-600)', marginTop: 4 }}>
+                  Everything in your wallet, shown in {dc.code}. Use "View on Explorer" above to see each asset.
+                </div>
+              </div>
+            );
+          })()}
         </section>
       </div>
     </div>

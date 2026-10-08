@@ -7,6 +7,8 @@ import CopyButton from './CopyButton.js';
 import EscrowTransactions from './EscrowTransactions.js';
 import EscrowReviewLog from './EscrowReviewLog.js';
 import EscrowPayouts from './EscrowPayouts.js';
+import EscrowMoneyTrail from './EscrowMoneyTrail.js';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 
 const STATUS: Record<Escrow['status'], ['completed' | 'pending', string]> = {
   active: ['completed', 'Active'],
@@ -16,6 +18,7 @@ const STATUS: Record<Escrow['status'], ['completed' | 'pending', string]> = {
 
 /** Read-only side panel with an escrow's summary and full transaction history (worker wallet). */
 export default function EscrowTransactionsDrawer({ escrow, onClose }: { escrow: Escrow | null; onClose: () => void }) {
+  const dc = useDisplayCurrency();
   // Keep the last escrow so content stays put while the panel slides out.
   const last = useRef<Escrow | null>(null);
   if (escrow) last.current = escrow;
@@ -27,7 +30,7 @@ export default function EscrowTransactionsDrawer({ escrow, onClose }: { escrow: 
         <div style={{ marginTop: '1rem' }}>
           <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, marginBottom: 16, textAlign: 'center' }}>
             <div style={{ fontSize: '1.9rem', fontWeight: 800 }}>
-              {current.totalXlm} <span style={{ fontSize: '0.55em' }}>XLM</span>
+              {dc.format(current.totalXlm, 'XLM')}
             </div>
             <StatusBadge variant={STATUS[current.status][0]} style={{ marginTop: 10, display: 'inline-block' }}>
               {STATUS[current.status][1]}
@@ -53,6 +56,9 @@ export default function EscrowTransactionsDrawer({ escrow, onClose }: { escrow: 
             </a>
             <CopyButton text={current.contractAddress} style={{ marginLeft: 6, verticalAlign: 'middle' }} />
           </Row>
+
+          <SectionTitle>Where the money went</SectionTitle>
+          <EscrowMoneyTrail escrow={current} viewer="worker" />
 
           <SectionTitle>Payouts</SectionTitle>
           <EscrowPayouts escrow={current} />

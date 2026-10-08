@@ -36,6 +36,8 @@ export interface EscrowMilestone {
   rampsStatus: string | null;
   /** MoneyGram cash-pickup reference number (available as soon as MoneyGram has the transaction). */
   rampsReference: string | null;
+  /** XLM actually spent by the cash-out (the rest of the milestone stays in the wallet). */
+  cashoutXlmSpent: number | null;
   anchorTxId: string | null;
   anchorSettlementHash: string | null;
   anchorStatus: string | null;
@@ -166,5 +168,18 @@ export async function submitMoneyGramDeposit(
     `/escrows/${escrowId}/milestones/${idx}/ramps/deposit`,
     payload,
   );
+  return data;
+}
+
+/** Escrow money in XLM (the contract's unit); convert with useDisplayCurrency before showing. */
+export interface EscrowSummary {
+  lockedXlm: number;
+  claimedXlm: number;
+  refundedXlm: number;
+  cashedOutXlm: number;
+}
+
+export async function getEscrowSummary(): Promise<EscrowSummary> {
+  const { data } = await api.get<EscrowSummary>('/escrows/summary');
   return data;
 }

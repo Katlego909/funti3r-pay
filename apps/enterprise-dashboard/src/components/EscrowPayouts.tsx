@@ -1,4 +1,5 @@
 import type { Escrow } from '../api/escrows.js';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 
 const NOT_RECORDED = <span style={{ color: '#9ca3af', fontSize: '0.78rem' }}>Not recorded</span>;
 
@@ -11,6 +12,7 @@ const money = (amount: string | null, asset: string | null) =>
  * and the panel says so rather than letting "Paid out" imply a bank deposit.
  */
 export default function EscrowPayouts({ escrow }: { escrow: Escrow }) {
+  const dc = useDisplayCurrency();
   const paid = escrow.milestones.filter((m) => m.payout);
   if (!paid.length) {
     return <p style={{ fontSize: '0.82rem', color: '#6b7280' }}>No anchor payouts yet.</p>;
@@ -53,7 +55,7 @@ export default function EscrowPayouts({ escrow }: { escrow: Escrow }) {
                   <td data-label="Milestone" style={{ fontWeight: 600 }}>
                     {m.description || `Milestone ${m.idx + 1}`}
                     <div style={{ fontSize: '0.75rem', fontWeight: 400, color: '#6b7280' }}>
-                      {p.rail === 'moneygram' ? `${m.amountXlm} XLM milestone` : `${m.amountXlm} XLM sent`}
+                      {p.rail === 'moneygram' ? `${dc.format(m.amountXlm, 'XLM')} milestone` : `${dc.format(m.amountXlm, 'XLM')} sent`}
                     </div>
                   </td>
                   <td data-label="Paid to">
@@ -74,7 +76,7 @@ export default function EscrowPayouts({ escrow }: { escrow: Escrow }) {
                       p.referenceNumber ? (
                         <>
                           <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>Ref {p.referenceNumber}</div>
-                          {p.sendUsdc && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{p.sendUsdc} USDC sent</div>}
+                          {p.sendUsdc && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{dc.format(Number(p.sendUsdc), 'USDC')} sent</div>}
                         </>
                       ) : <span style={{ color: '#9ca3af', fontSize: '0.78rem' }}>Reference pending</span>
                     ) : d?.accountLast4 ? (
@@ -85,7 +87,7 @@ export default function EscrowPayouts({ escrow }: { escrow: Escrow }) {
                     ) : NOT_RECORDED}
                   </td>
                   <td data-label="Recipient gets">{money(p.receivedAmount, p.receivedAsset) ?? NOT_RECORDED}</td>
-                  <td data-label="Fee">{money(p.fee, p.feeAsset) ?? NOT_RECORDED}</td>
+                  <td data-label="Fee">{p.fee ? dc.format(Number(p.fee), p.feeAsset ?? 'USDC') : NOT_RECORDED}</td>
                 </tr>
               );
             })}
