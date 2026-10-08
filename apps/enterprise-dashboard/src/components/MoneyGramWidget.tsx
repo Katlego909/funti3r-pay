@@ -18,6 +18,8 @@ interface Props {
   onComplete?: () => void;
   onClose?: () => void;
   onError?: (message: string) => void;
+  /** The widget page has finished loading (the iframe, not a MoneyGram step). */
+  onLoaded?: () => void;
 }
 
 const isMoneyGramHost = (u: URL) =>
@@ -30,7 +32,7 @@ const isMoneyGramHost = (u: URL) =>
  * Written against MoneyGram's SDK rather than loading it, so no remote script runs in
  * our page. Messages are only trusted from the widget's own origin AND its own frame.
  */
-export default function MoneyGramWidget({ widgetUrl, sessionToken, walletAddress, onDeposit, onComplete, onClose, onError }: Props) {
+export default function MoneyGramWidget({ widgetUrl, sessionToken, walletAddress, onDeposit, onComplete, onClose, onError, onLoaded }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const latest = useRef({ onDeposit, onComplete, onClose, onError });
   latest.current = { onDeposit, onComplete, onClose, onError };
@@ -113,8 +115,9 @@ export default function MoneyGramWidget({ widgetUrl, sessionToken, walletAddress
       ref={frame}
       src={parsed.src}
       title="MoneyGram cash-out"
+      onLoad={onLoaded}
       allow="clipboard-write; camera; geolocation"
-      style={{ width: '100%', height: 640, border: 'none', borderRadius: 12, display: 'block' }}
+      style={{ width: '100%', height: 640, border: 'none', borderRadius: 12, display: 'block', position: 'relative' }}
     />
   );
 }
