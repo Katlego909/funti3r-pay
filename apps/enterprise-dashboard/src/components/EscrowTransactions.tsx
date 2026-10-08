@@ -68,7 +68,7 @@ export default function EscrowTransactions({ escrow }: { escrow: Escrow }) {
 
   return (
     <div className="table-responsive">
-      <table className="data-table">
+      <table className="data-table" style={{ whiteSpace: 'nowrap' }}>
         <thead>
           <tr><th>Step</th><th>Date</th><th>Transaction</th></tr>
         </thead>

@@ -51,7 +51,7 @@ function EscrowDetailDrawer({
   const hasPending = current.milestones.some((m) => m.status === 'pending');
 
   return (
-    <SlideOver openKey={escrow} title="Escrow Details" onClose={onClose}>
+    <SlideOver openKey={escrow} title="Escrow Details" width={820} onClose={onClose}>
       <div style={{ marginTop: '1rem' }}>
         {/* Headline (same shape as the payment detail drawer) */}
         <div style={{

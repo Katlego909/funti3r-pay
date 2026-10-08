@@ -20,7 +20,7 @@ export default function EscrowTransactionsDrawer({ escrow, onClose }: { escrow: 
   const current = escrow ?? last.current;
 
   return (
-    <SlideOver openKey={escrow} title="Escrow Transactions" width={560} onClose={onClose}>
+    <SlideOver openKey={escrow} title="Escrow Transactions" width={820} onClose={onClose}>
       {current && (
         <div style={{ marginTop: '1rem' }}>
           <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, marginBottom: 16, textAlign: 'center' }}>
