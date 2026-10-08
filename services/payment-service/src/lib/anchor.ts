@@ -339,6 +339,11 @@ export class AnchorAmountMismatchError extends Error {
 export interface Sep6TransactionStatus extends Sep31Status {
   /** Amount the anchor recorded for the user's transfer (what it expects to receive). */
   amountIn?: string;
+  /** What the anchor pays out to the user, its fee, and their assets (e.g. iso4217:USD). */
+  amountOut?: string;
+  amountOutAsset?: string;
+  amountFee?: string;
+  amountFeeAsset?: string;
   /** The anchor's own page for the user's next step (interactive KYC). */
   moreInfoUrl?: string;
   /** Settlement details — present once the anchor is ready to receive funds. */
@@ -440,6 +445,10 @@ export async function sep24GetTransaction(jwt: string, id: string): Promise<Sep6
     status: t.status ?? 'unknown',
     requiredInfoMessage: t.message,
     moreInfoUrl: t.more_info_url,
+    amountOut: t.amount_out,
+    amountOutAsset: t.amount_out_asset,
+    amountFee: t.amount_fee,
+    amountFeeAsset: t.amount_fee_asset,
     amountIn: t.amount_in,
     withdrawAnchorAccount: t.withdraw_anchor_account,
     withdrawMemo: t.withdraw_memo,
@@ -501,6 +510,10 @@ export async function sep6GetTransaction(jwt: string, id: string): Promise<Sep6T
     status: t.status ?? 'unknown',
     requiredInfoMessage: t.required_info_message,
     moreInfoUrl: t.more_info_url,
+    amountOut: t.amount_out,
+    amountOutAsset: t.amount_out_asset,
+    amountFee: t.amount_fee,
+    amountFeeAsset: t.amount_fee_asset,
     withdrawAnchorAccount: t.withdraw_anchor_account,
     withdrawMemo: t.withdraw_memo,
     withdrawMemoType: t.withdraw_memo_type,

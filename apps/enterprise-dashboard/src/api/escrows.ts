@@ -13,6 +13,17 @@ export interface EscrowMilestone {
   cashoutAt: string | null;
   /** Worker/employer review of the work itself (off-chain). */
   reviewStatus: 'none' | 'submitted' | 'rejected';
+  /** Receipt of a completed anchor cash-out; null until paid out. */
+  payout: {
+    destination: { name: string | null; email: string | null; bankNumber: string | null; accountLast4: string | null } | null;
+    receivedAmount: string | null;
+    receivedAsset: string | null;
+    fee: string | null;
+    feeAsset: string | null;
+    anchorDomain: string | null;
+    /** True for the SDF test anchor: nothing real is deposited anywhere. */
+    sandbox: boolean;
+  } | null;
   /** Second leg of a claim: routing the claimed funds through an anchor. */
   cashoutStatus: 'none' | 'pending' | 'action_required' | 'completed' | 'failed';
   anchorTxId: string | null;

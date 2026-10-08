@@ -92,6 +92,33 @@ async function notify(userId: string, type: string, title: string, body: string,
   }
 }
 
+// ── Payout receipt ────────────────────────────────────────────────────────────
+
+const REFERENCE_ANCHOR_DOMAIN = 'testanchor.stellar.org';
+
+/** `iso4217:USD` -> `USD`, `stellar:native` -> `XLM`, `stellar:USDC:G…` -> `USDC`. */
+export function friendlyAsset(asset?: string | null): string | null {
+  if (!asset) return null;
+  if (asset === 'stellar:native') return 'XLM';
+  const parts = asset.split(':');
+  return parts[1] ?? asset;
+}
+
+/**
+ * What the worker can check against their own bank: who it was addressed to and
+ * which account — never the full account number.
+ */
+export function maskDestination(details: Record<string, string> | null | undefined) {
+  const d = details ?? {};
+  const account = d.bank_account_number ?? '';
+  return {
+    name: [d.first_name, d.last_name].filter(Boolean).join(' ') || null,
+    email: d.email_address ?? null,
+    bankNumber: d.bank_number ?? null,
+    accountLast4: account ? account.slice(-4) : null,
+  };
+}
+
 // ── Milestone review trail ────────────────────────────────────────────────────
 
 const MAX_NOTE = 2000;
@@ -159,6 +186,7 @@ async function listMilestones(escrowIds: string[]) {
   const rows = await query(
     `SELECT escrow_id, idx, description, amount, status, approved_at, claimed_at, claim_tx_hash,
             approve_tx_hash, refund_tx_hash, cashout_at, review_status,
+            payout_destination, anchor_amount_out, anchor_amount_out_asset, anchor_fee, anchor_fee_asset, anchor_domain,
             cashout_status, anchor_tx_id, anchor_settlement_hash, anchor_status, anchor_more_info_url, cashout_error
        FROM escrow_milestones WHERE escrow_id = ANY($1::uuid[]) ORDER BY idx`,
     [escrowIds],
@@ -177,6 +205,19 @@ async function listMilestones(escrowIds: string[]) {
       refundTxHash: m.refund_tx_hash ?? null,
       cashoutAt: m.cashout_at ?? null,
       reviewStatus: m.review_status ?? 'none',
+      payout: m.cashout_status === 'completed'
+        ? {
+            destination: m.payout_destination ?? null,
+            receivedAmount: m.anchor_amount_out ?? null,
+            receivedAsset: friendlyAsset(m.anchor_amount_out_asset),
+            fee: m.anchor_fee ?? null,
+            feeAsset: friendlyAsset(m.anchor_fee_asset),
+            anchorDomain: m.anchor_domain ?? null,
+            // The SDF test anchor moves no real money; the UI says so.
+            // Payouts from before the anchor was recorded fall back to the configured one.
+            sandbox: (m.anchor_domain ?? process.env.ANCHOR_HOME_DOMAIN) === REFERENCE_ANCHOR_DOMAIN,
+          }
+        : null,
       cashoutStatus: m.cashout_status ?? 'none',
       anchorTxId: m.anchor_tx_id ?? null,
       anchorSettlementHash: m.anchor_settlement_hash ?? null,
@@ -281,9 +322,17 @@ async function cashOutMilestone(escrowId: string, idx: number, workerId: string)
     await query(
       `UPDATE escrow_milestones
           SET cashout_status = 'completed', anchor_tx_id = $3, anchor_settlement_hash = $4,
-              anchor_status = $5, anchor_more_info_url = NULL, cashout_at = NOW()
+              anchor_status = $5, anchor_more_info_url = NULL, cashout_at = NOW(),
+              payout_destination = $6::jsonb, anchor_amount_out = $7, anchor_amount_out_asset = $8,
+              anchor_fee = $9, anchor_fee_asset = $10, anchor_domain = $11
         WHERE escrow_id = $1 AND idx = $2`,
-      [escrowId, idx, result.anchorTxId, result.settlementHash, result.anchorStatus],
+      [
+        escrowId, idx, result.anchorTxId, result.settlementHash, result.anchorStatus,
+        JSON.stringify(maskDestination(row.payout_details)),
+        result.receipt?.amountOut ?? null, result.receipt?.amountOutAsset ?? null,
+        result.receipt?.fee ?? null, result.receipt?.feeAsset ?? null,
+        process.env.ANCHOR_HOME_DOMAIN ?? null,
+      ],
     );
     return {
       status: 'completed',

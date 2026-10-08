@@ -6,6 +6,7 @@ import { StatusBadge } from './StatusBadge.js';
 import CopyButton from './CopyButton.js';
 import EscrowTransactions from './EscrowTransactions.js';
 import EscrowReviewLog from './EscrowReviewLog.js';
+import EscrowPayouts from './EscrowPayouts.js';
 
 const STATUS: Record<Escrow['status'], ['completed' | 'pending', string]> = {
   active: ['completed', 'Active'],
@@ -52,6 +53,9 @@ export default function EscrowTransactionsDrawer({ escrow, onClose }: { escrow: 
             </a>
             <CopyButton text={current.contractAddress} style={{ marginLeft: 6, verticalAlign: 'middle' }} />
           </Row>
+
+          <SectionTitle>Payouts</SectionTitle>
+          <EscrowPayouts escrow={current} />
 
           <SectionTitle>Review activity</SectionTitle>
           <EscrowReviewLog escrow={current} />

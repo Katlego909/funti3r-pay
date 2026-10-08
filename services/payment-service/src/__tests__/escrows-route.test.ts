@@ -7,6 +7,7 @@ import { ensureCleared, ComplianceBlockedError } from '../lib/clearance.js';
 import { anchorConfigured, sendAnchorPayout } from '../rails/anchor.js';
 import { AnchorActionRequiredError, AnchorAmountMismatchError } from '../lib/anchor.js';
 import app from '../app.js';
+import { friendlyAsset, maskDestination } from '../routes/escrows.js';
 import { createQueryMock, WORKER_ID, ENTERPRISE_ID, ADMIN_ID, MEMBER_ID } from './helpers.js';
 
 const ESCROW_ID = 'escrow-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -386,6 +387,25 @@ describe('anchor cash-out', () => {
     expect(vi.mocked(sendAnchorPayout).mock.calls[0][0].resume).toMatchObject({ anchorTxId: 'old-tx', settlementHash: 'tx-paid' });
   });
 
+  it('records a masked payout receipt when the cash-out completes — never the full account number', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([...claimHandlers, HANDLER_TAKE_CASHOUT]));
+    vi.mocked(escrow.claimMilestone).mockResolvedValue('tx-claim');
+    vi.mocked(sendAnchorPayout).mockResolvedValue({
+      settlementHash: 'tx-settle', anchorTxId: 'anchor-1', anchorStatus: 'completed',
+      receipt: { amountOut: '9.0', amountOutAsset: 'iso4217:USD', fee: '1.0', feeAsset: 'stellar:native' },
+    });
+
+    await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/claim`).set(workerHeaders).send({ cashout: 'anchor' });
+
+    const write = vi.mocked(query).mock.calls.find(([sql]) => /payout_destination = \$6::jsonb/.test(sql));
+    const params = write?.[1] as unknown[];
+    // The fixture's saved details are just { bank_account_number: '123' }.
+    expect(JSON.parse(params[5] as string)).toEqual({
+      name: null, email: null, bankNumber: null, accountLast4: '123',
+    });
+    expect(params.slice(6, 10)).toEqual(['9.0', 'iso4217:USD', '1.0', 'stellar:native']);
+  });
+
   it('a plain claim never touches the anchor', async () => {
     vi.mocked(query).mockImplementation(createQueryMock(claimHandlers));
     vi.mocked(escrow.claimMilestone).mockResolvedValue('tx-claim');
@@ -533,5 +553,26 @@ describe('GET /escrows', () => {
     expect(res.body.escrows[0]).toMatchObject({ totalXlm: 65, workerEmail: 'worker@test.com' });
     expect(res.body.escrows[0].milestones).toHaveLength(2);
     expect(res.body.escrows[0].milestones[0]).toMatchObject({ claimTxHash: 'tx-claim', approveTxHash: 'tx-approve', refundTxHash: null });
+  });
+});
+
+describe('payout receipt helpers', () => {
+  it('maskDestination keeps only the last 4 digits of the account number', () => {
+    const masked = maskDestination({
+      first_name: 'Lionel', last_name: 'Rich', email_address: 'l@x.com', bank_number: '23123', bank_account_number: '1234567890',
+    });
+    expect(masked).toEqual({ name: 'Lionel Rich', email: 'l@x.com', bankNumber: '23123', accountLast4: '7890' });
+    expect(JSON.stringify(masked)).not.toContain('1234567890');
+  });
+
+  it('maskDestination copes with missing details', () => {
+    expect(maskDestination(null)).toEqual({ name: null, email: null, bankNumber: null, accountLast4: null });
+  });
+
+  it('friendlyAsset turns anchor asset ids into short codes', () => {
+    expect(friendlyAsset('iso4217:USD')).toBe('USD');
+    expect(friendlyAsset('stellar:native')).toBe('XLM');
+    expect(friendlyAsset('stellar:USDC:GA5Z')).toBe('USDC');
+    expect(friendlyAsset(null)).toBeNull();
   });
 });

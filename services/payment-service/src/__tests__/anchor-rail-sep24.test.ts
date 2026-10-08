@@ -55,7 +55,10 @@ beforeEach(() => {
   mocks.customer.mockReset().mockResolvedValue('customer-42');
   mocks.interactive.mockReset().mockResolvedValue({ id: 'anchor-tx-1', url: FORM_URL });
   mocks.settlement.mockReset().mockResolvedValue({ accountId: 'GANCHOR', memoType: 'id', memo: '123', amountIn: '10' });
-  mocks.status.mockReset().mockResolvedValue({ id: 'anchor-tx-1', status: 'completed' });
+  mocks.status.mockReset().mockResolvedValue({
+    id: 'anchor-tx-1', status: 'completed',
+    amountOut: '9.0', amountOutAsset: 'iso4217:USD', amountFee: '1.0', amountFeeAsset: 'stellar:native',
+  });
   mocks.autofill.mockReset().mockResolvedValue(true);
   mocks.pay.mockReset().mockResolvedValue('settlement-hash');
 });
@@ -81,7 +84,13 @@ describe('SEP-24 anchor rail', () => {
 
   it('when the form was filled for the worker, the cash-out completes with no manual step', async () => {
     const out = await runPayout();
-    expect(out).toEqual({ ok: { settlementHash: 'settlement-hash', anchorTxId: 'anchor-tx-1', anchorStatus: 'completed' } });
+    expect(out).toEqual({
+      ok: {
+        settlementHash: 'settlement-hash', anchorTxId: 'anchor-tx-1', anchorStatus: 'completed',
+        // What the anchor says it pays out, kept so the worker can see it.
+        receipt: { amountOut: '9.0', amountOutAsset: 'iso4217:USD', fee: '1.0', feeAsset: 'stellar:native' },
+      },
+    });
     expect(mocks.pay).toHaveBeenCalledWith(payerSecret, 'GANCHOR', '10', 'XLM', undefined, expect.anything());
   });
 

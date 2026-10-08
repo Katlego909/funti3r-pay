@@ -49,10 +49,19 @@ function defaultKycValue(name: string, spec: { choices?: string[] }): string {
   );
 }
 
+/** What the anchor reports it pays out for a completed cash-out. */
+export interface AnchorReceipt {
+  amountOut?: string;
+  amountOutAsset?: string;
+  fee?: string;
+  feeAsset?: string;
+}
+
 export interface AnchorPayoutResult {
   settlementHash: string;
   anchorTxId: string;
   anchorStatus: string;
+  receipt?: AnchorReceipt;
 }
 
 /**
@@ -107,17 +116,19 @@ export async function sendAnchorPayout(opts: {
   // Give the anchor a short window to confirm; the settlement is already
   // on-chain either way, and the anchor tx id stays queryable.
   let anchorStatus = 'pending_anchor';
+  let receipt: AnchorReceipt | undefined;
   for (let i = 0; i < 10; i++) {
     await new Promise((r) => setTimeout(r, 3000));
     const s = await anchorGetTransaction(protocol, jwt, anchorTxId);
     anchorStatus = s.status;
+    receipt = { amountOut: s.amountOut, amountOutAsset: s.amountOutAsset, fee: s.amountFee, feeAsset: s.amountFeeAsset };
     if (['completed', 'error', 'refunded'].includes(anchorStatus)) break;
   }
 
   logger.info('Anchor payout settled', {
     anchor: anchorHomeDomain(), anchorTxId, settlementHash, anchorStatus,
   });
-  return { settlementHash, anchorTxId, anchorStatus };
+  return { settlementHash, anchorTxId, anchorStatus, receipt };
 }
 
 /** SEP-12 KYC + withdraw request on the preferred protocol; returns the anchor transaction. */

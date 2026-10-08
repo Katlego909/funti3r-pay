@@ -361,6 +361,13 @@ export default function Wallet() {
                               {lastRejection(e, m.idx)}
                             </div>
                           )}
+                          {m.payout && (
+                            <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
+                              {m.payout.destination?.accountLast4 ? `To account ••••${m.payout.destination.accountLast4}` : 'Destination not recorded'}
+                              {m.payout.receivedAmount && ` · anchor pays out ${m.payout.receivedAmount}${m.payout.receivedAsset ? ` ${m.payout.receivedAsset}` : ''}`}
+                              {m.payout.sandbox && ' · test anchor, no real transfer'}
+                            </div>
+                          )}
                           {m.status === 'claimed' && m.cashoutStatus === 'action_required' && (
                             <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
                               Enter exactly {m.amountXlm} XLM in the anchor form

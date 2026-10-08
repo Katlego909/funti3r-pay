@@ -12,6 +12,7 @@ import SlideOver, { Row, SectionTitle } from '../components/SlideOver.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 import EscrowTransactions from '../components/EscrowTransactions.js';
 import EscrowReviewLog from '../components/EscrowReviewLog.js';
+import EscrowPayouts from '../components/EscrowPayouts.js';
 import RejectWorkModal from '../components/RejectWorkModal.js';
 
 interface WorkerOption { id: string; email: string }
@@ -146,6 +147,9 @@ function EscrowDetailDrawer({
             </tbody>
           </table>
         </div>
+
+        <SectionTitle>Payouts</SectionTitle>
+        <EscrowPayouts escrow={current} />
 
         <SectionTitle>Review activity</SectionTitle>
         <EscrowReviewLog escrow={current} />
