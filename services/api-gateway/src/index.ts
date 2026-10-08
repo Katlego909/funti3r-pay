@@ -2,14 +2,18 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { RedisStore } from 'rate-limit-redis';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { v4 as uuid } from 'uuid';
 import { createLogger, assertInternalAuthConfigured, stripIdentity } from '@funti3r/shared-utils';
-import { initPostgres, initRedis } from '@funti3r/database';
+import { initPostgres, initRedis, getRedis } from '@funti3r/database';
 import { authMiddleware } from './middleware/auth.js';
 
 const logger = createLogger('APIGateway');
 const app = express();
+// Behind Caddy and the dashboard's nginx there are two proxy hops; trusting exactly that many makes req.ip the
+// real client (and rate limits per client, not one shared bucket). 0 when the gateway is reached directly (dev).
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 0));
 const PORT = parseInt(process.env.API_PORT || '3000', 10);
 
 const USER_SERVICE    = process.env.USER_SERVICE_URL    || 'http://localhost:3001';
@@ -62,6 +66,31 @@ if (process.env.NODE_ENV !== 'development') {
   app.use('/auth', authLimiter);
 }
 
+/**
+ * Money-moving and identity-submitting writes get a tight per-user limit (per IP before login), kept in Redis so it
+ * holds across gateway instances. It runs in every environment: a stuck client or a stolen session cannot hammer
+ * payouts, cash-outs or KYC. Reads are not limited here.
+ */
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+const moneyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests for this action, please slow down' },
+  skip: (req) => !WRITE_METHODS.has(req.method),
+  keyGenerator: (req) => {
+    const user = req.headers['x-user-id'];
+    return typeof user === 'string' && user ? `user:${user}` : `ip:${req.ip ?? 'unknown'}`;
+  },
+  // Count in Redis; if Redis is down, serve the request rather than turn a cache outage into a payments outage.
+  passOnStoreError: true,
+  store: new RedisStore({
+    prefix: 'rl:money:',
+    sendCommand: async (...args: string[]) => (await getRedis()).sendCommand(args),
+  }),
+});
+
 // A client never gets to say who it is: drop any identity headers it sent (public routes included),
 // then the auth middleware sets and signs the real ones from the verified token.
 assertInternalAuthConfigured();
@@ -73,6 +102,9 @@ app.use((req, _res, next) => {
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
 app.use(authMiddleware);
+// After auth, so the limit is per signed-in user.
+app.use(['/payouts', '/api/payouts', '/escrows', '/api/escrows', '/cashouts', '/api/cashouts', '/schedules', '/api/schedules',
+  '/compliance', '/api/compliance', '/wallets', '/api/wallets'], moneyLimiter);
 
 // ── Request logging ───────────────────────────────────────────────────────────
 
