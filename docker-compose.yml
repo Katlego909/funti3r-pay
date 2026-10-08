@@ -234,6 +234,22 @@ services:
     networks:
       - funti3r-network
 
+  # Optional: `docker compose --profile monitoring up -d prometheus`. Scrapes every service's /metrics and evaluates the
+  # alert rules in deploy/alerts.yml; point Alertmanager or Grafana at it. Reachable only inside the network.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: funti3r-prometheus
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - funti3r-network
+
   # ── Edge: the only thing reachable from outside. Terminates TLS (automatic certificates) and forwards to the dashboard,
   # whose nginx serves the app and proxies /api to the gateway.
   caddy:
@@ -262,6 +278,7 @@ volumes:
   caddy_data:
   caddy_config:
   backup_data:
+  prometheus_data:
 
 networks:
   funti3r-network:

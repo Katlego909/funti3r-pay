@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import type { Router as RouterType } from 'express';
 import { query } from '@funti3r/database';
 import { createLogger, decryptFromString, parseBody } from '@funti3r/shared-utils';
+import { audit } from '../lib/audit.js';
 import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from '../lib/company.js';
 import * as escrow from '../lib/escrow.js';
 import { recordEscrowPaymentSafely } from '../lib/escrowAccounting.js';
@@ -283,6 +284,7 @@ router.post('/', async (req: Request, res: Response) => {
     );
 
     logger.info('Escrow created', { id, onchainId: onchainId.toString(), hash, total });
+    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.created', entityType: 'escrow', entityId: id, detail: { workerId, totalXlm: total, milestones: milestones.length, txHash: hash } });
     res.status(201).json({ id, onchainEscrowId: onchainId.toString(), txHash: hash });
   } catch (err) {
     logger.error('Failed to create escrow', { error: String(err) });
@@ -339,6 +341,7 @@ router.post('/:id/milestones/:idx/approve', async (req: Request, res: Response) 
       row.worker_id, 'escrow_milestone_approved', 'Milestone approved',
       `Milestone ${idx + 1} (${Number(ms.rows[0].amount)} XLM) is approved — claim it from your wallet.`, id,
     );
+    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.milestone_approved', entityType: 'milestone', entityId: `${id}:${idx}`, detail: { txHash: hash } });
 
     res.json({ txHash: hash });
   } catch (err) {
@@ -393,6 +396,7 @@ router.post('/:id/milestones/:idx/submit', async (req: Request, res: Response) =
       row.enterprise_id, 'escrow_work_submitted', 'Work submitted for review',
       `Your worker submitted milestone ${idx + 1} for review.`, id,
     );
+    await audit({ actorId: workerId, actorRole: 'worker', action: 'escrow.work_submitted', entityType: 'milestone', entityId: `${id}:${idx}` });
     res.json({ reviewStatus: 'submitted' });
   } catch (err) {
     logger.error('Failed to submit milestone work', { id, idx, error: String(err) });
@@ -448,6 +452,7 @@ router.post('/:id/milestones/:idx/reject', async (req: Request, res: Response) =
       row.worker_id, 'escrow_work_rejected', 'Changes requested',
       `Milestone ${idx + 1} was sent back: ${reason.slice(0, 140)}`, id,
     );
+    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.work_rejected', entityType: 'milestone', entityId: `${id}:${idx}`, detail: { reason: reason.slice(0, 200) } });
     res.json({ reviewStatus: 'rejected' });
   } catch (err) {
     logger.error('Failed to reject milestone', { id, idx, error: String(err) });
@@ -504,6 +509,7 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response) =>
       row.enterprise_id, 'escrow_milestone_claimed', 'Milestone claimed',
       `Your worker claimed milestone ${idx + 1} (${Number(ms.rows[0].amount)} XLM).`, id,
     );
+    await audit({ actorId: workerId, actorRole: 'worker', action: 'escrow.milestone_claimed', entityType: 'milestone', entityId: `${id}:${idx}`, detail: { amountXlm: Number(ms.rows[0].amount), txHash: hash } });
 
     res.json({ txHash: hash });
   } catch (err) {
@@ -531,6 +537,7 @@ router.post('/:id/freeze', async (req: Request, res: Response) => {
     const hash = await escrow.setFrozen(BigInt(r.rows[0].onchain_escrow_id), frozen);
     await query(`UPDATE escrows SET frozen = $2, updated_at = NOW() WHERE id = $1`, [id, frozen]);
     logger.warn('Escrow freeze changed', { id, frozen, hash, by: req.headers['x-user-id'] });
+    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: (req.headers['x-user-role'] as string | undefined) ?? 'unknown', action: frozen ? 'escrow.frozen' : 'escrow.unfrozen', entityType: 'escrow', entityId: id, detail: { txHash: hash } });
     res.json({ frozen, txHash: hash });
   } catch (err) {
     logger.error('Failed to change escrow freeze', { id, error: String(err) });
@@ -588,6 +595,7 @@ router.post('/:id/refund', async (req: Request, res: Response) => {
     );
     await finalizeEscrowStatus(id);
 
+    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.refunded', entityType: 'escrow', entityId: id, detail: { refundedXlm: Number(refundedStroops) / 1e7, txHash: hash } });
     res.json({ refundedXlm: Number(refundedStroops) / 1e7, txHash: hash });
   } catch (err) {
     logger.error('Failed to refund escrow', { id, error: String(err) });

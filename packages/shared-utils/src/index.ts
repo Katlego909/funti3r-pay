@@ -5,3 +5,6 @@ export * from './logger.js';
 export * from './encryption.js';
 export * from './internalAuth.js';
 export * from './validateBody.js';
+export * from './requestContext.js';
+export * from './metrics.js';
+export * from './health.js';

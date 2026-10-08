@@ -5,7 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { v4 as uuid } from 'uuid';
-import { createLogger, assertInternalAuthConfigured, assertJwtConfigured, stripIdentity } from '@funti3r/shared-utils';
+import { createLogger, assertInternalAuthConfigured, assertJwtConfigured, stripIdentity, requestContext, createMetrics } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, getRedis } from '@funti3r/database';
 import { authMiddleware } from './middleware/auth.js';
 
@@ -37,11 +37,18 @@ app.use(cors({
   credentials: true,
 }));
 
-// Attach a unique request ID to every request for distributed tracing
+// Every request gets an id that follows it through every service and into every log line. A client may supply one
+// (to correlate with its own logs) but only in a plain, bounded form; anything else is replaced, so a caller cannot
+// inject arbitrary text into our logs through this header.
+const metrics = createMetrics('api-gateway');
+const PLAIN_REQUEST_ID = /^[A-Za-z0-9-]{8,64}$/;
 app.use((req, _res, next) => {
-  req.headers['x-request-id'] = req.headers['x-request-id'] ?? uuid();
+  const supplied = req.headers['x-request-id'];
+  req.headers['x-request-id'] = typeof supplied === 'string' && PLAIN_REQUEST_ID.test(supplied) ? supplied : uuid();
   next();
 });
+// Access log + request metrics for every request, including ones the auth or rate limits turn away.
+app.use(requestContext('APIGateway', metrics.observeRequest));
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 
@@ -107,21 +114,6 @@ app.use(authMiddleware);
 app.use(['/payouts', '/api/payouts', '/escrows', '/api/escrows', '/cashouts', '/api/cashouts', '/schedules', '/api/schedules',
   '/compliance', '/api/compliance', '/wallets', '/api/wallets'], moneyLimiter);
 
-// ── Request logging ───────────────────────────────────────────────────────────
-
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    logger.info('Request', {
-      method: req.method,
-      path: req.path,
-      status: res.statusCode,
-      ms: Date.now() - start,
-      requestId: req.headers['x-request-id'],
-    });
-  });
-  next();
-});
 
 // ── Own endpoints ─────────────────────────────────────────────────────────────
 
@@ -268,6 +260,12 @@ async function start() {
     await initRedis();
     logger.info('Redis connected');
   } catch { logger.warn('Redis unavailable at startup'); }
+
+  // Metrics are served on their own port, reachable by the monitoring stack inside the network and never published
+  // or proxied, so nothing on the public port exposes them.
+  const metricsApp = express();
+  metricsApp.get('/metrics', metrics.handler);
+  metricsApp.listen(parseInt(process.env.METRICS_PORT || '9464', 10), '0.0.0.0');
 
   app.listen(PORT, '0.0.0.0', () => {
     logger.info(`API Gateway running on port ${PORT}`);

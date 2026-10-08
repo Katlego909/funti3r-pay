@@ -6,6 +6,7 @@ import { nextRunDate } from './lib/scheduling.js';
 import { reconcileEscrows } from './lib/escrowReconcile.js';
 import { syncPendingRamps } from './lib/rampsSync.js';
 import { recordAllMissingEscrowPayments } from './lib/escrowAccounting.js';
+import { jobRunsTotal, jobSeconds, stuckCashouts, stuckPayments } from './lib/metrics.js';
 
 const logger = createLogger('Scheduler');
 
@@ -210,12 +211,36 @@ async function reconcileStuckPayments(): Promise<void> {
  */
 function singleton(name: string, job: () => Promise<unknown>): () => void {
   return () => {
+    const stop = jobSeconds.startTimer({ job: name });
     tryWithAdvisoryLock(`job:${name}`, job)
-      .catch((err) => logger.error(`Unhandled error in ${name}`, { error: String(err) }));
+      .then((r) => {
+        jobRunsTotal.inc({ job: name, outcome: r.ran ? 'ran' : 'skipped' });
+        if (r.ran) stop();
+      })
+      .catch((err) => {
+        jobRunsTotal.inc({ job: name, outcome: 'failed' });
+        logger.error(`Unhandled error in ${name}`, { error: String(err) });
+      });
   };
 }
 
+/** Counts what is stuck, for the alerts. Every instance does this for itself; it only reads. */
+async function refreshStuckGauges(): Promise<void> {
+  const cashouts = await query(
+    `SELECT count(*)::int AS n FROM cashouts WHERE status = 'pending' AND created_at < NOW() - INTERVAL '15 minutes'`,
+  );
+  const payments = await query(
+    `SELECT count(*)::int AS n FROM payments WHERE status IN ('initiated', 'processing') AND created_at < NOW() - INTERVAL '10 minutes'`,
+  );
+  stuckCashouts.set(cashouts.rows[0]?.n ?? 0);
+  stuckPayments.set(payments.rows[0]?.n ?? 0);
+}
+
 export function startScheduler(): void {
+  cron.schedule('* * * * *', () => {
+    refreshStuckGauges().catch((err) => logger.warn('Could not refresh the stuck-money gauges', { error: String(err) }));
+  });
+
   // Check for due schedules every hour, on the hour.
   cron.schedule('0 * * * *', singleton('runDueSchedules', runDueSchedules));
 

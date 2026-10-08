@@ -19,11 +19,14 @@ import {
   AuthenticationError,
   NotFoundError,
   requireGatewayIdentity,
+  requestContext,
+  registerHealth,
   assertInternalAuthConfigured,
   assertJwtConfigured,
 } from '@funti3r/shared-utils';
 import { sendRecoveryEmail } from './lib/email.js';
-import { initPostgres, runInitialMigrations, initRedis, query, transaction, setJSON, getJSON, deleteKey } from '@funti3r/database';
+import { metrics } from './metrics.js';
+import { initPostgres, runInitialMigrations, initRedis, getRedis, query, transaction, setJSON, getJSON, deleteKey } from '@funti3r/database';
 import { UserRole } from '@funti3r/shared-types';
 
 const logger = createLogger('UserService');
@@ -69,6 +72,8 @@ function parseBody(req: express.Request, res: express.Response, next: express.Ne
 }
 app.use(parseBody);
 app.use(requireGatewayIdentity());
+app.use(requestContext('UserService', metrics.observeRequest));
+app.get('/metrics', metrics.handler);
 
 const RP_NAME = process.env.RP_NAME || 'Funti3r-Pay';
 const RP_ID = process.env.RP_ID || 'localhost';
@@ -311,12 +316,10 @@ async function acceptCompanyInvite(
 
 // ── Health ────────────────────────────────────────────────────────────────────
 
-app.get('/health', (_, res) => {
-  res.json({ status: 'healthy', service: 'user-service' });
-});
-
-app.post('/auth/register/test', (req, res) => {
-  res.json({ test: 'works', challenge: 'test-challenge' });
+// Sign-in needs both: passkey challenges and refresh sessions live in Redis.
+registerHealth(app, 'user-service', {
+  database: { critical: true, run: async () => { await query('SELECT 1'); } },
+  redis: { critical: true, run: async () => { await (await getRedis()).ping(); } },
 });
 
 /**

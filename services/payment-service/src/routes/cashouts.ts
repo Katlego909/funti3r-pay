@@ -11,6 +11,8 @@ import {
 } from '../lib/moneygram.js';
 import { awaitRampsAcknowledgement } from '../lib/rampsSync.js';
 import { ComplianceBlockedError, ensureCleared } from '../lib/clearance.js';
+import { cashoutsTotal } from '../lib/metrics.js';
+import { audit } from '../lib/audit.js';
 
 // ── MoneyGram cash-out from the worker's wallet ───────────────────────────────
 // 1) POST /cashouts/moneygram/session  opens a MoneyGram widget session. KYC, the amount, the
@@ -91,7 +93,10 @@ router.post('/moneygram/deposit', async (req: Request, res: Response) => {
     // The browser is not trusted: MoneyGram's own record decides what we pay.
     const record = findClaimedTransaction(await listTransactions(), claim);
     const verdict = checkDeposit(record, { customerIdentifier: workerId, walletAddress: pub, claim });
-    if (!verdict.ok) return res.status(409).json({ error: verdict.reason, code: 'deposit_rejected' });
+    if (!verdict.ok) {
+      cashoutsTotal.inc({ outcome: 'rejected' });
+      return res.status(409).json({ error: verdict.reason, code: 'deposit_rejected' });
+    }
     const tx = verdict.tx;
 
     // Idempotent: a repeated request after we already paid returns the same payment.
@@ -133,6 +138,8 @@ router.post('/moneygram/deposit', async (req: Request, res: Response) => {
       const message = err instanceof Error ? err.message : String(err);
       logger.error('MoneyGram deposit payment failed', { cashoutId, error: message });
       await query(`UPDATE cashouts SET status = 'failed', error = $2 WHERE id = $1`, [cashoutId, message.slice(0, 500)]);
+      cashoutsTotal.inc({ outcome: 'payment_failed' });
+      await audit({ actorId: workerId, actorRole: 'worker', action: 'cashout.payment_failed', entityType: 'cashout', entityId: cashoutId, detail: { error: message.slice(0, 200) } });
       return res.status(502).json({ error: message });
     }
 
@@ -144,6 +151,8 @@ router.post('/moneygram/deposit', async (req: Request, res: Response) => {
     void awaitRampsAcknowledgement(cashoutId, tx.id).catch((err) =>
       logger.warn('MoneyGram acknowledgement check failed', { cashoutId, error: String(err) }),
     );
+    cashoutsTotal.inc({ outcome: 'paid' });
+    await audit({ actorId: workerId, actorRole: 'worker', action: 'cashout.paid', entityType: 'cashout', entityId: cashoutId, detail: { usdc: claim.amount, xlmSpent: spentXlm, txHash: hash } });
     res.json({ txHash: hash, status: 'pending' });
   } catch (err) {
     logger.error('Failed to handle MoneyGram deposit', { error: String(err) });

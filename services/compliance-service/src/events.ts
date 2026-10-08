@@ -1,4 +1,5 @@
 import type { Query } from './deps.js';
+import { kycEventsTotal } from './metrics.js';
 
 export type KycAction = 'submitted' | 'approved' | 'rejected' | 'flag_cleared' | 'rescreened' | 'expired';
 
@@ -11,4 +12,5 @@ export async function recordKycEvent(
     `INSERT INTO kyc_events (user_id, actor_id, actor_role, action, detail) VALUES ($1, $2, $3, $4, $5)`,
     [e.userId, e.actorId, e.actorRole, e.action, e.detail ? JSON.stringify(e.detail) : null],
   );
+  kycEventsTotal.inc({ action: e.action });
 }

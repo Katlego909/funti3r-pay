@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { verifyToken, AuthenticationError, stampIdentity } from '@funti3r/shared-utils';
+import { verifyToken, AuthenticationError, stampIdentity, getLogContext } from '@funti3r/shared-utils';
 
 // The only auth endpoints reachable before a JWT exists. Explicit and
 // exhaustive on purpose — unlike a `startsWith('/auth/')` prefix check, this
@@ -68,6 +68,9 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     }
     // Sign it: services only believe identity headers that carry the gateway's signature.
     stampIdentity(req.headers);
+    // From here on, every log line for this request names the signed-in user.
+    const log = getLogContext();
+    if (log) { log.userId = payload.userId; log.role = payload.role; }
     next();
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });

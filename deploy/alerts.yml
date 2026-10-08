@@ -1,0 +1,76 @@
+# Alert rules. Each one is something a person should look at; none is noise by design.
+groups:
+  - name: funti3r
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.instance }} is not answering"
+
+      - alert: HighServerErrorRate
+        expr: |
+          sum by (service) (rate(http_request_duration_seconds_count{status=~"5.."}[5m]))
+            / sum by (service) (rate(http_request_duration_seconds_count[5m])) > 0.05
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.service }}: more than 5% of requests are failing with a server error"
+
+      - alert: SlowRequests
+        expr: histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket[5m]))) > 5
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.service }}: the slowest 5% of requests take over 5 seconds"
+
+      - alert: PayoutsFailing
+        expr: increase(payouts_total{status="failed"}[15m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "A payout failed in the last 15 minutes (look at the failure_reason on the payment)"
+
+      - alert: CashoutPaymentFailed
+        expr: increase(cashouts_total{outcome="payment_failed"}[15m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "A MoneyGram cash-out could not be paid on-chain"
+
+      - alert: CashoutsStuck
+        expr: cashouts_stuck > 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $value }} cash-out(s) paid to MoneyGram but not acknowledged for over 15 minutes"
+
+      - alert: PaymentsStuck
+        expr: payments_stuck > 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $value }} payment(s) have been initiated or processing for over 10 minutes"
+
+      - alert: ScheduledJobFailing
+        expr: increase(scheduler_job_runs_total{outcome="failed"}[30m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "Scheduled job {{ $labels.job }} is failing"
+
+      - alert: AuditTrailNotWriting
+        expr: increase(audit_write_failures_total[15m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: "Money actions are happening that could not be written to the audit trail"
+
+      - alert: SanctionsListStale
+        expr: time() - sanctions_list_fetched_timestamp_seconds > 2 * 86400
+        labels: { severity: warning }
+        annotations:
+          summary: "The sanctions list has not been refreshed for over two days"
+
+      - alert: NewSanctionsMatchOnExistingUser
+        expr: increase(kyc_events_total{action="rescreened"}[1h]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "A refreshed sanctions list flagged an existing user; review it in the compliance queue"

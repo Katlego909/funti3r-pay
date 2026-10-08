@@ -1,8 +1,10 @@
 import express from 'express';
 import crypto from 'crypto';
-import { createLogger, encryptSecret, decryptFromString, ValidationError, NotFoundError, requireGatewayIdentity, parseBody } from '@funti3r/shared-utils';
+import { createLogger, encryptSecret, decryptFromString, ValidationError, NotFoundError, requireGatewayIdentity, requestContext, registerHealth, parseBody } from '@funti3r/shared-utils';
+import { metrics, payoutsTotal } from './lib/metrics.js';
+import { audit } from './lib/audit.js';
 import { payoutBody, batchPayoutBody } from './lib/schemas.js';
-import { query } from '@funti3r/database';
+import { query, getRedis } from '@funti3r/database';
 import * as stellar from './lib/stellar.js';
 import { Asset } from '@stellar/stellar-sdk';
 import { getCurrency, isSupportedCurrency, PAYOUT_CURRENCIES } from './lib/currencies.js';
@@ -21,6 +23,8 @@ const COMPLIANCE_SERVICE_URL = process.env.COMPLIANCE_SERVICE_URL || 'http://loc
 const app: express.Express = express();
 app.use(express.json());
 app.use(requireGatewayIdentity());
+app.use(requestContext('PaymentService', metrics.observeRequest));
+app.get('/metrics', metrics.handler);
 
 // ── Routers ───────────────────────────────────────────────────────────────────
 
@@ -31,8 +35,15 @@ app.use('/cashouts', cashoutsRouter);
 
 // ── Health ────────────────────────────────────────────────────────────────────
 
-app.get('/health', (_, res) => {
-  res.json({ status: 'healthy', service: 'payment-service' });
+// The database is essential; Redis only caches balances, and Stellar's Horizon is a third party whose outage should
+// show up here without making this service refuse the requests that do not need it.
+registerHealth(app, 'payment-service', {
+  database: { critical: true, run: async () => { await query('SELECT 1'); } },
+  redis: { critical: false, run: async () => { await (await getRedis()).ping(); } },
+  horizon: {
+    critical: false,
+    run: async () => { await axios.get(process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org', { timeout: 2500 }); },
+  },
 });
 
 // ── Compliance guard ──────────────────────────────────────────────────────────
@@ -214,6 +225,8 @@ app.get('/payouts/quotes', async (req, res) => {
 
 export interface PayoutResult {
   paymentId?: string;
+  /** The answer to a repeated request with the same idempotency key: nothing new happened, so nothing new is recorded. */
+  replayed?: boolean;
   workerId: string;
   amount: number;
   currency: string;
@@ -240,7 +253,7 @@ export function payoutPayloadHash(workerId: string, amountNum: number, asset: st
  * path payment funded from the enterprise's XLM (auto-creating the worker's
  * trustline first). `sourceSecret` is the DECRYPTED enterprise secret.
  */
-export async function executePayout(opts: {
+async function executePayoutInner(opts: {
   enterpriseId: string;
   sourceSecret: string;
   workerId: string;
@@ -293,6 +306,7 @@ export async function executePayout(opts: {
         return {
           ...base, paymentId: row.id, status: row.status, stellarTxHash: row.stellar_tx_hash ?? undefined,
           ...(row.fee_paid_xlm ? { sourceAmountXlm: row.fee_paid_xlm } : {}),
+          replayed: true,
         };
       }
       if (row.status === 'failed') {
@@ -504,6 +518,20 @@ export async function resolveEnterpriseSecret(enterpriseId: string): Promise<{ s
   const stored: string | undefined = entRes.rows[0]?.stellar_secret_key;
   if (!stored) return { error: 'Enterprise Stellar account is not set up' };
   return { secret: decryptFromString(stored) };
+}
+
+/** Runs a payout and counts how it ended, so failed payouts show up on a dashboard and in alerts. */
+export async function executePayout(opts: Parameters<typeof executePayoutInner>[0]): Promise<PayoutResult> {
+  const result = await executePayoutInner(opts);
+  if (result.replayed) return result;
+  payoutsTotal.inc({ status: result.status });
+  if (result.paymentId) {
+    await audit({
+      actorId: opts.enterpriseId, actorRole: 'enterprise', action: `payout.${result.status}`, entityType: 'payment', entityId: result.paymentId,
+      detail: { workerId: opts.workerId, amount: result.amount, currency: result.currency, ...(result.stellarTxHash && { txHash: result.stellarTxHash }), ...(result.error && { error: result.error.slice(0, 200) }) },
+    });
+  }
+  return result;
 }
 
 /**

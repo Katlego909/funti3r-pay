@@ -2,13 +2,16 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
 import cron from 'node-cron';
-import { createLogger, assertInternalAuthConfigured, requireGatewayIdentity } from '@funti3r/shared-utils';
+import { createLogger, assertInternalAuthConfigured, requireGatewayIdentity, requestContext, registerHealth, createMetrics } from '@funti3r/shared-utils';
 import { initPostgres, runInitialMigrations, query } from '@funti3r/database';
 
 const logger = createLogger('AnalyticsService');
 const app = express();
 app.use(express.json());
 app.use(requireGatewayIdentity());
+const metrics = createMetrics('analytics-service');
+app.use(requestContext('AnalyticsService', metrics.observeRequest));
+app.get('/metrics', metrics.handler);
 
 /** Parses a query-string value as a non-negative integer, or null if invalid. */
 function parseIntParam(value: unknown, max?: number): number | null {
@@ -19,8 +22,8 @@ function parseIntParam(value: unknown, max?: number): number | null {
 
 // ── Health ────────────────────────────────────────────────────────────────────
 
-app.get('/health', (_, res) => {
-  res.json({ status: 'healthy', service: 'analytics-service' });
+registerHealth(app, 'analytics-service', {
+  database: { critical: true, run: async () => { await query('SELECT 1'); } },
 });
 
 // ── Event ingestion ───────────────────────────────────────────────────────────

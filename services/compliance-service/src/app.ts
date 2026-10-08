@@ -1,5 +1,6 @@
 import express from 'express';
-import { createLogger, NotFoundError, requireGatewayIdentity } from '@funti3r/shared-utils';
+import { createLogger, NotFoundError, requireGatewayIdentity, requestContext, registerHealth } from '@funti3r/shared-utils';
+import { metrics } from './metrics.js';
 import { candidateNamesFromSubmission } from './names.js';
 import type { Deps } from './deps.js';
 import { canDecide, kycAccess } from './access.js';
@@ -32,6 +33,8 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
   const app = express();
   app.use(express.json());
   app.use(requireGatewayIdentity());
+  app.use(requestContext('ComplianceService', metrics.observeRequest));
+  app.get('/metrics', metrics.handler);
 
   // A user id goes straight into a UUID column; anything else is the caller's mistake (400), not a database error.
   app.param('userId', (_req, res, next, value) => {
@@ -41,9 +44,13 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
 
   // ── Health ──────────────────────────────────────────────────────────────────
 
-  app.get('/health', (_, res) => {
-    res.json({ status: 'healthy', service: 'compliance-service', autoApprove });
+  registerHealth(app, 'compliance-service', {
+    database: { critical: true, run: async () => { await query('SELECT 1'); } },
+    // Screening still runs on the built-in list without it, so a missing download is a warning, not an outage.
+    sanctionsList: { critical: false, run: async () => { if (!(await sanctions.status())) throw new Error('no downloaded sanctions list is loaded'); } },
   });
+  // Which mode the service runs in matters when reading evidence; it is not a secret.
+  app.get('/health/mode', (_req, res) => { res.json({ autoApprove }); });
 
   // ── Submit KYC ──────────────────────────────────────────────────────────────
   // Stores the whole submission payload, encrypted, in the `data` JSONB column. Auto-approves

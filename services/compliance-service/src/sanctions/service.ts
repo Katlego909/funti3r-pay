@@ -8,6 +8,7 @@ import { candidateNamesFromSubmission } from '../names.js';
 import type { SanctionsEntry } from './list.js';
 import { buildIndex, screenNames, type SanctionsIndex, type SanctionsMatch } from './screen.js';
 import { parseSdn } from './sdn.js';
+import { sanctionsEntries, sanctionsFetchedAt } from '../metrics.js';
 import { SANCTIONS_LIST } from './list.js';
 
 const logger = createLogger('Sanctions');
@@ -106,6 +107,11 @@ export async function createSanctionsService(query: Query): Promise<SanctionsSer
 
   async function reload(): Promise<void> {
     const stored = await loadStoredEntries(query);
+    const meta = await query(`SELECT entry_count, fetched_at FROM sanctions_list_meta WHERE id = 1`);
+    if (meta.rows[0]) {
+      sanctionsEntries.set(Number(meta.rows[0].entry_count));
+      sanctionsFetchedAt.set(new Date(meta.rows[0].fetched_at).getTime() / 1000);
+    }
     // The built-in list stays in as a floor (and carries the QA canary used for demos).
     index = buildIndex([...SANCTIONS_LIST, ...stored]);
   }

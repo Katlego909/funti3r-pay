@@ -157,6 +157,12 @@ describe('milestone approve and claim', () => {
     // The approval transaction is kept so it can be shown and linked later.
     const write = vi.mocked(query).mock.calls.find(([sql]) => /approve_tx_hash = \$3/.test(sql));
     expect(write?.[1]).toEqual([ESCROW_ID, 0, 'tx-approve']);
+    // ...and the approval is on the audit trail: who, what, which record, and the request it came in on.
+    const audited = vi.mocked(query).mock.calls.find(([sql]) => /INSERT INTO audit_events/.test(sql));
+    expect(audited?.[1]).toEqual([
+      ENTERPRISE_ID, 'enterprise', 'escrow.milestone_approved', 'milestone', `${ESCROW_ID}:0`,
+      JSON.stringify({ txHash: 'tx-approve' }), expect.any(String),
+    ]);
   });
 
   it('409s approving a milestone that is not pending', async () => {
