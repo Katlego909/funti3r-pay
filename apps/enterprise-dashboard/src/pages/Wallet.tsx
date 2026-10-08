@@ -15,7 +15,6 @@ import {
   getPayoutMethod, setPayoutMethod, type PayoutCurrency, type PayoutMethod,
 } from '../api/payments.js';
 import CopyButton from '../components/CopyButton.js';
-import { StatusBadge } from '../components/StatusBadge.js';
 import EscrowTransactionsDrawer from '../components/EscrowTransactionsDrawer.js';
 import SubmitWorkModal from '../components/SubmitWorkModal.js';
 import {
@@ -24,6 +23,7 @@ import {
 } from '../api/escrows.js';
 import MoneyGramCashoutModal from '../components/MoneyGramCashoutModal.js';
 import CashoutsTable from '../components/CashoutsTable.js';
+import WorkerMilestonesTable from '../components/WorkerMilestonesTable.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 
 interface WalletBalance {
@@ -37,33 +37,6 @@ interface WalletInfo {
   walletType: string;
   address?: string | null;
   balances?: WalletBalance[];
-}
-
-/** The employer's most recent "changes requested" note for a milestone. */
-function lastRejection(e: Escrow, idx: number): string | undefined {
-  const rejected = (e.reviewEvents ?? []).filter((ev) => ev.idx === idx && ev.kind === 'rejected');
-  return rejected[rejected.length - 1]?.note ?? undefined;
-}
-
-type MilestoneBadge = ['completed' | 'failed' | 'pending', string];
-
-/** One badge per milestone: where it is in approve -> claim -> payout. */
-function milestoneState(e: Escrow, m: Escrow['milestones'][number]): MilestoneBadge {
-  if (e.frozen && m.status !== 'claimed') return ['failed', 'On compliance hold'];
-  if (m.status === 'pending') {
-    if (m.reviewStatus === 'submitted') return ['pending', 'Submitted for review'];
-    if (m.reviewStatus === 'rejected') return ['failed', 'Changes requested'];
-    return ['pending', 'Not submitted'];
-  }
-  if (m.status === 'approved') return ['pending', 'Ready to claim'];
-  if (m.status === 'refunded') return ['failed', 'Refunded'];
-  switch (m.cashoutStatus) {
-    case 'completed': return ['completed', 'Paid out via anchor'];
-    case 'pending': return ['pending', 'Cashing out…'];
-    case 'action_required': return ['pending', 'Anchor step needed'];
-    case 'failed': return ['failed', 'Cash-out failed'];
-    default: return ['completed', 'Claimed'];
-  }
 }
 
 export default function Wallet() {
@@ -328,121 +301,16 @@ export default function Wallet() {
 
         {/* Milestone escrows — funds locked for this worker on-chain */}
         {escrows.length > 0 && (
-          <section className="section">
-            <h3>Escrow Milestones</h3>
-            <p style={{ fontSize: '0.82rem', color: 'var(--gray-600)', marginTop: '-6px' }}>
-              Your employer locked these funds in an on-chain escrow. Approved milestones are yours to claim.
-              Select a row to see its transactions.
-            </p>
-            <div className="table-responsive">
-              <table className="data-table" style={{ whiteSpace: 'nowrap' }}>
-                <thead>
-                  <tr><th>Milestone</th><th>Amount</th><th>Expires</th><th>Status</th><th></th></tr>
-                </thead>
-                <tbody>
-                  {escrows.flatMap((e) => e.milestones.map((m) => {
-                    const rowKey = `${e.id}:${m.idx}`;
-                    const busy = claiming === rowKey;
-                    const [variant, label] = milestoneState(e, m);
-                    return (
-                      <tr key={rowKey} onClick={() => setTxEscrow(e)} style={{ cursor: 'pointer' }}>
-                        <td data-label="Milestone">
-                          <div style={{ fontWeight: 600 }}>{m.description || `Milestone ${m.idx + 1}`}</div>
-                          {e.milestones.length > 1 && (
-                            <div style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>
-                              {m.idx + 1} of {e.milestones.length}
-                            </div>
-                          )}
-                        </td>
-                        <td data-label="Amount">{dc.format(m.amountXlm, 'XLM')}</td>
-                        <td data-label="Expires">{new Date(e.expiresAt).toLocaleDateString()}</td>
-                        <td data-label="Status">
-                          <StatusBadge variant={variant} title={m.cashoutError ?? undefined}>{label}</StatusBadge>
-                          {m.status === 'pending' && m.reviewStatus === 'rejected' && lastRejection(e, m.idx) && (
-                            <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
-                              {lastRejection(e, m.idx)}
-                            </div>
-                          )}
-                          {m.payout && (
-                            <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
-                              {m.payout.destination?.accountLast4 ? `To account ••••${m.payout.destination.accountLast4}` : 'Destination not recorded'}
-                              {m.payout.receivedAmount && ` · anchor pays out ${m.payout.receivedAmount}${m.payout.receivedAsset ? ` ${m.payout.receivedAsset}` : ''}`}
-                              {m.payout.sandbox && ' · test anchor, no real transfer'}
-                            </div>
-                          )}
-                          {m.status === 'claimed' && m.cashoutStatus === 'action_required' && (
-                            <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
-                              Enter exactly {m.amountXlm} XLM in the anchor form
-                            </div>
-                          )}
-                          {m.cashoutStatus === 'failed' && m.cashoutError && (
-                            <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
-                              {m.cashoutError}
-                            </div>
-                          )}
-                        </td>
-                        <td data-label="" onClick={(ev) => ev.stopPropagation()} style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          {m.status === 'pending' && e.status === 'active' && m.reviewStatus !== 'submitted' && (
-                            <button
-                              className="btn-secondary"
-                              style={{ padding: '6px 14px', fontSize: '0.8rem' }}
-                              onClick={() => setSubmitFor({
-                                escrowId: e.id, idx: m.idx,
-                                title: m.description || `Milestone ${m.idx + 1}`,
-                                previousReason: m.reviewStatus === 'rejected' ? lastRejection(e, m.idx) : undefined,
-                              })}
-                            >
-                              {m.reviewStatus === 'rejected' ? 'Resubmit' : 'Submit work'}
-                            </button>
-                          )}
-                          {m.status === 'approved' && (
-                            <button
-                              className="btn-primary"
-                              style={{ padding: '6px 14px', fontSize: '0.8rem' }}
-                              disabled={e.frozen || busy}
-                              title={e.frozen ? 'This escrow is on a compliance hold' : undefined}
-                              onClick={() => handleClaim(e.id, m.idx)}
-                            >
-                              {busy ? 'Claiming…' : payoutMethod === 'anchor' ? 'Claim & cash out' : 'Claim'}
-                            </button>
-                          )}
-                          {m.status === 'claimed' && m.cashoutStatus === 'action_required' && (
-                            <span style={{ display: 'inline-flex', gap: 8 }}>
-                              {m.anchorMoreInfoUrl && (
-                                <a className="btn-secondary" href={m.anchorMoreInfoUrl} target="_blank" rel="noopener noreferrer"
-                                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
-                                  Open anchor form
-                                </a>
-                              )}
-                              <button
-                                className="btn-primary"
-                                style={{ padding: '6px 14px', fontSize: '0.8rem' }}
-                                disabled={busy}
-                                onClick={() => handleCashout(e.id, m.idx)}
-                              >
-                                {busy ? 'Checking…' : 'Continue'}
-                              </button>
-                            </span>
-                          )}
-                          {m.status === 'claimed'
-                            && (m.cashoutStatus === 'failed' || (m.cashoutStatus === 'none' && payoutMethod === 'anchor' && !moneygramOn)) && (
-                            <button
-                              className="btn-secondary"
-                              style={{ padding: '6px 14px', fontSize: '0.8rem' }}
-                              disabled={e.frozen || busy}
-                              onClick={() => handleCashout(e.id, m.idx)}
-                            >
-                              {busy ? 'Working…' : m.cashoutStatus === 'failed' ? 'Retry' : 'Cash out'}
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  }))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <WorkerMilestonesTable
+            escrows={escrows}
+            payoutMethod={payoutMethod}
+            moneygramOn={moneygramOn}
+            busyKey={claiming}
+            onClaim={handleClaim}
+            onCashout={handleCashout}
+            onSubmitWork={setSubmitFor}
+            onOpen={setTxEscrow}
+          />
         )}
 
         <EscrowTransactionsDrawer escrow={txEscrow} onClose={() => setTxEscrow(null)} />
