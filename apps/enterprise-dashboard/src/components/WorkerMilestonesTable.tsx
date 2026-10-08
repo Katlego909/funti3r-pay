@@ -54,11 +54,11 @@ export default function WorkerMilestonesTable({
   return (
     <section className="section">
       <h3>Escrow Milestones</h3>
-      <p style={{ fontSize: '0.82rem', color: 'var(--gray-600)', marginTop: '-6px' }}>
+      <p style={{ fontSize: '0.82rem', color: 'var(--gray-600)', marginTop: '-6px', marginBottom: 0 }}>
         Your employer locked these funds in an on-chain escrow. Approved milestones are yours to claim, and claimed
         money lands in your wallet. Select a row to see its transactions.
       </p>
-      <div className="payments-status-tabs" style={{ marginBottom: 12 }}>
+      <div className="payments-status-tabs" style={{ margin: '16px 0' }}>
         {TABS.map(([key, label]) => (
           <button key={key} className={`status-tab ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)}>
             {label} ({all.filter((r) => inTab(r, key)).length})
