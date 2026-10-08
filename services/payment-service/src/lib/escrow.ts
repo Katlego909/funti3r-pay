@@ -22,6 +22,7 @@ import {
 } from '@stellar/stellar-sdk';
 import { createHash } from 'node:crypto';
 import { createLogger } from '@funti3r/shared-utils';
+import { withAdvisoryLock } from '@funti3r/database';
 
 const logger = createLogger('EscrowService');
 
@@ -96,7 +97,7 @@ function contractErrorCode(text: string): number | undefined {
 }
 
 /** Simulate, assemble, sign as `signer` (also the source account), submit, poll. */
-async function invoke(
+async function invokeUnlocked(
   signerSecret: string,
   method: string,
   args: ReturnType<typeof nativeToScVal>[],
@@ -147,6 +148,19 @@ function complianceSecret(): string {
 }
 
 /** Public key of the compliance authority (the contract's `compliance` role). */
+/**
+ * Contract calls from one account must not overlap either (each uses the account's next sequence number): the
+ * compliance key clears several workers at once, an enterprise approves while a refund is in flight. Serialized per
+ * signing account across the whole cluster, and held until the call is confirmed so the next one sees the new sequence.
+ */
+function invoke(
+  signerSecret: string,
+  method: string,
+  args: ReturnType<typeof nativeToScVal>[],
+): Promise<{ hash: string; returnValue: unknown }> {
+  return withAdvisoryLock(`stellar:${Keypair.fromSecret(signerSecret).publicKey()}`, () => invokeUnlocked(signerSecret, method, args));
+}
+
 export function complianceAuthorityPublic(): string {
   return Keypair.fromSecret(complianceSecret()).publicKey();
 }

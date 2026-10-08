@@ -28,7 +28,7 @@ const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v 
 const EFFECTIVE_STATUS = `CASE WHEN status = 'approved' AND expires_at IS NOT NULL AND expires_at < NOW() THEN 'expired' ELSE status END`;
 const DEFAULT_VALIDITY_DAYS = 365;
 
-export function createApp({ query, autoApprove, sanctions, validityDays = DEFAULT_VALIDITY_DAYS, provider = createManualProvider({ autoApprove }) }: Deps): express.Express {
+export function createApp({ query, autoApprove, sanctions, validityDays = DEFAULT_VALIDITY_DAYS, provider = createManualProvider({ autoApprove }), inTransaction = (fn) => fn(query) }: Deps): express.Express {
   const app = express();
   app.use(express.json());
   app.use(requireGatewayIdentity());
@@ -74,7 +74,8 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
       const verifiedAt = status === 'approved' ? new Date().toISOString() : null;
       const expiresAt = status === 'approved' ? new Date(Date.now() + validityDays * 86_400_000).toISOString() : null;
 
-      const result = await query(
+      const row = await inTransaction(async (q) => {
+      const result = await q(
         `INSERT INTO kyc_records (user_id, provider, provider_request_id, status, data, verified_at, expires_at, sanctions_status, sanctions_matches, sanctions_checked_at, updated_at)
            VALUES ($1, $8, $9, $2, $3, $4, $7, $5, $6, NOW(), NOW())
          ON CONFLICT (user_id) DO UPDATE SET
@@ -92,10 +93,11 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
         [userId, status, sealDetails(details), verifiedAt, sanctionsStatus, JSON.stringify(sanctionsMatches), expiresAt, provider.name, decision.providerRef ?? null],
       );
 
-      const row = result.rows[0];
-      await recordKycEvent(query, {
+      await recordKycEvent(q, {
         userId, actorId: requesterId ?? null, actorRole: requesterRole, action: 'submitted',
         detail: { status, sanctionsStatus, matchCount: sanctionsMatches.length, autoApprove },
+      });
+      return result.rows[0];
       });
       logger.info('KYC submitted', { userId, status, sanctionsStatus, matchCount: sanctionsMatches.length, autoApprove });
       res.status(201).json({
@@ -324,14 +326,15 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
         return res.status(403).json({ error: 'Only an admin of the worker\'s company can decide this KYC' });
       }
 
-      const current = await query(`SELECT sanctions_status FROM kyc_records WHERE user_id = $1`, [targetUserId]);
+      // One transaction, with the record locked: two reviewers deciding at once are applied one after the other, and the
+      // change and its audit events commit together or not at all.
+      const outcome = await inTransaction(async (q) => {
+      const current = await q(`SELECT sanctions_status FROM kyc_records WHERE user_id = $1 FOR UPDATE`, [targetUserId]);
       if (current.rows.length === 0) throw new NotFoundError('KYC record');
       const flagged = current.rows[0].sanctions_status === 'flagged';
-      if (newStatus === 'approved' && flagged && requesterRole !== 'admin') {
-        return res.status(403).json({ error: 'A sanctions flag can only be cleared by a platform admin' });
-      }
+      if (newStatus === 'approved' && flagged && requesterRole !== 'admin') return { denied: true as const };
 
-      const result = await query(
+      const result = await q(
         `UPDATE kyc_records
             SET status = $1,
                 verified_at = CASE WHEN $1 = 'approved' THEN NOW() ELSE verified_at END,
@@ -345,14 +348,17 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
       if (result.rows.length === 0) throw new NotFoundError('KYC record');
 
       const reason = asString(req.body?.reason);
-      await recordKycEvent(query, {
+      await recordKycEvent(q, {
         userId: targetUserId, actorId: requesterId ?? null, actorRole: requesterRole, action: newStatus === 'approved' ? 'approved' : 'rejected',
         detail: reason ? { reason } : undefined,
       });
       if (newStatus === 'approved' && flagged) {
-        await recordKycEvent(query, { userId: targetUserId, actorId: requesterId ?? null, actorRole: requesterRole, action: 'flag_cleared' });
+        await recordKycEvent(q, { userId: targetUserId, actorId: requesterId ?? null, actorRole: requesterRole, action: 'flag_cleared' });
       }
-      res.json({ status: toFrontendStatus(result.rows[0].status) });
+      return { denied: false as const, status: result.rows[0].status as string };
+      });
+      if (outcome.denied) return res.status(403).json({ error: 'A sanctions flag can only be cleared by a platform admin' });
+      res.json({ status: toFrontendStatus(outcome.status) });
     } catch (err) {
       if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
       logger.error('KYC status update failed', { error: String(err) });

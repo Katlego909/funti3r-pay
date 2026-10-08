@@ -1,5 +1,5 @@
 import { createLogger, assertInternalAuthConfigured } from '@funti3r/shared-utils';
-import { initPostgres, query } from '@funti3r/database';
+import { initPostgres, query, transaction, tryWithAdvisoryLock } from '@funti3r/database';
 import { createApp } from './app.js';
 import { createSanctionsService } from './sanctions/service.js';
 import { sealExistingRecords } from './sealExisting.js';
@@ -21,7 +21,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  */
 function scheduleSanctionsRefresh(sanctions: Awaited<ReturnType<typeof createSanctionsService>>) {
   if (process.env.SANCTIONS_REFRESH === 'false') return;
-  const run = () => sanctions.refresh().catch((err) => logger.error('Scheduled sanctions refresh failed', { error: String(err) }));
+  // One instance refreshes per tick; the others skip it.
+  const run = () => tryWithAdvisoryLock('job:sanctionsRefresh', () => sanctions.refresh())
+    .catch((err) => logger.error('Scheduled sanctions refresh failed', { error: String(err) }));
   sanctions.status()
     .then((meta) => {
       const stale = !meta || Date.now() - new Date(meta.fetchedAt).getTime() > DAY_MS;
@@ -45,7 +47,10 @@ async function start() {
   scheduleSanctionsRefresh(sanctions);
 
   const validityDays = Number(process.env.KYC_VALIDITY_DAYS) || undefined;
-  const app = createApp({ query, autoApprove: AUTO_APPROVE, sanctions, validityDays });
+  const app = createApp({
+    query, autoApprove: AUTO_APPROVE, sanctions, validityDays,
+    inTransaction: (fn) => transaction((client) => fn((sql, params) => client.query(sql, params))),
+  });
   const PORT = parseInt(process.env.COMPLIANCE_SERVICE_PORT || '3003', 10);
   assertInternalAuthConfigured();
   app.listen(PORT, '0.0.0.0', () => {

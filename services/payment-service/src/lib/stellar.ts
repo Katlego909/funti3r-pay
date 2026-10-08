@@ -11,7 +11,7 @@ import {
   Memo,
 } from '@stellar/stellar-sdk';
 import { createLogger } from '@funti3r/shared-utils';
-import { getRedis, getJSON, setJSON } from '@funti3r/database';
+import { getRedis, getJSON, setJSON, withAdvisoryLock } from '@funti3r/database';
 import axios from 'axios';
 
 const logger = createLogger('StellarService');
@@ -79,9 +79,18 @@ export async function spendableXlm(publicKey: string): Promise<number> {
   return Math.max(0, Math.floor(spendable * 1e7) / 1e7);
 }
 
+/**
+ * Stellar accepts one transaction per account at a time: each carries the account's next sequence number, so two
+ * submitted at once (two admins paying, the scheduler plus a manual send) collide and one fails with tx_bad_seq.
+ * Every submission from a given source account therefore runs under a cluster-wide lock named after it, and loads
+ * the account fresh inside the lock.
+ */
+const accountLock = <T>(secret: string, fn: () => Promise<T>): Promise<T> =>
+  withAdvisoryLock(`stellar:${Keypair.fromSecret(secret).publicKey()}`, fn);
+
 // ── Classic Stellar payments ──────────────────────────────────────────────────
 
-export async function sendPayment(
+async function sendPaymentUnlocked(
   sourceSecret: string,
   destinationPublic: string,
   amount: string,
@@ -123,7 +132,7 @@ export async function sendPayment(
   return result.hash;
 }
 
-export async function pathPaymentStrictSend(
+async function pathPaymentStrictSendUnlocked(
   sourceSecret: string,
   destinationPublic: string,
   sendAsset: Asset,
@@ -216,7 +225,7 @@ export async function checkTrustline(
   }
 }
 
-export async function addTrustline(
+async function addTrustlineUnlocked(
   accountSecret: string,
   assetCode: string,
   assetIssuer: string,
@@ -269,7 +278,7 @@ export async function ensureTrustline(
  * of relying on the default price-plus-slippage ceiling. `memo` overrides the
  * default hash memo (e.g. a numeric ID memo an anchor requires).
  */
-export async function payExactWithXlm(
+async function payExactWithXlmUnlocked(
   sourceSecret: string,
   destinationPublic: string,
   destAssetCode: string,
@@ -523,7 +532,7 @@ export async function bumpPaymentFee(
  *
  * @returns The transaction hash of the claimable-balance creation.
  */
-export async function createClaimableBalance(
+async function createClaimableBalanceUnlocked(
   sourceSecret: string,
   claimantPublic: string,
   asset: Asset,
@@ -640,3 +649,16 @@ export async function streamEnterprisePayments(
     if (currentStream) currentStream.close();
   };
 }
+
+// ── Serialized entry points (per source account) ──────────────────────────────
+
+/** Same function, but runs under the lock of the account named by its first argument (the signing secret). */
+function serialized<A extends [string, ...unknown[]], R>(fn: (...args: A) => Promise<R>) {
+  return (...args: A): Promise<R> => accountLock(args[0], () => fn(...args));
+}
+
+export const sendPayment = serialized(sendPaymentUnlocked);
+export const pathPaymentStrictSend = serialized(pathPaymentStrictSendUnlocked);
+export const addTrustline = serialized(addTrustlineUnlocked);
+export const payExactWithXlm = serialized(payExactWithXlmUnlocked);
+export const createClaimableBalance = serialized(createClaimableBalanceUnlocked);

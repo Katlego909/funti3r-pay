@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import axios from 'axios';
-import { query } from '@funti3r/database';
+import { query, tryWithAdvisoryLock } from '@funti3r/database';
 import { createLogger } from '@funti3r/shared-utils';
 import { nextRunDate } from './lib/scheduling.js';
 import { reconcileEscrows } from './lib/escrowReconcile.js';
@@ -203,24 +203,28 @@ async function reconcileStuckPayments(): Promise<void> {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/**
+ * Runs a job on every tick, but only on one instance at a time: each instance schedules it, the first to take the
+ * cluster-wide lock runs it and the others skip that tick. A job still running when the next tick arrives is skipped
+ * the same way, so a slow run never stacks up behind itself.
+ */
+function singleton(name: string, job: () => Promise<unknown>): () => void {
+  return () => {
+    tryWithAdvisoryLock(`job:${name}`, job)
+      .catch((err) => logger.error(`Unhandled error in ${name}`, { error: String(err) }));
+  };
+}
+
 export function startScheduler(): void {
   // Check for due schedules every hour, on the hour.
-  cron.schedule('0 * * * *', () => {
-    runDueSchedules().catch((err) =>
-      logger.error('Unhandled error in runDueSchedules', { error: String(err) }),
-    );
-  });
+  cron.schedule('0 * * * *', singleton('runDueSchedules', runDueSchedules));
 
   // Sweep for stuck payments/batches every 2 minutes.
-  cron.schedule('*/2 * * * *', () => {
-    reconcileStuckPayments().catch((err) =>
-      logger.error('Unhandled error in reconcileStuckPayments', { error: String(err) }),
-    );
-  });
+  cron.schedule('*/2 * * * *', singleton('reconcileStuckPayments', reconcileStuckPayments));
 
   // Keep the escrows mirror in line with the contract (chain is the source of
   // truth): every 5 minutes, and once shortly after boot.
-  const runEscrowReconcile = () =>
+  const runEscrowReconcile = singleton('reconcileEscrows', () =>
     reconcileEscrows()
       // Claimed milestones must all be in the books, even if recording one failed earlier.
       .then(async (r) => {
@@ -229,16 +233,11 @@ export function startScheduler(): void {
       })
       .then((r) => {
         if (r.drift.length || r.unreadable) logger.warn('Escrow reconcile finished with findings', r);
-      })
-      .catch((err) => logger.error('Unhandled error in reconcileEscrows', { error: String(err) }));
+      }));
   cron.schedule('*/5 * * * *', runEscrowReconcile);
 
   // MoneyGram cash-outs we've paid but MoneyGram hasn't acknowledged yet.
-  cron.schedule('* * * * *', () => {
-    syncPendingRamps().catch((err) =>
-      logger.error('Unhandled error in syncPendingRamps', { error: String(err) }),
-    );
-  });
+  cron.schedule('* * * * *', singleton('syncPendingRamps', syncPendingRamps));
   setTimeout(runEscrowReconcile, 15_000);
 
   logger.info('Scheduler started — checking for due schedules every hour, reconciling stuck payments every 2 minutes');

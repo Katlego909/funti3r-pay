@@ -13,4 +13,9 @@ export interface Deps {
   validityDays?: number;
   /** Who decides identity; defaults to the manual provider (reviewer / testnet auto-approve). */
   provider?: KycProvider;
+  /**
+   * Runs the steps of one decision (the record change and its audit event) as a single database transaction, so a
+   * crash between them can never leave a changed record with no trail. Defaults to running them directly.
+   */
+  inTransaction?: <T>(fn: (q: Query) => Promise<T>) => Promise<T>;
 }

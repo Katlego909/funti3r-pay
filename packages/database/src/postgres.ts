@@ -8,16 +8,17 @@ let pool: Pool | null = null;
 export async function initPostgres(): Promise<Pool> {
   if (pool) return pool;
 
-  const connectionString =
-    process.env.DATABASE_URL ||
-    'postgresql://funti3r_dev:dev_password@127.0.0.1:5432/funti3r_dev';
+  // No built-in fallback: a default connection string with a password in the source is a credential anyone can read.
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) throw new Error('DATABASE_URL must be set');
 
   const config = {
     connectionString,
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
-    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+    // Verify the server's certificate; DB_SSL_INSECURE=true is the explicit opt-out for a self-signed dev database.
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: process.env.DB_SSL_INSECURE !== 'true' } : undefined,
   };
 
   logger.info('Initializing PostgreSQL connection', {

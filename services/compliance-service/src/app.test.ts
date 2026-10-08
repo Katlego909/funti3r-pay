@@ -30,6 +30,7 @@ const workers = [{ company: 'A', worker: WORKER_A }, { company: 'B', worker: WOR
 
 let records: Record<string, any>;
 let events: any[];
+let failAuditWrites = false;
 
 const query = async (sql: string, params: unknown[] = []): Promise<{ rows: any[] }> => {
   if (/FROM enterprise_members em/.test(sql)) {
@@ -43,6 +44,7 @@ const query = async (sql: string, params: unknown[] = []): Promise<{ rows: any[]
     return { rows: [records[userId]] };
   }
   if (/INSERT INTO kyc_events/.test(sql)) {
+    if (failAuditWrites) throw new Error('audit write failed');
     const [userId, actorId, actorRole, action, detail] = params as string[];
     events.push({ userId, actorId, actorRole, action, detail });
     return { rows: [] };
@@ -288,4 +290,38 @@ test('a malformed user id is a 400 (not a database error) on every route that ta
     assert.equal((await call(method, path, admin)).status, 400, `${method} ${path}`);
   }
   assert.equal((await call('POST', '/submit', worker(WORKER_A), { userId: "x'; --", identity: { fullName: 'A B' } })).status, 400);
+});
+
+test('a decision and its audit event commit together: if the trail cannot be written, the record does not change', async () => {
+  fresh();
+  await submit(WORKER_A);
+  assert.equal(records[WORKER_A].status, 'pending');
+
+  // A transaction in miniature: snapshot, run, and put everything back if anything threw.
+  const inTransaction = async <T,>(fn: (q: typeof query) => Promise<T>): Promise<T> => {
+    const saved = { records: structuredClone(records), events: structuredClone(events) };
+    try {
+      return await fn(query);
+    } catch (err) {
+      records = saved.records;
+      events = saved.events;
+      throw err;
+    }
+  };
+  const app = createApp({ query, autoApprove: false, sanctions, inTransaction }).listen(0);
+  try {
+    const url = `http://127.0.0.1:${(app.address() as AddressInfo).port}`;
+    failAuditWrites = true;
+    const res = await fetch(`${url}/${WORKER_A}/approve`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-user-id': ADMIN, 'x-user-role': 'admin' }, body: '{}' });
+    assert.equal(res.status, 500);
+    assert.equal(records[WORKER_A].status, 'pending', 'the approval was rolled back');
+    assert.equal(events.some((e) => e.action === 'approved'), false);
+
+    failAuditWrites = false;
+    assert.equal((await fetch(`${url}/${WORKER_A}/approve`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-user-id': ADMIN, 'x-user-role': 'admin' }, body: '{}' })).status, 200);
+    assert.equal(records[WORKER_A].status, 'approved');
+  } finally {
+    failAuditWrites = false;
+    app.close();
+  }
 });
