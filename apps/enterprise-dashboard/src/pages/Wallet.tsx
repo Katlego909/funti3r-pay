@@ -434,7 +434,7 @@ export default function Wallet() {
                             </span>
                           )}
                           {m.status === 'claimed' && moneygramOn && ['none', 'failed', 'action_required'].includes(m.cashoutStatus)
-                            && (m.cashoutRail === 'moneygram' || m.cashoutStatus === 'none') && (
+                            && (m.cashoutRail === 'moneygram' || m.cashoutStatus === 'none' || m.cashoutStatus === 'failed') && (
                             <button
                               className="btn-primary"
                               style={{ padding: '6px 14px', fontSize: '0.8rem' }}
