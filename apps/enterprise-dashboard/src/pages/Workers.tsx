@@ -24,6 +24,22 @@ interface SanctionsMatch {
   list: string;
 }
 
+interface KycEvent {
+  action: 'submitted' | 'approved' | 'rejected' | 'flag_cleared' | 'rescreened' | 'expired';
+  actor_role: string;
+  detail: { reason?: string } | null;
+  created_at: string;
+}
+
+const EVENT_LABELS: Record<KycEvent['action'], string> = {
+  submitted: 'Submitted',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  flag_cleared: 'Sanctions flag cleared',
+  rescreened: 'Re-screened against the sanctions list',
+  expired: 'Expired',
+};
+
 interface KYCDetail {
   id: string;
   user_id: string;
@@ -46,6 +62,7 @@ export default function Workers() {
   const [error, setError] = useState('');
   const [selectedWorker, setSelectedWorker] = useState<string | null>(null);
   const [selectedKYC, setSelectedKYC] = useState<KYCDetail | null>(null);
+  const [kycEvents, setKycEvents] = useState<KycEvent[]>([]);
   const [kycModalOpen, setKycModalOpen] = useState(false);
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
@@ -94,7 +111,11 @@ export default function Workers() {
     try {
       const data = await api.get<KYCDetail>(`/compliance/${workerId}`);
       setSelectedKYC(data.data);
+      setKycEvents([]);
       setKycModalOpen(true);
+      api.get<{ events: KycEvent[] }>(`/compliance/${workerId}/events`)
+        .then((res) => setKycEvents(res.data.events))
+        .catch(() => {});
     } catch (err: any) {
       const status = err?.response?.status;
       toast.error(status === 404 ? 'No KYC documents on file for this worker.' : (err?.response?.data?.error ?? 'Failed to load KYC details'));
@@ -116,7 +137,7 @@ export default function Workers() {
       );
       toast.success('KYC approved');
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to approve KYC');
+      toast.error((err as any)?.response?.data?.error ?? (err instanceof Error ? err.message : 'Failed to approve KYC'));
     } finally {
       setApproving(false);
     }
@@ -137,7 +158,7 @@ export default function Workers() {
       );
       toast.success('KYC rejected');
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to reject KYC');
+      toast.error((err as any)?.response?.data?.error ?? (err instanceof Error ? err.message : 'Failed to reject KYC'));
     } finally {
       setRejecting(false);
     }
@@ -312,6 +333,18 @@ export default function Workers() {
                 <p style={{ fontSize: '0.875rem', color: '#666', margin: '0 0 0.25rem 0' }}>Submitted</p>
                 <p style={{ margin: 0 }}>{new Date(selectedKYC.created_at).toLocaleString()}</p>
               </div>
+              {kycEvents.length > 0 && (
+                <div style={{ marginBottom: '1rem' }}>
+                  <p style={{ fontSize: '0.875rem', color: '#666', margin: '0 0 0.25rem 0' }}>Activity</p>
+                  {kycEvents.map((ev, i) => (
+                    <p key={i} style={{ margin: '0 0 0.2rem 0', fontSize: '0.85rem' }}>
+                      {EVENT_LABELS[ev.action]} by {ev.actor_role}
+                      {ev.detail?.reason && ` — ${ev.detail.reason}`}
+                      <span style={{ color: '#6b7280' }}> · {new Date(ev.created_at).toLocaleString()}</span>
+                    </p>
+                  ))}
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
                 <button
@@ -324,16 +357,22 @@ export default function Workers() {
                 </button>
                 {(selectedKYC.status === 'pending' || selectedKYC.sanctions_status === 'flagged') && (
                   <>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={approveKYC}
-                      disabled={approving || rejecting}
-                      style={{ backgroundColor: '#10b981' }}
-                      title={selectedKYC.sanctions_status === 'flagged' ? 'Manually clear as a false positive' : undefined}
-                    >
-                      {approving ? 'Approving…' : selectedKYC.sanctions_status === 'flagged' ? 'Clear match & approve' : 'Approve'}
-                    </button>
+                    {selectedKYC.sanctions_status === 'flagged' && user?.role !== 'admin' ? (
+                      <span style={{ alignSelf: 'center', fontSize: '0.8rem', color: '#991b1b' }}>
+                        Only a platform admin can clear a sanctions match.
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={approveKYC}
+                        disabled={approving || rejecting}
+                        style={{ backgroundColor: '#10b981' }}
+                        title={selectedKYC.sanctions_status === 'flagged' ? 'Manually clear as a false positive' : undefined}
+                      >
+                        {approving ? 'Approving…' : selectedKYC.sanctions_status === 'flagged' ? 'Clear match & approve' : 'Approve'}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="btn-primary"

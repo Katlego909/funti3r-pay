@@ -45,14 +45,3 @@ export async function getKYCStatusBulk(userIds: string[]): Promise<Record<string
   const { data } = await api.post<{ statuses: Record<string, KYCStatus> }>('/compliance/status/bulk', { userIds });
   return data.statuses;
 }
-
-export async function submitKYC(payload: {
-  userId: string;
-  idType: string;
-  idNumber: string;
-  dateOfBirth?: string;
-  country: string;
-}) {
-  const { data } = await api.post('/compliance/verify', payload);
-  return data;
-}

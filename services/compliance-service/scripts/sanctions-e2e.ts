@@ -44,7 +44,9 @@ function kycPayload(userId: string, fullName: string) {
 
 async function submit(label: string, fullName: string) {
   const userId = await createTestWorker(label);
+  // The gateway forwards the caller's identity; a user can only submit their own KYC.
   const res = await axios.post(`${BASE_URL}/submit`, kycPayload(userId, fullName), {
+    headers: { 'x-user-id': userId, 'x-user-role': 'worker' },
     validateStatus: () => true,
   });
   console.log(`\n[${label}] name="${fullName}" userId=${userId}`);
