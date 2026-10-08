@@ -4,3 +4,4 @@ export * from './errors.js';
 export * from './logger.js';
 export * from './encryption.js';
 export * from './internalAuth.js';
+export * from './validateBody.js';

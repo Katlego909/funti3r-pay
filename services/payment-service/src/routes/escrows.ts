@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import type { Router as RouterType } from 'express';
 import { query } from '@funti3r/database';
-import { createLogger, decryptFromString } from '@funti3r/shared-utils';
+import { createLogger, decryptFromString, parseBody } from '@funti3r/shared-utils';
 import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from '../lib/company.js';
 import * as escrow from '../lib/escrow.js';
 import { recordEscrowPaymentSafely } from '../lib/escrowAccounting.js';
@@ -9,6 +9,7 @@ import { ComplianceBlockedError, ensureCleared, screenEmployer } from '../lib/cl
 import { reconcileEscrows } from '../lib/escrowReconcile.js';
 import { moneygramConfigured } from '../lib/moneygram.js';
 import { requireCompliance, resolveEnterpriseSecret } from '../app.js';
+import { createEscrowBody } from '../lib/schemas.js';
 
 const router: RouterType = Router();
 const logger = createLogger('EscrowsRoute');
@@ -203,16 +204,9 @@ router.post('/', async (req: Request, res: Response) => {
   const ctx = await requireCompanyWrite(req, res);
   if (!ctx) return;
 
-  const { workerId, milestones, expiresAt } = req.body as {
-    workerId?: string;
-    milestones?: Array<{ description?: string; amountXlm?: number | string }>;
-    expiresAt?: string;
-  };
-
-  if (!workerId) return res.status(400).json({ error: 'workerId is required' });
-  if (!Array.isArray(milestones) || milestones.length === 0) {
-    return res.status(400).json({ error: 'milestones must be a non-empty array' });
-  }
+  const body = parseBody(createEscrowBody, req.body, res);
+  if (!body) return;
+  const { workerId, milestones, expiresAt } = body;
   for (const m of milestones) {
     if (!m.amountXlm || Number(m.amountXlm) <= 0) {
       return res.status(400).json({ error: 'Each milestone requires a positive amountXlm' });

@@ -94,7 +94,7 @@ describe('POST /payouts/batch — authorization and validation', () => {
 
 describe('POST /payouts/batch — per-worker currency conversion', () => {
   const USDC_WORKER = WORKER_ID;
-  const ZAR_WORKER = 'worker-zar-0000-0000-000000000000';
+  const ZAR_WORKER = '55555555-5555-4555-8555-555555555555';
 
   const MIXED_CURRENCY_HANDLER = {
     match: /SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency/,
@@ -137,7 +137,7 @@ describe('POST /payouts/batch — per-worker currency conversion', () => {
   });
 
   it('fails only the item whose preferred currency is unsupported, others still complete', async () => {
-    const UNSUPPORTED_WORKER = 'worker-unsupported-0000-0000-000000';
+    const UNSUPPORTED_WORKER = '66666666-6666-4666-8666-666666666666';
     const handler = {
       match: /SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency/,
       handler: (params: unknown[]) => ({
@@ -314,7 +314,7 @@ describe('POST /payouts/batch — execution and result aggregation', () => {
 });
 
 describe('POST /payouts/batch — bulk compliance check (N+1 fix)', () => {
-  const WORKER_ID_2 = 'worker-2222-2222-2222-222222222222';
+  const WORKER_ID_2 = '88888888-8888-4888-8888-888888888888';
 
   it('resolves compliance for every item with exactly one bulk call, not one per item', async () => {
     vi.mocked(query).mockImplementation(

@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
-import { createLogger, encryptSecret, decryptFromString, ValidationError, NotFoundError, requireGatewayIdentity } from '@funti3r/shared-utils';
+import { createLogger, encryptSecret, decryptFromString, ValidationError, NotFoundError, requireGatewayIdentity, parseBody } from '@funti3r/shared-utils';
+import { payoutBody, batchPayoutBody } from './lib/schemas.js';
 import { query } from '@funti3r/database';
 import * as stellar from './lib/stellar.js';
 import { Asset } from '@stellar/stellar-sdk';
@@ -514,12 +515,6 @@ export async function resolveEnterpriseSecret(enterpriseId: string): Promise<{ s
  *            receives their PREFERRED currency, converted at the live FX rate.
  */
 app.post('/payouts', async (req, res) => {
-  const { workerId, amount, amountUsd, currency, memo, idempotencyKey } = req.body as {
-    enterpriseId?: string; workerId: string;
-    amount?: number | string; amountUsd?: number | string; currency?: string; memo?: string;
-    idempotencyKey?: string;
-  };
-
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
   if (requesterRole !== 'enterprise' || !requesterId) return res.status(403).json({ error: 'Enterprise role required' });
@@ -527,7 +522,10 @@ app.post('/payouts', async (req, res) => {
   if (!ctx) return res.status(403).json({ error: 'You do not belong to a company' });
   if (!canMoveMoney(ctx.companyRole)) return res.status(403).json({ error: 'Only company owners and admins can send payments' });
   const enterpriseId = ctx.ownerUserId;
-  if (!workerId) return res.status(400).json({ error: 'workerId is required' });
+  // After the permission checks, so someone who may not pay anyone gets a 403 whatever they sent.
+  const body = parseBody(payoutBody, req.body, res);
+  if (!body) return;
+  const { workerId, amount, amountUsd, currency, memo, idempotencyKey } = body;
 
   // Resolve the destination asset + exact amount.
   let asset: string;
@@ -582,12 +580,6 @@ app.post('/payouts', async (req, res) => {
  * one sequence number), but each item's destination currency is independent.
  */
 app.post('/payouts/batch', async (req, res) => {
-  const { items, idempotencyKey } = req.body as {
-    enterpriseId?: string;
-    items: Array<{ workerId: string; amountUsd: number | string; memo?: string }>;
-    idempotencyKey?: string;
-  };
-
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
   if (requesterRole !== 'enterprise' || !requesterId) return res.status(403).json({ error: 'Enterprise role required' });
@@ -596,6 +588,9 @@ app.post('/payouts/batch', async (req, res) => {
   if (!canMoveMoney(ctx.companyRole)) return res.status(403).json({ error: 'Only company owners and admins can send payments' });
   const enterpriseId = ctx.ownerUserId;
 
+  const body = parseBody(batchPayoutBody, req.body, res);
+  if (!body) return;
+  const { items, idempotencyKey } = body;
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'items must be a non-empty array' });
   }

@@ -281,3 +281,11 @@ test('behind the gateway: forged identity headers are rejected, gateway-signed o
     strict.close();
   }
 });
+
+test('a malformed user id is a 400 (not a database error) on every route that takes one', async () => {
+  fresh();
+  for (const [method, path] of [['GET', '/nope'], ['GET', '/nope/status'], ['GET', '/nope/events'], ['POST', '/nope/approve'], ['POST', '/nope/reject']]) {
+    assert.equal((await call(method, path, admin)).status, 400, `${method} ${path}`);
+  }
+  assert.equal((await call('POST', '/submit', worker(WORKER_A), { userId: "x'; --", identity: { fullName: 'A B' } })).status, 400);
+});

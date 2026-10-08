@@ -33,10 +33,10 @@ export function createQueryMock(handlers: QueryHandler[]) {
   });
 }
 
-export const WORKER_ID = 'worker-1111-1111-1111-111111111111';
-export const ENTERPRISE_ID = 'enterprise-2222-2222-2222-222222222222';
-export const ADMIN_ID = 'admin-3333-3333-3333-333333333333';
-export const MEMBER_ID = 'member-4444-4444-4444-444444444444';
+export const WORKER_ID = '11111111-1111-4111-8111-111111111111';
+export const ENTERPRISE_ID = '22222222-2222-4222-8222-222222222222';
+export const ADMIN_ID = '33333333-3333-4333-8333-333333333333';
+export const MEMBER_ID = '44444444-4444-4444-8444-444444444444';
 export const COMPANY_ID = 'company-5555-5555-5555-555555555555';
 
 /**

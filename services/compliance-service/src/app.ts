@@ -16,6 +16,9 @@ function toFrontendStatus(dbStatus: string): string {
   return dbStatus === 'approved' ? 'verified' : dbStatus;
 }
 
+const isUuid = (v: unknown): v is string =>
+  typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
 /**
@@ -29,6 +32,12 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
   const app = express();
   app.use(express.json());
   app.use(requireGatewayIdentity());
+
+  // A user id goes straight into a UUID column; anything else is the caller's mistake (400), not a database error.
+  app.param('userId', (_req, res, next, value) => {
+    if (isUuid(value)) return next();
+    res.status(400).json({ error: 'Invalid user id' });
+  });
 
   // ── Health ──────────────────────────────────────────────────────────────────
 
@@ -47,8 +56,8 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
 
   app.post('/submit', async (req, res) => {
     const { userId, ...details } = req.body ?? {};
-    if (!userId || typeof userId !== 'string') {
-      return res.status(400).json({ error: 'userId is required' });
+    if (!isUuid(userId)) {
+      return res.status(400).json({ error: 'userId is required and must be a valid id' });
     }
     const requesterId = asString(req.headers['x-user-id']);
     const requesterRole = asString(req.headers['x-user-role']) ?? 'unknown';
