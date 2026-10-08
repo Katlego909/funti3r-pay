@@ -19,7 +19,8 @@ import CopyButton from '../components/CopyButton.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 import EscrowTransactionsDrawer from '../components/EscrowTransactionsDrawer.js';
 import SubmitWorkModal from '../components/SubmitWorkModal.js';
-import { listEscrows, claimMilestone, cashOutMilestone, type CashoutResult, type Escrow } from '../api/escrows.js';
+import { listEscrows, claimMilestone, cashOutMilestone, getCashoutOptions, type CashoutResult, type Escrow } from '../api/escrows.js';
+import MoneyGramCashoutModal from '../components/MoneyGramCashoutModal.js';
 
 interface WalletBalance {
   asset_type: string;
@@ -67,9 +68,9 @@ function milestoneState(e: Escrow, m: Escrow['milestones'][number]): MilestoneBa
   if (m.status === 'approved') return ['pending', 'Ready to claim'];
   if (m.status === 'refunded') return ['failed', 'Refunded'];
   switch (m.cashoutStatus) {
-    case 'completed': return ['completed', 'Paid out via anchor'];
-    case 'pending': return ['pending', 'Cashing out…'];
-    case 'action_required': return ['pending', 'Anchor step needed'];
+    case 'completed': return ['completed', m.cashoutRail === 'moneygram' ? 'Paid out via MoneyGram' : 'Paid out via anchor'];
+    case 'pending': return ['pending', m.cashoutRail === 'moneygram' ? 'Paying MoneyGram…' : 'Cashing out…'];
+    case 'action_required': return ['pending', m.cashoutRail === 'moneygram' ? 'Finish in MoneyGram' : 'Anchor step needed'];
     case 'failed': return ['failed', 'Cash-out failed'];
     default: return ['completed', 'Claimed'];
   }
@@ -93,6 +94,8 @@ export default function Wallet() {
   const [escrows, setEscrows] = useState<Escrow[]>([]);
   const [claiming, setClaiming] = useState<string | null>(null);
   const [txEscrow, setTxEscrow] = useState<Escrow | null>(null);
+  const [moneygramOn, setMoneygramOn] = useState(false);
+  const [mgTarget, setMgTarget] = useState<{ escrowId: string; idx: number; title: string } | null>(null);
   const [submitFor, setSubmitFor] = useState<{ escrowId: string; idx: number; title: string; previousReason?: string } | null>(null);
 
   // Payout method (Stellar wallet vs anchor bank/cash disbursement)
@@ -117,6 +120,7 @@ export default function Wallet() {
       setAnchorDetails(info.details ?? {});
     });
     loadEscrows();
+    getCashoutOptions().then((o) => setMoneygramOn(o.moneygram)).catch(() => {});
   }, [userId]);
 
   async function changePayoutMethod(method: PayoutMethod) {
@@ -361,14 +365,21 @@ export default function Wallet() {
                               {lastRejection(e, m.idx)}
                             </div>
                           )}
-                          {m.payout && (
+                          {m.payout?.rail === 'moneygram' && (
+                            <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
+                              {m.payout.referenceNumber ? `Pickup reference ${m.payout.referenceNumber}` : 'Reference pending'}
+                              {m.payout.receivedAmount && ` · recipient gets ${m.payout.receivedAmount}${m.payout.receivedAsset ? ` ${m.payout.receivedAsset}` : ''}`}
+                              {m.payout.sandbox && ' · sandbox, no real cash'}
+                            </div>
+                          )}
+                          {m.payout && m.payout.rail !== 'moneygram' && (
                             <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
                               {m.payout.destination?.accountLast4 ? `To account ••••${m.payout.destination.accountLast4}` : 'Destination not recorded'}
                               {m.payout.receivedAmount && ` · anchor pays out ${m.payout.receivedAmount}${m.payout.receivedAsset ? ` ${m.payout.receivedAsset}` : ''}`}
                               {m.payout.sandbox && ' · test anchor, no real transfer'}
                             </div>
                           )}
-                          {m.status === 'claimed' && m.cashoutStatus === 'action_required' && (
+                          {m.status === 'claimed' && m.cashoutStatus === 'action_required' && m.cashoutRail !== 'moneygram' && (
                             <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
                               Enter exactly {m.amountXlm} XLM in the anchor form
                             </div>
@@ -404,7 +415,7 @@ export default function Wallet() {
                               {busy ? 'Claiming…' : payoutMethod === 'anchor' ? 'Claim & cash out' : 'Claim'}
                             </button>
                           )}
-                          {m.status === 'claimed' && m.cashoutStatus === 'action_required' && (
+                          {m.status === 'claimed' && m.cashoutStatus === 'action_required' && m.cashoutRail !== 'moneygram' && (
                             <span style={{ display: 'inline-flex', gap: 8 }}>
                               {m.anchorMoreInfoUrl && (
                                 <a className="btn-secondary" href={m.anchorMoreInfoUrl} target="_blank" rel="noopener noreferrer"
@@ -422,7 +433,20 @@ export default function Wallet() {
                               </button>
                             </span>
                           )}
-                          {m.status === 'claimed' && (m.cashoutStatus === 'failed' || (m.cashoutStatus === 'none' && payoutMethod === 'anchor')) && (
+                          {m.status === 'claimed' && moneygramOn && ['none', 'failed', 'action_required'].includes(m.cashoutStatus)
+                            && (m.cashoutRail === 'moneygram' || m.cashoutStatus === 'none') && (
+                            <button
+                              className="btn-primary"
+                              style={{ padding: '6px 14px', fontSize: '0.8rem' }}
+                              disabled={e.frozen}
+                              title={e.frozen ? 'This escrow is on a compliance hold' : undefined}
+                              onClick={() => setMgTarget({ escrowId: e.id, idx: m.idx, title: m.description || `Milestone ${m.idx + 1}` })}
+                            >
+                              {m.cashoutRail === 'moneygram' && m.cashoutStatus !== 'none' ? 'Continue with MoneyGram' : 'Cash out with MoneyGram'}
+                            </button>
+                          )}
+                          {m.status === 'claimed' && m.cashoutRail !== 'moneygram'
+                            && (m.cashoutStatus === 'failed' || (m.cashoutStatus === 'none' && payoutMethod === 'anchor' && !moneygramOn)) && (
                             <button
                               className="btn-secondary"
                               style={{ padding: '6px 14px', fontSize: '0.8rem' }}
@@ -444,6 +468,7 @@ export default function Wallet() {
 
         <EscrowTransactionsDrawer escrow={txEscrow} onClose={() => setTxEscrow(null)} />
         <SubmitWorkModal target={submitFor} onClose={() => setSubmitFor(null)} onDone={loadEscrows} />
+        <MoneyGramCashoutModal target={mgTarget} onClose={() => setMgTarget(null)} onChanged={() => { loadEscrows(); fetchWallet(); }} />
 
         {/* Stellar Account */}
         <section className="section">

@@ -990,6 +990,13 @@ router.post('/:id/refund', async (req: Request, res: Response) => {
   }
 });
 
+// ── GET /escrows/cashout-options ──────────────────────────────────────────────
+// Which cash-out methods this deployment has configured, so the UI only offers real ones.
+
+router.get('/cashout-options', (_req: Request, res: Response) => {
+  res.json({ moneygram: moneygramConfigured(), anchor: anchorConfigured() });
+});
+
 // ── GET /escrows — enterprise (company-scoped) or worker (own) ────────────────
 
 router.get('/', async (req: Request, res: Response) => {

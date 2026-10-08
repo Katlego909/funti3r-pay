@@ -15,6 +15,11 @@ export interface EscrowMilestone {
   reviewStatus: 'none' | 'submitted' | 'rejected';
   /** Receipt of a completed anchor cash-out; null until paid out. */
   payout: {
+    rail: 'anchor' | 'moneygram';
+    /** MoneyGram: the number the recipient quotes at the location to collect cash. */
+    referenceNumber: string | null;
+    destinationCountry: string | null;
+    sendUsdc: string | null;
     destination: { name: string | null; email: string | null; bankNumber: string | null; accountLast4: string | null } | null;
     receivedAmount: string | null;
     receivedAsset: string | null;
@@ -26,6 +31,9 @@ export interface EscrowMilestone {
   } | null;
   /** Second leg of a claim: routing the claimed funds through an anchor. */
   cashoutStatus: 'none' | 'pending' | 'action_required' | 'completed' | 'failed';
+  /** Which cash-out rail the milestone is on. */
+  cashoutRail: 'anchor' | 'moneygram';
+  rampsStatus: string | null;
   anchorTxId: string | null;
   anchorSettlementHash: string | null;
   anchorStatus: string | null;
@@ -124,4 +132,37 @@ export async function submitMilestoneWork(
 /** Employer sends submitted work back with a reason (nothing happens on-chain). */
 export async function rejectMilestone(escrowId: string, idx: number, reason: string): Promise<void> {
   await api.post(`/escrows/${escrowId}/milestones/${idx}/reject`, { reason });
+}
+
+export interface MoneyGramSession {
+  sessionToken: string;
+  widgetUrl: string;
+  publicKey: string;
+  walletAddress: string;
+  /** The most XLM this cash-out can spend: the milestone's own amount. */
+  maxXlm: number;
+}
+
+export async function getCashoutOptions(): Promise<{ moneygram: boolean; anchor: boolean }> {
+  const { data } = await api.get<{ moneygram: boolean; anchor: boolean }>('/escrows/cashout-options');
+  return data;
+}
+
+/** Opens a MoneyGram widget session for a claimed milestone. */
+export async function startMoneyGramCashout(escrowId: string, idx: number): Promise<MoneyGramSession> {
+  const { data } = await api.post<MoneyGramSession>(`/escrows/${escrowId}/milestones/${idx}/ramps/session`);
+  return data;
+}
+
+/** Pays the deposit MoneyGram's widget asked for; the server verifies it against MoneyGram first. */
+export async function submitMoneyGramDeposit(
+  escrowId: string,
+  idx: number,
+  payload: { address: string; memo: string; amount: string },
+): Promise<{ txHash: string; status?: string }> {
+  const { data } = await api.post<{ txHash: string; status?: string }>(
+    `/escrows/${escrowId}/milestones/${idx}/ramps/deposit`,
+    payload,
+  );
+  return data;
 }
