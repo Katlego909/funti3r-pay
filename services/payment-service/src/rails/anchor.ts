@@ -157,7 +157,7 @@ async function startWithdrawal(
       throw new Error(`Anchor minimum disbursement is ${info.minAmount} XLM (payout is ${opts.amountXlm})`);
     }
     if (info.maxAmount && amt > info.maxAmount) {
-      throw new Error(`Anchor maximum disbursement is ${info.maxAmount} XLM (payout is ${opts.amountXlm})`);
+      throw new Error(`The test anchor only pays out up to ${info.maxAmount} XLM per cash-out (this one is ${opts.amountXlm} XLM) — use MoneyGram for larger amounts`);
     }
     const wd24 = await sep24WithdrawInteractive(jwt, {
       assetCode: 'native',
@@ -185,7 +185,7 @@ async function startWithdrawal(
     throw new Error(`Anchor minimum disbursement is ${native.minAmount} XLM (payout is ${opts.amountXlm})`);
   }
   if (native.maxAmount && amount > native.maxAmount) {
-    throw new Error(`Anchor maximum disbursement is ${native.maxAmount} XLM (payout is ${opts.amountXlm})`);
+    throw new Error(`The test anchor only pays out up to ${native.maxAmount} XLM per cash-out (this one is ${opts.amountXlm} XLM) — use MoneyGram for larger amounts`);
   }
 
   const type = opts.kyc.payout_type && native.types.includes(opts.kyc.payout_type)

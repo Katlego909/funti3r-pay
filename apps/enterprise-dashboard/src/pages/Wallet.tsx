@@ -441,7 +441,7 @@ export default function Wallet() {
                             </button>
                           )}
                           {m.status === 'claimed' && m.cashoutRail !== 'moneygram'
-                            && (m.cashoutStatus === 'failed' || (m.cashoutStatus === 'none' && payoutMethod === 'anchor' && !moneygramOn)) && (
+                            && ((m.cashoutStatus === 'failed' && !(moneygramOn && /only pays out up to/.test(m.cashoutError ?? ''))) || (m.cashoutStatus === 'none' && payoutMethod === 'anchor' && !moneygramOn)) && (
                             <button
                               className="btn-secondary"
                               style={{ padding: '6px 14px', fontSize: '0.8rem' }}

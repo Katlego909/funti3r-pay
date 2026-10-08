@@ -67,7 +67,11 @@ export default function MoneyGramCashoutModal({ target, onClose, onChanged }: Pr
           onDeposit={handleDeposit}
           onComplete={() => { toast.success('MoneyGram cash-out complete'); close(); }}
           onClose={close}
-          onError={(m) => toast.error(m)}
+          onError={(m) => {
+            toast.error(m);
+            // A deposit over the milestone can never succeed; leave the stuck widget so the worker can reopen and enter a smaller amount.
+            if (/above the .* limit/.test(m)) close();
+          }}
         />
       )}
     </Modal>
