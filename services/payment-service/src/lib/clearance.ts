@@ -39,6 +39,8 @@ interface ComplianceVerdict {
   verified_at?: string | null;
   sanctions_status?: string;
   sanctions_checked_at?: string | null;
+  /** What 'verified' rests on: reviewed, auto-approved (testnet) or no submission at all. */
+  basis?: string;
 }
 
 async function fetchVerdict(workerId: string): Promise<ComplianceVerdict> {
@@ -84,6 +86,7 @@ export async function ensureCleared(workerId: string, workerPublic: string): Pro
         verified_at: verdict.verified_at ?? null,
         sanctions_status: verdict.sanctions_status ?? 'clear',
         sanctions_checked_at: verdict.sanctions_checked_at ?? null,
+        basis: verdict.basis ?? 'unknown',
       }),
     );
     logger.info('Worker cleared on-chain', { workerId, expiry, txHash });

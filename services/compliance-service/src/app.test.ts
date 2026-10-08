@@ -60,7 +60,8 @@ const query = async (sql: string, params: unknown[] = []): Promise<{ rows: any[]
   }
   if (/FROM kyc_records WHERE user_id = \$1/.test(sql)) {
     const r = records[params[0] as string];
-    return { rows: r ? [r] : [] };
+    const reviewed = events.some((e) => e.userId === params[0] && e.action === 'approved');
+    return { rows: r ? [{ ...r, reviewed }] : [] };
   }
   if (/FROM kyc_events/.test(sql)) return { rows: events.filter((e) => e.userId === params[0]) };
   if (/SELECT id, data FROM kyc_records/.test(sql)) return { rows: Object.values(records).filter((r) => r.data) };
@@ -219,4 +220,25 @@ test('anyone can screen bare names; the platform admin refreshes the list', asyn
 
   assert.equal((await call('POST', '/sanctions/refresh', enterprise(OWNER_A))).status, 403);
   assert.equal((await call('POST', '/sanctions/refresh', admin)).status, 200);
+});
+
+test('the status says what verified rests on: a reviewer, an auto-approval or no submission at all', async () => {
+  fresh();
+  await submit(WORKER_A);
+  assert.equal(((await (await call('GET', `/${WORKER_A}/status`, null)).json()) as any).basis, 'none', 'pending');
+
+  await call('POST', `/${WORKER_A}/approve`, enterprise(OWNER_A));
+  assert.equal(((await (await call('GET', `/${WORKER_A}/status`, null)).json()) as any).basis, 'reviewed');
+
+  records[WORKER_B] = { id: 'r2', user_id: WORKER_B, status: 'approved', sanctions_status: 'clear', created_at: 'x', data: null };
+  assert.equal(((await (await call('GET', `/${WORKER_B}/status`, null)).json()) as any).basis, 'auto-approved');
+
+  const auto = createApp({ query, autoApprove: true, sanctions }).listen(0);
+  try {
+    const url = `http://127.0.0.1:${(auto.address() as AddressInfo).port}`;
+    const none = await (await fetch(`${url}/${OWNER_B}/status`)).json() as any;
+    assert.deepEqual([none.status, none.basis], ['verified', 'no-submission']);
+  } finally {
+    auto.close();
+  }
 });

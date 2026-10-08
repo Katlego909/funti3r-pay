@@ -13,6 +13,7 @@ const WORKER_PUB = 'GDESTWORKERPUBLICKEYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
 
 const verified = {
   status: 'verified',
+  basis: 'reviewed',
   verified_at: '2026-10-01T00:00:00Z',
   sanctions_status: 'clear',
   sanctions_checked_at: '2026-10-01T00:00:00Z',
@@ -42,7 +43,7 @@ describe('ensureCleared', () => {
     expect(setClearance).toHaveBeenCalledWith(WORKER_PUB, expect.any(Number), expect.any(Buffer));
     // The attestation covers the screening verdict, not just the worker id.
     expect(attestationHash).toHaveBeenCalledWith(
-      expect.objectContaining({ workerId: WORKER_ID, sanctions_status: 'clear', sanctions_checked_at: verified.sanctions_checked_at }),
+      expect.objectContaining({ workerId: WORKER_ID, sanctions_status: 'clear', sanctions_checked_at: verified.sanctions_checked_at, basis: 'reviewed' }),
     );
   });
 

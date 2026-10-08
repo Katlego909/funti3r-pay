@@ -21,16 +21,18 @@ const sections = [
     content: (
       <>
         <p>
-          Before processing any payments, all users must complete our Know Your Customer (KYC) process. This includes:
+          Before receiving escrow payments, workers must complete our Know Your Customer (KYC) process. This includes:
         </p>
         <ul style={{ paddingLeft: '20px', margin: '10px 0 0' }}>
-          <li style={{ marginBottom: '6px' }}><strong>Individuals (Workers):</strong> Government-issued photo ID (passport, national ID, or driver's licence), proof of address (utility bill or bank statement dated within 3 months), and selfie verification for biometric matching.</li>
-          <li style={{ marginBottom: '6px' }}><strong>Businesses (Enterprises):</strong> Certificate of incorporation, proof of registered address, identification of all beneficial owners holding 25% or more, and details of the authorised account manager.</li>
+          <li style={{ marginBottom: '6px' }}><strong>Individuals (Workers):</strong> full name, government ID type and number, date of birth, country, address and bank details, submitted by the worker. Each submission is screened against the sanctions list (below) and then approved by an administrator of the company that engages the worker, or automatically on our test network. Approvals expire after 12 months.</li>
+          <li style={{ marginBottom: '6px' }}><strong>Businesses (Employers):</strong> the company's registered name and its owner's name are screened against the sanctions list before an escrow is funded.</li>
         </ul>
         <p style={{ marginTop: '12px' }}>
-          KYC verification is reviewed by our compliance team and may be assisted by automated identity verification
-          technology. We reserve the right to request additional documentation at any time and to refuse service where
-          verification cannot be satisfactorily completed.
+          We do not yet verify identity documents or take selfies ourselves; document verification is planned. Cash-outs
+          through our payout partner, MoneyGram, are separately identity-verified by MoneyGram. Submitted KYC details are
+          encrypted at rest, visible only to the worker, the administrators of their company and our platform
+          administrators, and every decision is recorded. We reserve the right to request additional information at any
+          time and to refuse service where verification cannot be satisfactorily completed.
         </p>
       </>
     ),
@@ -63,12 +65,12 @@ const sections = [
     heading: 'Sanctions Screening',
     content: (
       <p>
-        Funti3rPay screens all users and transactions against international sanctions lists, including those maintained
-        by the United Nations Security Council, the US Office of Foreign Assets Control (OFAC), the UK Office of
-        Financial Sanctions Implementation (OFSI), and the European Union. We also check national sanctions lists in
-        our operating jurisdictions. Any match against these lists will result in immediate suspension of the account
-        and mandatory reporting to the relevant authorities. Providing false information to circumvent sanctions
-        screening is a criminal offence.
+        Funti3rPay screens the names of workers and of the companies that fund escrows against the US Office of Foreign
+        Assets Control (OFAC) Specially Designated Nationals list, refreshed daily. Every existing customer is
+        re-screened each time the list is refreshed. The United Nations, UK and EU lists are not yet included. A match
+        blocks the person from receiving, or the company from funding, escrow payments pending compliance review, and
+        only a platform administrator can clear it. Providing false information to circumvent sanctions screening is a
+        criminal offence.
       </p>
     ),
   },

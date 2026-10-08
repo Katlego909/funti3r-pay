@@ -1,4 +1,5 @@
 import type { SanctionsService } from './sanctions/service.js';
+import type { KycProvider } from './providers/types.js';
 
 export type Query = (sql: string, params?: unknown[]) => Promise<{ rows: any[] }>;
 
@@ -10,4 +11,6 @@ export interface Deps {
   sanctions: SanctionsService;
   /** How long an approval stays valid before the person must be re-verified. */
   validityDays?: number;
+  /** Who decides identity; defaults to the manual provider (reviewer / testnet auto-approve). */
+  provider?: KycProvider;
 }

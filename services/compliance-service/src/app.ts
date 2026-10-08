@@ -5,6 +5,7 @@ import type { Deps } from './deps.js';
 import { canDecide, kycAccess } from './access.js';
 import { recordKycEvent } from './events.js';
 import { openDetails, sealDetails } from './pii.js';
+import { createManualProvider } from './providers/manual.js';
 
 const logger = createLogger('ComplianceService');
 
@@ -24,7 +25,7 @@ const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v 
 const EFFECTIVE_STATUS = `CASE WHEN status = 'approved' AND expires_at IS NOT NULL AND expires_at < NOW() THEN 'expired' ELSE status END`;
 const DEFAULT_VALIDITY_DAYS = 365;
 
-export function createApp({ query, autoApprove, sanctions, validityDays = DEFAULT_VALIDITY_DAYS }: Deps): express.Express {
+export function createApp({ query, autoApprove, sanctions, validityDays = DEFAULT_VALIDITY_DAYS, provider = createManualProvider({ autoApprove }) }: Deps): express.Express {
   const app = express();
   app.use(express.json());
 
@@ -58,14 +59,17 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
       const sanctionsMatches = sanctions.screen(candidateNamesFromSubmission(details));
       const sanctionsStatus = sanctionsMatches.length > 0 ? 'flagged' : 'clear';
 
-      const status = sanctionsStatus === 'flagged' ? 'rejected' : (autoApprove ? 'approved' : 'pending');
+      const decision = await provider.submit({ userId, details, sanctionsFlagged: sanctionsStatus === 'flagged' });
+      const status = decision.status;
       const verifiedAt = status === 'approved' ? new Date().toISOString() : null;
       const expiresAt = status === 'approved' ? new Date(Date.now() + validityDays * 86_400_000).toISOString() : null;
 
       const result = await query(
-        `INSERT INTO kyc_records (user_id, provider, status, data, verified_at, expires_at, sanctions_status, sanctions_matches, sanctions_checked_at, updated_at)
-           VALUES ($1, 'manual', $2, $3, $4, $7, $5, $6, NOW(), NOW())
+        `INSERT INTO kyc_records (user_id, provider, provider_request_id, status, data, verified_at, expires_at, sanctions_status, sanctions_matches, sanctions_checked_at, updated_at)
+           VALUES ($1, $8, $9, $2, $3, $4, $7, $5, $6, NOW(), NOW())
          ON CONFLICT (user_id) DO UPDATE SET
+           provider = EXCLUDED.provider,
+           provider_request_id = EXCLUDED.provider_request_id,
            status = EXCLUDED.status,
            data = EXCLUDED.data,
            verified_at = EXCLUDED.verified_at,
@@ -75,7 +79,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
            sanctions_checked_at = EXCLUDED.sanctions_checked_at,
            updated_at = NOW()
          RETURNING id, status, verified_at, sanctions_status, created_at`,
-        [userId, status, sealDetails(details), verifiedAt, sanctionsStatus, JSON.stringify(sanctionsMatches), expiresAt],
+        [userId, status, sealDetails(details), verifiedAt, sanctionsStatus, JSON.stringify(sanctionsMatches), expiresAt, provider.name, decision.providerRef ?? null],
       );
 
       const row = result.rows[0];
@@ -105,7 +109,8 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
   app.get('/:userId/status', async (req, res) => {
     try {
       const result = await query(
-        `SELECT id, ${EFFECTIVE_STATUS} AS status, verified_at, created_at, updated_at, sanctions_status, sanctions_checked_at
+        `SELECT id, ${EFFECTIVE_STATUS} AS status, verified_at, created_at, updated_at, sanctions_status, sanctions_checked_at,
+                EXISTS (SELECT 1 FROM kyc_events ev WHERE ev.user_id = kyc_records.user_id AND ev.action = 'approved') AS reviewed
            FROM kyc_records WHERE user_id = $1`,
         [req.params.userId],
       );
@@ -114,7 +119,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
         // No submission yet. In auto-approve mode report verified so the dashboard
         // unlocks without a manual step; otherwise report pending.
         if (autoApprove) {
-          return res.json({ status: 'verified', verified_at: new Date().toISOString(), submitted_at: null });
+          return res.json({ status: 'verified', verified_at: new Date().toISOString(), submitted_at: null, basis: 'no-submission' });
         }
         return res.status(404).json({ status: 'pending', message: 'No KYC submission found' });
       }
@@ -128,6 +133,8 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
         updated_at: row.updated_at,
         sanctions_status: row.sanctions_status,
         sanctions_checked_at: row.sanctions_checked_at,
+        // What 'verified' rests on, so evidence cannot mistake a testnet auto-approval for a review.
+        basis: row.status === 'approved' ? (row.reviewed ? 'reviewed' : 'auto-approved') : 'none',
       });
     } catch (err) {
       logger.error('Status check failed', { error: String(err) });
