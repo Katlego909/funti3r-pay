@@ -18,6 +18,8 @@ import {
   ValidationError,
   AuthenticationError,
   NotFoundError,
+  requireGatewayIdentity,
+  assertInternalAuthConfigured,
 } from '@funti3r/shared-utils';
 import { sendRecoveryEmail } from './lib/email.js';
 import { initPostgres, runInitialMigrations, initRedis, query, transaction, setJSON, getJSON, deleteKey } from '@funti3r/database';
@@ -65,6 +67,7 @@ function parseBody(req: express.Request, res: express.Response, next: express.Ne
   });
 }
 app.use(parseBody);
+app.use(requireGatewayIdentity());
 
 const RP_NAME = process.env.RP_NAME || 'Funti3r-Pay';
 const RP_ID = process.env.RP_ID || 'localhost';
@@ -1604,6 +1607,7 @@ async function start() {
   }
 
   const PORT = parseInt(process.env.USER_SERVICE_PORT || '3001', 10);
+  assertInternalAuthConfigured();
   app.listen(PORT, '0.0.0.0', () => {
     logger.info(`User Service running on port ${PORT}`);
   });

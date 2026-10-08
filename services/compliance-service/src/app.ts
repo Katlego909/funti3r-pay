@@ -1,5 +1,5 @@
 import express from 'express';
-import { createLogger, NotFoundError } from '@funti3r/shared-utils';
+import { createLogger, NotFoundError, requireGatewayIdentity } from '@funti3r/shared-utils';
 import { candidateNamesFromSubmission } from './names.js';
 import type { Deps } from './deps.js';
 import { canDecide, kycAccess } from './access.js';
@@ -28,6 +28,7 @@ const DEFAULT_VALIDITY_DAYS = 365;
 export function createApp({ query, autoApprove, sanctions, validityDays = DEFAULT_VALIDITY_DAYS, provider = createManualProvider({ autoApprove }) }: Deps): express.Express {
   const app = express();
   app.use(express.json());
+  app.use(requireGatewayIdentity());
 
   // ── Health ──────────────────────────────────────────────────────────────────
 

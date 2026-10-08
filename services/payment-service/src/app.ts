@@ -1,6 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
-import { createLogger, encryptSecret, decryptFromString, ValidationError, NotFoundError } from '@funti3r/shared-utils';
+import { createLogger, encryptSecret, decryptFromString, ValidationError, NotFoundError, requireGatewayIdentity } from '@funti3r/shared-utils';
 import { query } from '@funti3r/database';
 import * as stellar from './lib/stellar.js';
 import { Asset } from '@stellar/stellar-sdk';
@@ -19,6 +19,7 @@ const COMPLIANCE_SERVICE_URL = process.env.COMPLIANCE_SERVICE_URL || 'http://loc
 
 const app: express.Express = express();
 app.use(express.json());
+app.use(requireGatewayIdentity());
 
 // ── Routers ───────────────────────────────────────────────────────────────────
 

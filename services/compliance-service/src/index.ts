@@ -1,4 +1,4 @@
-import { createLogger } from '@funti3r/shared-utils';
+import { createLogger, assertInternalAuthConfigured } from '@funti3r/shared-utils';
 import { initPostgres, query } from '@funti3r/database';
 import { createApp } from './app.js';
 import { createSanctionsService } from './sanctions/service.js';
@@ -47,6 +47,7 @@ async function start() {
   const validityDays = Number(process.env.KYC_VALIDITY_DAYS) || undefined;
   const app = createApp({ query, autoApprove: AUTO_APPROVE, sanctions, validityDays });
   const PORT = parseInt(process.env.COMPLIANCE_SERVICE_PORT || '3003', 10);
+  assertInternalAuthConfigured();
   app.listen(PORT, '0.0.0.0', () => {
     logger.info(`Compliance Service running on port ${PORT}${AUTO_APPROVE ? ' [AUTO-APPROVE MODE]' : ''}`);
   });

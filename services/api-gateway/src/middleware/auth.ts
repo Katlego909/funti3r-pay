@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { verifyToken, AuthenticationError } from '@funti3r/shared-utils';
+import { verifyToken, AuthenticationError, stampIdentity } from '@funti3r/shared-utils';
 
 // The only auth endpoints reachable before a JWT exists. Explicit and
 // exhaustive on purpose — unlike a `startsWith('/auth/')` prefix check, this
@@ -66,6 +66,8 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     } else {
       delete req.headers['x-company-id'];
     }
+    // Sign it: services only believe identity headers that carry the gateway's signature.
+    stampIdentity(req.headers);
     next();
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });

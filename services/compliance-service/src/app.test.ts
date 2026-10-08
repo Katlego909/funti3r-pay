@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 
+process.env.NODE_ENV = 'test'; // routes are called directly with bare identity headers, no gateway in front
 process.env.MASTER_ENCRYPTION_KEY ??= 'ab'.repeat(32);
 
 const { createApp } = await import('./app.js');
@@ -248,4 +249,35 @@ test('the sanctions list status is reachable (not mistaken for a user id)', asyn
   const res = await call('GET', '/sanctions/status', enterprise(OWNER_A));
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { list: null });
+});
+
+test('behind the gateway: forged identity headers are rejected, gateway-signed ones are accepted', async () => {
+  fresh();
+  await submit(WORKER_A);
+
+  // The identity check is switched on outside the unit-test environment; build one app the way production does.
+  process.env.NODE_ENV = 'production';
+  process.env.INTERNAL_AUTH_SECRET = 'k'.repeat(40);
+  const strict = createApp({ query, autoApprove: false, sanctions }).listen(0);
+  process.env.NODE_ENV = 'test';
+  try {
+    const url = `http://127.0.0.1:${(strict.address() as AddressInfo).port}`;
+    const forged = { 'x-user-id': OWNER_A, 'x-user-role': 'admin' };
+    assert.equal((await fetch(`${url}/${WORKER_A}`, { headers: forged })).status, 401);
+
+    const { stampIdentity } = await import('@funti3r/shared-utils');
+    const signed: Record<string, string | undefined> = { 'x-user-id': WORKER_A, 'x-user-role': 'worker' };
+    stampIdentity(signed);
+    const res = await fetch(`${url}/${WORKER_A}`, { headers: signed as Record<string, string> });
+    assert.equal(res.status, 200);
+
+    // Tampering with a signed request (a worker trying to become an admin) breaks the signature.
+    signed['x-user-role'] = 'admin';
+    assert.equal((await fetch(`${url}/${WORKER_A}`, { headers: signed as Record<string, string> })).status, 401);
+
+    // No identity at all is anonymous: internal calls such as the payment service's status check still work.
+    assert.equal((await fetch(`${url}/${WORKER_A}/status`)).status, 200);
+  } finally {
+    strict.close();
+  }
 });

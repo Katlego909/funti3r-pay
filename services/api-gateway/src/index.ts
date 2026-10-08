@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { v4 as uuid } from 'uuid';
-import { createLogger } from '@funti3r/shared-utils';
+import { createLogger, assertInternalAuthConfigured, stripIdentity } from '@funti3r/shared-utils';
 import { initPostgres, initRedis } from '@funti3r/database';
 import { authMiddleware } from './middleware/auth.js';
 
@@ -61,6 +61,14 @@ if (process.env.NODE_ENV !== 'development') {
   app.use(globalLimiter);
   app.use('/auth', authLimiter);
 }
+
+// A client never gets to say who it is: drop any identity headers it sent (public routes included),
+// then the auth middleware sets and signs the real ones from the verified token.
+assertInternalAuthConfigured();
+app.use((req, _res, next) => {
+  stripIdentity(req.headers);
+  next();
+});
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 

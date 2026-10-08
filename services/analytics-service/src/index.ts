@@ -2,12 +2,13 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
 import cron from 'node-cron';
-import { createLogger } from '@funti3r/shared-utils';
+import { createLogger, assertInternalAuthConfigured, requireGatewayIdentity } from '@funti3r/shared-utils';
 import { initPostgres, runInitialMigrations, query } from '@funti3r/database';
 
 const logger = createLogger('AnalyticsService');
 const app = express();
 app.use(express.json());
+app.use(requireGatewayIdentity());
 
 /** Parses a query-string value as a non-negative integer, or null if invalid. */
 function parseIntParam(value: unknown, max?: number): number | null {
@@ -210,6 +211,7 @@ async function start() {
   });
 
   const PORT = parseInt(process.env.ANALYTICS_SERVICE_PORT || '3004', 10);
+  assertInternalAuthConfigured();
   const server = app.listen(PORT, '0.0.0.0', () => {
     logger.info(`Analytics Service running on port ${PORT}`);
   });
