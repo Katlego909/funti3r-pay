@@ -5,7 +5,7 @@ import { query } from '@funti3r/database';
 import * as escrow from '../lib/escrow.js';
 import { ensureCleared, ComplianceBlockedError } from '../lib/clearance.js';
 import { anchorConfigured, sendAnchorPayout } from '../rails/anchor.js';
-import { AnchorActionRequiredError } from '../lib/anchor.js';
+import { AnchorActionRequiredError, AnchorAmountMismatchError } from '../lib/anchor.js';
 import app from '../app.js';
 import { createQueryMock, WORKER_ID, ENTERPRISE_ID, ADMIN_ID, MEMBER_ID } from './helpers.js';
 
@@ -338,6 +338,49 @@ describe('anchor cash-out', () => {
     expect(sendAnchorPayout).toHaveBeenCalledWith(expect.objectContaining({
       resume: { anchorTxId: 'anchor-9', protocol: 'sep24', settlementHash: 'tx-already-sent', interactiveUrl: 'https://anchor.example/form' },
     }));
+  });
+
+  it('fails loudly and forgets the anchor transaction when the form amount differs from the payout', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([...claimHandlers, HANDLER_TAKE_CASHOUT]));
+    vi.mocked(escrow.claimMilestone).mockResolvedValue('tx-claim');
+    vi.mocked(sendAnchorPayout).mockRejectedValue(new AnchorAmountMismatchError('10', '5'));
+
+    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/claim`).set(workerHeaders).send({ cashout: 'anchor' });
+    expect(res.body.cashout).toMatchObject({ status: 'failed', error: expect.stringMatching(/5 XLM.*10 XLM/) });
+    // The wrong-amount anchor tx is cleared so a retry starts fresh — but only when nothing was paid.
+    const reset = vi.mocked(query).mock.calls.find(([sql]) => /anchor_tx_id = NULL/.test(sql) && /anchor_settlement_hash IS NULL/.test(sql));
+    expect(reset).toBeDefined();
+  });
+
+  it('starts a fresh anchor transaction when the parked one has no usable form link (status page / expired)', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([
+      HANDLER_WORKER_PUBKEY, HANDLER_WORKER_PAYOUT,
+      { match: /FROM escrow_milestones m JOIN escrows e/, handler: () => ({ rows: [{ status: 'claimed', cashout_status: 'action_required' }] }) },
+      {
+        match: /UPDATE escrow_milestones SET cashout_status = 'pending'/,
+        handler: () => ({ rows: [{ amount: '10', anchor_tx_id: 'old-tx', anchor_protocol: 'sep24', anchor_settlement_hash: null, anchor_more_info_url: 'https://anchor.example/txn?transaction_id=old-tx&token=x' }] }),
+      },
+    ]));
+    vi.mocked(sendAnchorPayout).mockRejectedValue(new AnchorActionRequiredError('new-tx', 'https://anchor.example/?transaction_id=new-tx&token=y'));
+
+    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/cashout`).set(workerHeaders);
+    expect(res.body.cashout).toMatchObject({ status: 'action_required', anchorTxId: 'new-tx' });
+    expect(vi.mocked(sendAnchorPayout).mock.calls[0][0].resume).toBeUndefined();
+  });
+
+  it('never restarts when a settlement was already paid, even if the form link is unusable', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([
+      HANDLER_WORKER_PUBKEY, HANDLER_WORKER_PAYOUT,
+      { match: /FROM escrow_milestones m JOIN escrows e/, handler: () => ({ rows: [{ status: 'claimed', cashout_status: 'failed' }] }) },
+      {
+        match: /UPDATE escrow_milestones SET cashout_status = 'pending'/,
+        handler: () => ({ rows: [{ amount: '10', anchor_tx_id: 'old-tx', anchor_protocol: 'sep24', anchor_settlement_hash: 'tx-paid', anchor_more_info_url: 'https://anchor.example/txn?x=1' }] }),
+      },
+    ]));
+    vi.mocked(sendAnchorPayout).mockResolvedValue({ settlementHash: 'tx-paid', anchorTxId: 'old-tx', anchorStatus: 'completed' });
+
+    await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/cashout`).set(workerHeaders);
+    expect(vi.mocked(sendAnchorPayout).mock.calls[0][0].resume).toMatchObject({ anchorTxId: 'old-tx', settlementHash: 'tx-paid' });
   });
 
   it('a plain claim never touches the anchor', async () => {

@@ -11,6 +11,7 @@
 import { createLogger } from '@funti3r/shared-utils';
 import { Keypair } from '@stellar/stellar-sdk';
 import {
+  AnchorAmountMismatchError,
   type AnchorProtocol,
   anchorGetTransaction,
   anchorHomeDomain,
@@ -195,11 +196,17 @@ async function settleWithAnchor(
   interactiveUrl: string | undefined,
   opts: { payerSecret: string; amountXlm: string; kyc: Record<string, string>; onSettled?: (hash: string) => Promise<void> },
 ): Promise<string> {
-  const settle = protocol === 'sep24'
+  const settle: { accountId: string; memoType: string; memo: string; amountIn?: string } = protocol === 'sep24'
     ? await sep24AwaitSettlementDetails(jwt, anchorTxId, interactiveUrl)
     : await sep6AwaitSettlementDetails(
       jwt, anchorTxId, (name, spec) => opts.kyc[name] ?? defaultKycValue(name, spec),
     );
+  // The user types the amount into the anchor's own form. Paying anything but
+  // exactly what the anchor recorded either strands funds or gets refunded, so
+  // fail loudly BEFORE any money moves.
+  if (settle.amountIn && Number(settle.amountIn) !== Number(opts.amountXlm)) {
+    throw new AnchorAmountMismatchError(opts.amountXlm, settle.amountIn);
+  }
   const settlementHash = await sendPayment(
     opts.payerSecret,
     settle.accountId,

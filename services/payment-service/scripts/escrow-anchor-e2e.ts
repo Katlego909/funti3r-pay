@@ -22,7 +22,7 @@ import {
   createEscrow,
   setClearance,
 } from '../src/lib/escrow.js';
-import { AnchorActionRequiredError, anchorHomeDomain } from '../src/lib/anchor.js';
+import { AnchorActionRequiredError, anchorHomeDomain, type AnchorProtocol } from '../src/lib/anchor.js';
 import { sendAnchorPayout } from '../src/rails/anchor.js';
 
 const explorer = (hash: string) => `https://stellar.expert/explorer/testnet/tx/${hash}`;
@@ -40,6 +40,7 @@ async function fund(pub: string) {
  */
 async function cashOutWithAnchor(workerSecret: string) {
   let anchorTxId: string | undefined;
+  let protocol: AnchorProtocol | undefined;
   let settlementHash: string | undefined;
   const deadline = Date.now() + 15 * 60_000;
   for (;;) {
@@ -48,8 +49,8 @@ async function cashOutWithAnchor(workerSecret: string) {
         payerSecret: workerSecret,
         amountXlm: MILESTONE_XLM,
         kyc: {},
-        resume: anchorTxId ? { anchorTxId, settlementHash } : undefined,
-        onWithdrawCreated: async (id) => { anchorTxId = id; },
+        resume: anchorTxId ? { anchorTxId, protocol, settlementHash } : undefined,
+        onWithdrawCreated: async (id, p) => { anchorTxId = id; protocol = p; },
         onSettled: async (hash) => { settlementHash = hash; },
       });
     } catch (err) {

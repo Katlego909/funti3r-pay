@@ -324,7 +324,21 @@ export class AnchorActionRequiredError extends Error {
   }
 }
 
+/**
+ * The amount the user entered in the anchor's form differs from the payout.
+ * Nothing was sent; the anchor transaction can't be corrected, so a retry
+ * must start a fresh one.
+ */
+export class AnchorAmountMismatchError extends Error {
+  constructor(public readonly expectedXlm: string, public readonly anchorXlm: string) {
+    super(`The anchor form was submitted for ${anchorXlm} XLM but this payout is ${expectedXlm} XLM — retry and enter ${expectedXlm} in the form`);
+    this.name = 'AnchorAmountMismatchError';
+  }
+}
+
 export interface Sep6TransactionStatus extends Sep31Status {
+  /** Amount the anchor recorded for the user's transfer (what it expects to receive). */
+  amountIn?: string;
   /** The anchor's own page for the user's next step (interactive KYC). */
   moreInfoUrl?: string;
   /** Settlement details — present once the anchor is ready to receive funds. */
@@ -347,6 +361,26 @@ export async function anchorProtocol(): Promise<AnchorProtocol> {
   if (forced === 'sep6' || forced === 'sep24') return forced;
   const config = await fetchAnchorConfig();
   return config.transferServerSep24 ? 'sep24' : 'sep6';
+}
+
+/**
+ * Can this stored link still open the anchor's form? False for the read-only
+ * transaction page (`/txn`, which has no form) and for an interactive link
+ * whose token has expired (they live about an hour). Such a cash-out must
+ * start a fresh anchor transaction — safe only while nothing has been paid.
+ */
+export function interactiveUrlUsable(url: string | null | undefined, nowMs = Date.now()): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    if (u.pathname.startsWith('/txn')) return false;
+    const token = u.searchParams.get('token');
+    if (!token) return false;
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
+    return typeof payload.exp === 'number' && payload.exp * 1000 > nowMs + 60_000;
+  } catch {
+    return false;
+  }
 }
 
 export interface Sep24Withdrawal {
@@ -397,6 +431,7 @@ export async function sep24GetTransaction(jwt: string, id: string): Promise<Sep6
     status: t.status ?? 'unknown',
     requiredInfoMessage: t.message,
     moreInfoUrl: t.more_info_url,
+    amountIn: t.amount_in,
     withdrawAnchorAccount: t.withdraw_anchor_account,
     withdrawMemo: t.withdraw_memo,
     withdrawMemoType: t.withdraw_memo_type,
@@ -420,12 +455,12 @@ export async function sep24AwaitSettlementDetails(
   fallbackUrl: string | undefined,
   timeoutMs = 120_000,
   actionGraceMs = 6_000,
-): Promise<{ accountId: string; memoType: string; memo: string }> {
+): Promise<{ accountId: string; memoType: string; memo: string; amountIn?: string }> {
   const startedAt = Date.now();
   for (;;) {
     const t = await sep24GetTransaction(jwt, id);
     if (t.withdrawAnchorAccount && t.withdrawMemo) {
-      return { accountId: t.withdrawAnchorAccount, memoType: t.withdrawMemoType ?? 'text', memo: t.withdrawMemo };
+      return { accountId: t.withdrawAnchorAccount, memoType: t.withdrawMemoType ?? 'text', memo: t.withdrawMemo, amountIn: t.amountIn };
     }
     if (['error', 'refunded', 'expired', 'no_market', 'too_small', 'too_large'].includes(t.status)) {
       throw new Error(`Anchor rejected withdrawal ${id}: ${t.status}${t.requiredInfoMessage ? ` — ${t.requiredInfoMessage}` : ''}`);

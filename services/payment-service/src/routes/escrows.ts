@@ -6,7 +6,7 @@ import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from '../l
 import * as escrow from '../lib/escrow.js';
 import { ComplianceBlockedError, ensureCleared } from '../lib/clearance.js';
 import { anchorConfigured, sendAnchorPayout } from '../rails/anchor.js';
-import { AnchorActionRequiredError } from '../lib/anchor.js';
+import { AnchorActionRequiredError, AnchorAmountMismatchError, interactiveUrlUsable } from '../lib/anchor.js';
 import { requireCompliance, resolveEnterpriseSecret } from '../app.js';
 
 const router: RouterType = Router();
@@ -177,6 +177,12 @@ async function cashOutMilestone(escrowId: string, idx: number, workerId: string)
   const priorInteractiveUrl: string | undefined = taken.rows[0].anchor_more_info_url ?? undefined;
   const priorProtocol: 'sep6' | 'sep24' = taken.rows[0].anchor_protocol === 'sep24' ? 'sep24' : 'sep6';
 
+  // A parked SEP-24 cash-out whose form link is unusable (status page or
+  // expired token) can't be completed: start a fresh anchor transaction. Only
+  // while nothing was paid — a settlement hash always resumes, never restarts.
+  const abandonPriorAnchorTx = !!priorAnchorTxId && !priorSettlementHash
+    && priorProtocol === 'sep24' && !interactiveUrlUsable(priorInteractiveUrl);
+
   try {
     if (!anchorConfigured()) throw new Error('No disbursement anchor is configured');
     const w = await query(`SELECT stellar_secret_key, payout_details FROM users WHERE id = $1`, [workerId]);
@@ -187,7 +193,7 @@ async function cashOutMilestone(escrowId: string, idx: number, workerId: string)
       payerSecret: decryptFromString(row.stellar_secret_key),
       amountXlm,
       kyc: row.payout_details ?? {},
-      resume: priorAnchorTxId
+      resume: priorAnchorTxId && !abandonPriorAnchorTx
         ? { anchorTxId: priorAnchorTxId, protocol: priorProtocol, settlementHash: priorSettlementHash ?? undefined, interactiveUrl: priorInteractiveUrl }
         : undefined,
       onWithdrawCreated: async (anchorTxId, protocol, interactiveUrl) => {
@@ -230,6 +236,16 @@ async function cashOutMilestone(escrowId: string, idx: number, workerId: string)
       return { status: 'action_required', anchorTxId: err.anchorTxId, moreInfoUrl: err.moreInfoUrl };
     }
     const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof AnchorAmountMismatchError) {
+      // That anchor transaction is unusable (nothing was sent): forget it so the
+      // retry starts a fresh one instead of resuming the wrong-amount one.
+      await query(
+        `UPDATE escrow_milestones
+            SET anchor_tx_id = NULL, anchor_protocol = NULL, anchor_more_info_url = NULL
+          WHERE escrow_id = $1 AND idx = $2 AND anchor_settlement_hash IS NULL`,
+        [escrowId, idx],
+      );
+    }
     logger.error('Anchor cash-out failed', { escrowId, idx, error: message });
     await query(
       `UPDATE escrow_milestones SET cashout_status = 'failed', cashout_error = $3 WHERE escrow_id = $1 AND idx = $2`,
