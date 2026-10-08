@@ -447,8 +447,9 @@ export async function sep24GetTransaction(jwt: string, id: string): Promise<Sep6
     moreInfoUrl: t.more_info_url,
     amountOut: t.amount_out,
     amountOutAsset: t.amount_out_asset,
-    amountFee: t.amount_fee,
-    amountFeeAsset: t.amount_fee_asset,
+    // Current SEPs report the fee under fee_details; older anchors use amount_fee.
+    amountFee: t.amount_fee ?? t.fee_details?.total,
+    amountFeeAsset: t.amount_fee_asset ?? t.fee_details?.asset,
     amountIn: t.amount_in,
     withdrawAnchorAccount: t.withdraw_anchor_account,
     withdrawMemo: t.withdraw_memo,
@@ -512,8 +513,9 @@ export async function sep6GetTransaction(jwt: string, id: string): Promise<Sep6T
     moreInfoUrl: t.more_info_url,
     amountOut: t.amount_out,
     amountOutAsset: t.amount_out_asset,
-    amountFee: t.amount_fee,
-    amountFeeAsset: t.amount_fee_asset,
+    // Current SEPs report the fee under fee_details; older anchors use amount_fee.
+    amountFee: t.amount_fee ?? t.fee_details?.total,
+    amountFeeAsset: t.amount_fee_asset ?? t.fee_details?.asset,
     withdrawAnchorAccount: t.withdraw_anchor_account,
     withdrawMemo: t.withdraw_memo,
     withdrawMemoType: t.withdraw_memo_type,

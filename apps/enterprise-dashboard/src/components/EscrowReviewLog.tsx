@@ -7,6 +7,17 @@ const KIND: Record<string, ['completed' | 'failed' | 'pending', string]> = {
   rejected: ['failed', 'Changes requested'],
 };
 
+/** Host + path, cut to fit one line; the full link stays in the tooltip and href. */
+function shortLink(link: string, max = 52): string {
+  try {
+    const u = new URL(link);
+    const text = `${u.host}${u.pathname === '/' ? '' : u.pathname}${u.search || u.hash ? '…' : ''}`;
+    return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  } catch {
+    return link.length > max ? `${link.slice(0, max - 1)}…` : link;
+  }
+}
+
 const fmtDate = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 /** Who submitted, approved or sent back each milestone, with their note and links. */
@@ -38,7 +49,7 @@ export default function EscrowReviewLog({ escrow }: { escrow: Escrow }) {
                   {ev.note && <div style={{ whiteSpace: 'pre-wrap' }}>{ev.note}</div>}
                   {ev.links.map((l) => (
                     <div key={l}>
-                      <a href={l} target="_blank" rel="noopener noreferrer nofollow" style={{ fontSize: '0.78rem', wordBreak: 'break-all' }}>{l}</a>
+                      <a href={l} target="_blank" rel="noopener noreferrer nofollow" title={l} style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{shortLink(l)}</a>
                     </div>
                   ))}
                   {!ev.note && !ev.links.length && <span style={{ color: '#9ca3af' }}>—</span>}
