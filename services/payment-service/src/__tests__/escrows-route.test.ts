@@ -158,6 +158,9 @@ describe('milestone approve and claim', () => {
     const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/approve`).set(enterpriseHeaders);
     expect(res.status).toBe(200);
     expect(res.body.txHash).toBe('tx-approve');
+    // The approval transaction is kept so it can be shown and linked later.
+    const write = vi.mocked(query).mock.calls.find(([sql]) => /approve_tx_hash = \$3/.test(sql));
+    expect(write?.[1]).toEqual([ESCROW_ID, 0, 'tx-approve']);
   });
 
   it('409s approving a milestone that is not pending', async () => {
@@ -491,6 +494,8 @@ describe('POST /escrows/:id/refund', () => {
     const res = await request(app).post(`/escrows/${ESCROW_ID}/refund`).set(enterpriseHeaders);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ refundedXlm: 40, txHash: 'tx-refund' });
+    const write = vi.mocked(query).mock.calls.find(([sql]) => /refund_tx_hash = \$2/.test(sql));
+    expect(write?.[1]).toEqual([ESCROW_ID, 'tx-refund']);
   });
 });
 
@@ -515,7 +520,7 @@ describe('GET /escrows', () => {
         match: /FROM escrow_milestones WHERE escrow_id = ANY/,
         handler: () => ({
           rows: [
-            { escrow_id: ESCROW_ID, idx: 0, description: 'Design', amount: '25', status: 'claimed', approved_at: null, claimed_at: null, claim_tx_hash: 'tx-claim' },
+            { escrow_id: ESCROW_ID, idx: 0, description: 'Design', amount: '25', status: 'claimed', approved_at: null, claimed_at: null, claim_tx_hash: 'tx-claim', approve_tx_hash: 'tx-approve', refund_tx_hash: null, cashout_at: null },
             { escrow_id: ESCROW_ID, idx: 1, description: 'Build', amount: '40', status: 'pending', approved_at: null, claimed_at: null, claim_tx_hash: null },
           ],
         }),
@@ -527,5 +532,6 @@ describe('GET /escrows', () => {
     expect(res.body.escrows).toHaveLength(1);
     expect(res.body.escrows[0]).toMatchObject({ totalXlm: 65, workerEmail: 'worker@test.com' });
     expect(res.body.escrows[0].milestones).toHaveLength(2);
+    expect(res.body.escrows[0].milestones[0]).toMatchObject({ claimTxHash: 'tx-claim', approveTxHash: 'tx-approve', refundTxHash: null });
   });
 });

@@ -10,6 +10,7 @@ import Modal from '../components/Modal.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
 import SlideOver, { Row, SectionTitle } from '../components/SlideOver.js';
 import { StatusBadge } from '../components/StatusBadge.js';
+import EscrowTransactions from '../components/EscrowTransactions.js';
 
 interface WorkerOption { id: string; email: string }
 interface MilestoneRow { description: string; amountXlm: string }
@@ -115,6 +116,9 @@ function EscrowDetailDrawer({
             )}
           </div>
         ))}
+
+        <SectionTitle>Transactions</SectionTitle>
+        <EscrowTransactions escrow={current} />
 
         {current.status === 'active' && hasPending && (
           <button

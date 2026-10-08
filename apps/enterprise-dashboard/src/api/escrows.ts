@@ -8,6 +8,9 @@ export interface EscrowMilestone {
   approvedAt: string | null;
   claimedAt: string | null;
   claimTxHash: string | null;
+  approveTxHash: string | null;
+  refundTxHash: string | null;
+  cashoutAt: string | null;
   /** Second leg of a claim: routing the claimed funds through an anchor. */
   cashoutStatus: 'none' | 'pending' | 'action_required' | 'completed' | 'failed';
   anchorTxId: string | null;

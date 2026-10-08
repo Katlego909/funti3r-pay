@@ -95,6 +95,7 @@ async function listMilestones(escrowIds: string[]) {
   if (escrowIds.length === 0) return {} as Record<string, unknown[]>;
   const rows = await query(
     `SELECT escrow_id, idx, description, amount, status, approved_at, claimed_at, claim_tx_hash,
+            approve_tx_hash, refund_tx_hash, cashout_at,
             cashout_status, anchor_tx_id, anchor_settlement_hash, anchor_status, anchor_more_info_url, cashout_error
        FROM escrow_milestones WHERE escrow_id = ANY($1::uuid[]) ORDER BY idx`,
     [escrowIds],
@@ -109,6 +110,9 @@ async function listMilestones(escrowIds: string[]) {
       approvedAt: m.approved_at,
       claimedAt: m.claimed_at,
       claimTxHash: m.claim_tx_hash,
+      approveTxHash: m.approve_tx_hash ?? null,
+      refundTxHash: m.refund_tx_hash ?? null,
+      cashoutAt: m.cashout_at ?? null,
       cashoutStatus: m.cashout_status ?? 'none',
       anchorTxId: m.anchor_tx_id ?? null,
       anchorSettlementHash: m.anchor_settlement_hash ?? null,
@@ -388,8 +392,9 @@ router.post('/:id/milestones/:idx/approve', async (req: Request, res: Response) 
 
     const hash = await escrow.approveMilestone(secret, BigInt(row.onchain_escrow_id), idx);
     await query(
-      `UPDATE escrow_milestones SET status = 'approved', approved_at = NOW() WHERE escrow_id = $1 AND idx = $2`,
-      [id, idx],
+      `UPDATE escrow_milestones SET status = 'approved', approved_at = NOW(), approve_tx_hash = $3
+        WHERE escrow_id = $1 AND idx = $2`,
+      [id, idx, hash],
     );
 
     await notify(
@@ -559,8 +564,9 @@ router.post('/:id/refund', async (req: Request, res: Response) => {
 
     const { refundedStroops, hash } = await escrow.refundEscrow(secret, BigInt(row.onchain_escrow_id));
     await query(
-      `UPDATE escrow_milestones SET status = 'refunded' WHERE escrow_id = $1 AND status = 'pending'`,
-      [id],
+      `UPDATE escrow_milestones SET status = 'refunded', refund_tx_hash = $2
+        WHERE escrow_id = $1 AND status = 'pending'`,
+      [id, hash],
     );
     await finalizeEscrowStatus(id);
 
