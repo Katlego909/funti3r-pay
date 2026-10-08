@@ -2,7 +2,6 @@ import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import type { WalletCashout } from '../api/escrows.js';
 import { StatusBadge } from './StatusBadge.js';
 import CopyButton from './CopyButton.js';
-import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 
 const EXPLORER = 'https://stellar.expert/explorer/testnet';
 const NOT_YET = <span style={{ color: '#9ca3af', fontSize: '0.78rem' }}>Not yet</span>;
@@ -24,7 +23,6 @@ const num = (v: string | number) => Number(v).toLocaleString(undefined, { maximu
  * the swap between them does not follow real prices. On the sandbox no cash is dispensed.
  */
 export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] }) {
-  const dc = useDisplayCurrency();
   if (!cashouts.length) return null;
 
   return (
@@ -44,7 +42,7 @@ export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] 
       <div className="table-responsive">
         <table className="data-table" style={{ whiteSpace: 'nowrap' }}>
           <thead>
-            <tr><th>Date</th><th>You paid</th><th>MoneyGram received</th><th>Pickup</th><th>Reference</th><th>Recipient collects</th><th>MoneyGram fee</th><th>Status</th></tr>
+            <tr><th>Date</th><th>You withdrew</th><th>Pickup</th><th>Reference</th><th>Recipient collects</th><th>Status</th></tr>
           </thead>
           <tbody>
             {cashouts.map((c) => {
@@ -52,15 +50,10 @@ export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] 
               return (
                 <tr key={c.id}>
                   <td data-label="Date">{fmtDate(c.createdAt)}</td>
-                  <td data-label="You paid">
-                    {c.xlmSpent != null ? (
-                      <>
-                        <div>{dc.format(c.xlmSpent, 'XLM')}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{num(c.xlmSpent)} XLM</div>
-                      </>
-                    ) : NOT_YET}
+                  <td data-label="You withdrew">
+                    {c.sendUsdc ? `${num(c.sendUsdc)} USDC` : NOT_YET}
+                    {c.xlmSpent != null && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>paid with {num(c.xlmSpent)} XLM</div>}
                   </td>
-                  <td data-label="MoneyGram received">{c.sendUsdc ? `${num(c.sendUsdc)} USDC` : NOT_YET}</td>
                   <td data-label="Pickup">
                     <div>Cash pickup</div>
                     {c.destinationCountry && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Country {c.destinationCountry}</div>}
@@ -75,8 +68,8 @@ export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] 
                   </td>
                   <td data-label="Recipient collects">
                     {c.receiveAmount ? `${num(c.receiveAmount)}${c.receiveCurrency ? ` ${c.receiveCurrency}` : ''}` : NOT_YET}
+                    {c.fee && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>after {num(c.fee)} {c.feeCurrency ?? 'USDC'} fee</div>}
                   </td>
-                  <td data-label="MoneyGram fee">{c.fee ? `${num(c.fee)} ${c.feeCurrency ?? 'USDC'}` : NOT_YET}</td>
                   <td data-label="Status">
                     <StatusBadge variant={variant} title={c.error ?? undefined}>{label}</StatusBadge>
                     {c.settlementHash && (
