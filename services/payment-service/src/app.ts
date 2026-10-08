@@ -6,8 +6,6 @@ import * as stellar from './lib/stellar.js';
 import { Asset } from '@stellar/stellar-sdk';
 import { getCurrency, isSupportedCurrency, PAYOUT_CURRENCIES } from './lib/currencies.js';
 import { usdToCurrencyRate, getUsdRates, amountToUsd, getXlmUsd } from './lib/fx.js';
-import { sendAnchorPayout, anchorConfigured } from './rails/anchor.js';
-import { sep6WithdrawInfo } from './lib/anchor.js';
 import { getAllQuotes } from './rails/router.js';
 import walletLinkingRouter from './routes/wallet-linking.js';
 import schedulesRouter from './routes/schedules.js';
@@ -259,7 +257,6 @@ export async function executePayout(opts: {
     complianceError?: string;
     worker: {
       stellar_public_key?: string; stellar_secret_key?: string; email?: string;
-      payout_method?: string; payout_details?: Record<string, string> | null;
     } | undefined;
   };
 }): Promise<PayoutResult> {
@@ -331,7 +328,7 @@ export async function executePayout(opts: {
   // Worker destination (+ secret for trustline setup on issued assets).
   const workerRow = precomputed
     ? precomputed.worker
-    : (await query('SELECT stellar_public_key, stellar_secret_key, email, payout_method, payout_details FROM users WHERE id = $1', [workerId])).rows[0];
+    : (await query('SELECT stellar_public_key, stellar_secret_key, email FROM users WHERE id = $1', [workerId])).rows[0];
   const destination: string | undefined = workerRow?.stellar_public_key;
   const workerEmail: string = workerRow?.email ?? 'your worker';
   const workerStoredSecret: string | undefined = workerRow?.stellar_secret_key;
@@ -364,11 +361,6 @@ export async function executePayout(opts: {
     }
   }
 
-  // rail is set before the try block so a failure (catch below) still
-  // records which rail was attempted, not the column default.
-  const rail = (workerRow?.payout_method ?? 'stellar') === 'anchor' ? 'anchor' : 'stellar';
-  let providerReference: string | null = null;
-
   // Submit to Stellar.
   try {
     const memoHash = crypto.createHash('sha256').update(paymentId).digest();
@@ -377,24 +369,7 @@ export async function executePayout(opts: {
     let claimableXlm: string | null = null;
     let paymentStatus: PayoutResult['status'] = 'completed';
 
-    if (rail === 'anchor') {
-      // Anchor disbursement (bank/cash): convert the payout to XLM and route
-      // it through the configured anchor. Fail loud — a worker expecting a
-      // bank deposit must never silently receive on-chain XLM instead.
-      const [usdValue, xlmUsd] = await Promise.all([amountToUsd(asset, amountNum), getXlmUsd()]);
-      const amountXlm = usdValue > 0 && xlmUsd > 0 ? (usdValue / xlmUsd).toFixed(7) : '0';
-      if (Number(amountXlm) <= 0) {
-        throw new Error(`Cannot price anchor payout for ${amountNum} ${asset} — FX rate unavailable`);
-      }
-      const result = await sendAnchorPayout({
-        payerSecret: sourceSecret,
-        amountXlm,
-        kyc: workerRow?.payout_details ?? {},
-      });
-      txHash = result.settlementHash;
-      providerReference = result.anchorTxId;
-      feePaidXlm = amountXlm;
-    } else if (def.kind === 'native') {
+    if (def.kind === 'native') {
       // Direct native XLM payment.
       txHash = await stellar.sendPayment(sourceSecret, destination, String(amountNum), 'XLM', undefined, memoHash);
     } else {
@@ -456,11 +431,10 @@ export async function executePayout(opts: {
     await query(
       `UPDATE payments
           SET status = $1::text, stellar_tx_hash = $2, fee_paid_xlm = $3,
-              rail = $4, provider_reference = $5,
               completed_at = CASE WHEN $1::text = 'completed' THEN NOW() ELSE NULL END,
               updated_at = NOW()
-        WHERE id = $6`,
-      [paymentStatus, txHash, feePaidXlm, rail, providerReference, paymentId],
+        WHERE id = $4`,
+      [paymentStatus, txHash, feePaidXlm, paymentId],
     );
     logger.info('Payment settled', { paymentId, txHash, status: paymentStatus, amount: amountNum, currency: asset, workerId });
 
@@ -503,8 +477,8 @@ export async function executePayout(opts: {
     const resultCodes = err?.response?.data?.extras?.result_codes;
     const detail = resultCodes ? JSON.stringify(resultCodes) : (err instanceof Error ? err.message : String(err));
     await query(
-      `UPDATE payments SET status = 'failed', failure_reason = $1, rail = $2, failed_at = NOW(), updated_at = NOW() WHERE id = $3`,
-      [detail, rail, paymentId],
+      `UPDATE payments SET status = 'failed', failure_reason = $1, failed_at = NOW(), updated_at = NOW() WHERE id = $2`,
+      [detail, paymentId],
     );
     logger.error('Stellar payment failed', { paymentId, detail });
 
@@ -724,7 +698,7 @@ app.post('/payouts/batch', async (req, res) => {
   }
 
   const workersRes = await query(
-    'SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency, payout_method, payout_details FROM users WHERE id = ANY($1::uuid[])',
+    'SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency FROM users WHERE id = ANY($1::uuid[])',
     [workerIds],
   );
   const workerById = new Map(workersRes.rows.map((w) => [w.id, w]));
@@ -1062,23 +1036,6 @@ app.get('/payouts/fx', async (_req, res) => {
 app.get('/payouts/xlm-price', async (_req, res) => {
   const usd = await getXlmUsd();
   res.json({ usd });
-});
-
-/**
- * GET /payouts/anchor-limits — native-XLM min/max per disbursement on the
- * configured anchor, so the New Payment form can warn before a send is
- * attempted rather than the worker finding out via a failed payout.
- */
-app.get('/payouts/anchor-limits', async (_req, res) => {
-  if (!anchorConfigured()) return res.json({ configured: false });
-  try {
-    const assets = await sep6WithdrawInfo();
-    const native = assets.find((a) => a.code === 'native');
-    res.json({ configured: true, minXlm: native?.minAmount ?? null, maxXlm: native?.maxAmount ?? null });
-  } catch (err) {
-    logger.warn('Failed to fetch anchor limits', { error: String(err) });
-    res.json({ configured: true, minXlm: null, maxXlm: null });
-  }
 });
 
 /**

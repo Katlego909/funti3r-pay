@@ -114,7 +114,9 @@ describe('reconciler', () => {
 });
 
 describe('GET /escrows/summary', () => {
-  const ROW = { locked: '10.0000000', claimed: '192.0000000', refunded: '40.0000000', cashed_out: '150.0000000' };
+  const ROW = { locked: '10.0000000', claimed: '192.0000000', refunded: '40.0000000' };
+  // What the worker has cashed out of the wallet (MoneyGram) lives in `cashouts`, not on milestones.
+  const CASHOUTS = { match: /FROM cashouts WHERE worker_id = \$1/, handler: () => ({ rows: [{ spent: '150.0000000' }] }) };
   const SUMMARY = { match: /FROM escrow_milestones m JOIN escrows e ON e\.id = m\.escrow_id\s+WHERE e\.(worker_id|enterprise_id)/, handler: () => ({ rows: [ROW] }) };
 
   it('403s without an identity', async () => {
@@ -122,7 +124,7 @@ describe('GET /escrows/summary', () => {
   });
 
   it('gives a worker their own escrow money, in XLM, split into locked / claimed / refunded / cashed out', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([SUMMARY]));
+    vi.mocked(query).mockImplementation(createQueryMock([SUMMARY, CASHOUTS]));
     const res = await request(app).get('/escrows/summary').set(workerHeaders);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ lockedXlm: 10, claimedXlm: 192, refundedXlm: 40, cashedOutXlm: 150 });
@@ -133,9 +135,10 @@ describe('GET /escrows/summary', () => {
   });
 
   it('scopes an employer to their company', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([SUMMARY]));
+    vi.mocked(query).mockImplementation(createQueryMock([SUMMARY, CASHOUTS]));
     const res = await request(app).get('/escrows/summary').set(enterpriseHeaders);
     expect(res.status).toBe(200);
+    expect(res.body.cashedOutXlm).toBe(0); // cash-outs are the worker's own business
     const [sql, params] = vi.mocked(query).mock.calls.find(([q]) => /FROM escrow_milestones m JOIN escrows e/.test(q)) as [string, unknown[]];
     expect(sql).toMatch(/WHERE e\.enterprise_id = \$1/);
     expect(params).toEqual([ENTERPRISE_ID]);

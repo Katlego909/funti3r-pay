@@ -4,10 +4,7 @@ import axios from 'axios';
 import { query } from '@funti3r/database';
 import * as escrow from '../lib/escrow.js';
 import { ensureCleared, screenEmployer, ComplianceBlockedError } from '../lib/clearance.js';
-import { anchorConfigured, sendAnchorPayout } from '../rails/anchor.js';
-import { AnchorActionRequiredError, AnchorAmountMismatchError } from '../lib/anchor.js';
 import app from '../app.js';
-import { friendlyAsset, maskDestination } from '../routes/escrows.js';
 import { createQueryMock, WORKER_ID, ENTERPRISE_ID, ADMIN_ID, MEMBER_ID } from './helpers.js';
 
 const ESCROW_ID = 'escrow-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -79,8 +76,6 @@ beforeEach(() => {
   vi.mocked(escrow.claimMilestone).mockReset();
   vi.mocked(escrow.refundEscrow).mockReset();
   vi.mocked(ensureCleared).mockReset().mockResolvedValue({ cleared: true });
-  vi.mocked(anchorConfigured).mockReset().mockReturnValue(true);
-  vi.mocked(sendAnchorPayout).mockReset();
   vi.mocked(escrow.setFrozen).mockReset();
 });
 
@@ -274,206 +269,6 @@ describe('compliance gate', () => {
   });
 });
 
-// ── anchor cash-out ───────────────────────────────────────────────────────────
-
-describe('anchor cash-out', () => {
-  const HANDLER_TAKE_CASHOUT = {
-    match: /UPDATE escrow_milestones SET cashout_status = 'pending'/,
-    handler: () => ({ rows: [{ amount: '25' }] }),
-  };
-  const HANDLER_ALREADY_TAKEN = {
-    match: /UPDATE escrow_milestones SET cashout_status = 'pending'/,
-    handler: () => ({ rows: [] }),
-  };
-  const HANDLER_WORKER_PAYOUT = {
-    match: /^SELECT stellar_secret_key, payout_details FROM users/,
-    handler: () => ({ rows: [{ stellar_secret_key: 'SFAKESECRETXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', payout_details: { bank_account_number: '123' } }] }),
-  };
-  const claimHandlers = [
-    HANDLER_ESCROW_BY_WORKER, milestoneHandler('approved'), HANDLER_SECRET, HANDLER_WORKER_PUBKEY, HANDLER_WORKER_PAYOUT,
-  ];
-
-  it('claim with cashout=anchor claims on-chain then settles through the anchor', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([...claimHandlers, HANDLER_TAKE_CASHOUT]));
-    vi.mocked(escrow.claimMilestone).mockResolvedValue('tx-claim');
-    vi.mocked(sendAnchorPayout).mockResolvedValue({ settlementHash: 'tx-settle', anchorTxId: 'anchor-1', anchorStatus: 'completed' });
-
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/claim`).set(workerHeaders).send({ cashout: 'anchor' });
-    expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({
-      txHash: 'tx-claim',
-      cashout: { status: 'completed', anchorTxId: 'anchor-1', settlementHash: 'tx-settle', anchorStatus: 'completed' },
-    });
-    expect(sendAnchorPayout).toHaveBeenCalledWith(expect.objectContaining({ amountXlm: '25', kyc: { bank_account_number: '123' } }));
-  });
-
-  it('keeps the claim and records a retryable failure when the anchor leg fails', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([...claimHandlers, HANDLER_TAKE_CASHOUT]));
-    vi.mocked(escrow.claimMilestone).mockResolvedValue('tx-claim');
-    vi.mocked(sendAnchorPayout).mockRejectedValue(new Error('Anchor minimum disbursement is 30 XLM'));
-
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/claim`).set(workerHeaders).send({ cashout: 'anchor' });
-    expect(res.status).toBe(200); // the claim itself succeeded
-    expect(res.body.txHash).toBe('tx-claim');
-    expect(res.body.cashout).toMatchObject({ status: 'failed', error: expect.stringMatching(/minimum/) });
-    const failedWrite = vi.mocked(query).mock.calls.find(([sql]) => /cashout_status = 'failed'/.test(sql));
-    expect(failedWrite).toBeDefined();
-  });
-
-  it('parks the cash-out as action_required (not failed) when the anchor wants a step on its own site', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([...claimHandlers, HANDLER_TAKE_CASHOUT]));
-    vi.mocked(escrow.claimMilestone).mockResolvedValue('tx-claim');
-    vi.mocked(sendAnchorPayout).mockRejectedValue(new AnchorActionRequiredError('anchor-9', 'https://anchor.example/complete'));
-
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/claim`).set(workerHeaders).send({ cashout: 'anchor' });
-    expect(res.status).toBe(200);
-    expect(res.body.cashout).toEqual({
-      status: 'action_required', anchorTxId: 'anchor-9', moreInfoUrl: 'https://anchor.example/complete',
-    });
-    const parked = vi.mocked(query).mock.calls.find(([sql]) => /cashout_status = 'action_required'/.test(sql) && /anchor_more_info_url = \$4/.test(sql));
-    expect(parked?.[1]).toEqual([ESCROW_ID, 0, 'anchor-9', 'https://anchor.example/complete']);
-    // Parked, not failed: nothing is recorded as an error.
-    expect(vi.mocked(query).mock.calls.some(([sql]) => /cashout_status = 'failed'/.test(sql))).toBe(false);
-  });
-
-  it('resumes the SAME anchor transaction and never re-sends a settlement that already happened', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([
-      HANDLER_WORKER_PUBKEY, HANDLER_WORKER_PAYOUT,
-      { match: /FROM escrow_milestones m JOIN escrows e/, handler: () => ({ rows: [{ status: 'claimed', cashout_status: 'failed' }] }) },
-      {
-        match: /UPDATE escrow_milestones SET cashout_status = 'pending'/,
-        handler: () => ({ rows: [{ amount: '10', anchor_tx_id: 'anchor-9', anchor_protocol: 'sep24', anchor_settlement_hash: 'tx-already-sent', anchor_more_info_url: 'https://anchor.example/form' }] }),
-      },
-    ]));
-    vi.mocked(sendAnchorPayout).mockResolvedValue({ settlementHash: 'tx-already-sent', anchorTxId: 'anchor-9', anchorStatus: 'completed' });
-
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/cashout`).set(workerHeaders);
-    expect(res.status).toBe(200);
-    expect(sendAnchorPayout).toHaveBeenCalledWith(expect.objectContaining({
-      resume: { anchorTxId: 'anchor-9', protocol: 'sep24', settlementHash: 'tx-already-sent', interactiveUrl: 'https://anchor.example/form' },
-    }));
-  });
-
-  it('fails loudly and forgets the anchor transaction when the form amount differs from the payout', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([...claimHandlers, HANDLER_TAKE_CASHOUT]));
-    vi.mocked(escrow.claimMilestone).mockResolvedValue('tx-claim');
-    vi.mocked(sendAnchorPayout).mockRejectedValue(new AnchorAmountMismatchError('10', '5'));
-
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/claim`).set(workerHeaders).send({ cashout: 'anchor' });
-    expect(res.body.cashout).toMatchObject({ status: 'failed', error: expect.stringMatching(/5 XLM.*10 XLM/) });
-    // The wrong-amount anchor tx is cleared so a retry starts fresh — but only when nothing was paid.
-    const reset = vi.mocked(query).mock.calls.find(([sql]) => /anchor_tx_id = NULL/.test(sql) && /anchor_settlement_hash IS NULL/.test(sql));
-    expect(reset).toBeDefined();
-  });
-
-  it('starts a fresh anchor transaction when the parked one has no usable form link (status page / expired)', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([
-      HANDLER_WORKER_PUBKEY, HANDLER_WORKER_PAYOUT,
-      { match: /FROM escrow_milestones m JOIN escrows e/, handler: () => ({ rows: [{ status: 'claimed', cashout_status: 'action_required' }] }) },
-      {
-        match: /UPDATE escrow_milestones SET cashout_status = 'pending'/,
-        handler: () => ({ rows: [{ amount: '10', anchor_tx_id: 'old-tx', anchor_protocol: 'sep24', anchor_settlement_hash: null, anchor_more_info_url: 'https://anchor.example/txn?transaction_id=old-tx&token=x' }] }),
-      },
-    ]));
-    vi.mocked(sendAnchorPayout).mockRejectedValue(new AnchorActionRequiredError('new-tx', 'https://anchor.example/?transaction_id=new-tx&token=y'));
-
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/cashout`).set(workerHeaders);
-    expect(res.body.cashout).toMatchObject({ status: 'action_required', anchorTxId: 'new-tx' });
-    expect(vi.mocked(sendAnchorPayout).mock.calls[0][0].resume).toBeUndefined();
-  });
-
-  it('never restarts when a settlement was already paid, even if the form link is unusable', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([
-      HANDLER_WORKER_PUBKEY, HANDLER_WORKER_PAYOUT,
-      { match: /FROM escrow_milestones m JOIN escrows e/, handler: () => ({ rows: [{ status: 'claimed', cashout_status: 'failed' }] }) },
-      {
-        match: /UPDATE escrow_milestones SET cashout_status = 'pending'/,
-        handler: () => ({ rows: [{ amount: '10', anchor_tx_id: 'old-tx', anchor_protocol: 'sep24', anchor_settlement_hash: 'tx-paid', anchor_more_info_url: 'https://anchor.example/txn?x=1' }] }),
-      },
-    ]));
-    vi.mocked(sendAnchorPayout).mockResolvedValue({ settlementHash: 'tx-paid', anchorTxId: 'old-tx', anchorStatus: 'completed' });
-
-    await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/cashout`).set(workerHeaders);
-    expect(vi.mocked(sendAnchorPayout).mock.calls[0][0].resume).toMatchObject({ anchorTxId: 'old-tx', settlementHash: 'tx-paid' });
-  });
-
-  it('records a masked payout receipt when the cash-out completes — never the full account number', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([...claimHandlers, HANDLER_TAKE_CASHOUT]));
-    vi.mocked(escrow.claimMilestone).mockResolvedValue('tx-claim');
-    vi.mocked(sendAnchorPayout).mockResolvedValue({
-      settlementHash: 'tx-settle', anchorTxId: 'anchor-1', anchorStatus: 'completed',
-      receipt: { amountOut: '9.0', amountOutAsset: 'iso4217:USD', fee: '1.0', feeAsset: 'stellar:native' },
-    });
-
-    await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/claim`).set(workerHeaders).send({ cashout: 'anchor' });
-
-    const write = vi.mocked(query).mock.calls.find(([sql]) => /payout_destination = \$6::jsonb/.test(sql));
-    const params = write?.[1] as unknown[];
-    // The fixture's saved details are just { bank_account_number: '123' }.
-    expect(JSON.parse(params[5] as string)).toEqual({
-      name: null, email: null, bankNumber: null, accountLast4: '123',
-    });
-    expect(params.slice(6, 10)).toEqual(['9.0', 'iso4217:USD', '1.0', 'stellar:native']);
-  });
-
-  it('a plain claim never touches the anchor', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock(claimHandlers));
-    vi.mocked(escrow.claimMilestone).mockResolvedValue('tx-claim');
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/claim`).set(workerHeaders);
-    expect(res.status).toBe(200);
-    expect(res.body.cashout).toBeUndefined();
-    expect(sendAnchorPayout).not.toHaveBeenCalled();
-  });
-
-  it('rejects an anchor claim up front when no anchor is configured (nothing moves on-chain)', async () => {
-    vi.mocked(anchorConfigured).mockReturnValue(false);
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/claim`).set(workerHeaders).send({ cashout: 'anchor' });
-    expect(res.status).toBe(400);
-    expect(escrow.claimMilestone).not.toHaveBeenCalled();
-  });
-
-  it('retry endpoint cashes out a claimed milestone', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([
-      { match: /FROM escrow_milestones m JOIN escrows e/, handler: () => ({ rows: [{ status: 'claimed', cashout_status: 'failed' }] }) },
-      HANDLER_WORKER_PUBKEY, HANDLER_WORKER_PAYOUT, HANDLER_TAKE_CASHOUT,
-    ]));
-    vi.mocked(sendAnchorPayout).mockResolvedValue({ settlementHash: 'tx-settle', anchorTxId: 'anchor-2', anchorStatus: 'pending_anchor' });
-
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/cashout`).set(workerHeaders);
-    expect(res.status).toBe(200);
-    expect(res.body.cashout).toMatchObject({ status: 'completed', anchorTxId: 'anchor-2' });
-  });
-
-  it('409s a cash-out that is already in progress or done (no double-send)', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([
-      { match: /FROM escrow_milestones m JOIN escrows e/, handler: () => ({ rows: [{ status: 'claimed', cashout_status: 'completed' }] }) },
-      HANDLER_WORKER_PUBKEY, HANDLER_ALREADY_TAKEN,
-    ]));
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/cashout`).set(workerHeaders);
-    expect(res.status).toBe(409);
-    expect(sendAnchorPayout).not.toHaveBeenCalled();
-  });
-
-  it('409s cashing out a milestone that has not been claimed', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([
-      { match: /FROM escrow_milestones m JOIN escrows e/, handler: () => ({ rows: [{ status: 'approved', cashout_status: 'none' }] }) },
-    ]));
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/cashout`).set(workerHeaders);
-    expect(res.status).toBe(409);
-  });
-
-  it('re-screens before a cash-out: a flagged worker cannot send funds to the anchor', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([
-      { match: /FROM escrow_milestones m JOIN escrows e/, handler: () => ({ rows: [{ status: 'claimed', cashout_status: 'none' }] }) },
-      HANDLER_WORKER_PUBKEY,
-    ]));
-    vi.mocked(ensureCleared).mockRejectedValue(new ComplianceBlockedError('Worker is blocked pending compliance review (sanctions match)'));
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/milestones/0/cashout`).set(workerHeaders);
-    expect(res.status).toBe(403);
-    expect(sendAnchorPayout).not.toHaveBeenCalled();
-  });
-});
-
 // ── compliance freeze ─────────────────────────────────────────────────────────
 
 describe('POST /escrows/:id/freeze', () => {
@@ -563,26 +358,5 @@ describe('GET /escrows', () => {
     expect(res.body.escrows[0]).toMatchObject({ totalXlm: 65, workerEmail: 'worker@test.com' });
     expect(res.body.escrows[0].milestones).toHaveLength(2);
     expect(res.body.escrows[0].milestones[0]).toMatchObject({ claimTxHash: 'tx-claim', approveTxHash: 'tx-approve', refundTxHash: null });
-  });
-});
-
-describe('payout receipt helpers', () => {
-  it('maskDestination keeps only the last 4 digits of the account number', () => {
-    const masked = maskDestination({
-      first_name: 'Lionel', last_name: 'Rich', email_address: 'l@x.com', bank_number: '23123', bank_account_number: '1234567890',
-    });
-    expect(masked).toEqual({ name: 'Lionel Rich', email: 'l@x.com', bankNumber: '23123', accountLast4: '7890' });
-    expect(JSON.stringify(masked)).not.toContain('1234567890');
-  });
-
-  it('maskDestination copes with missing details', () => {
-    expect(maskDestination(null)).toEqual({ name: null, email: null, bankNumber: null, accountLast4: null });
-  });
-
-  it('friendlyAsset turns anchor asset ids into short codes', () => {
-    expect(friendlyAsset('iso4217:USD')).toBe('USD');
-    expect(friendlyAsset('stellar:native')).toBe('XLM');
-    expect(friendlyAsset('stellar:USDC:GA5Z')).toBe('USDC');
-    expect(friendlyAsset(null)).toBeNull();
   });
 });

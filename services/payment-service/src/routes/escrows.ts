@@ -6,9 +6,7 @@ import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from '../l
 import * as escrow from '../lib/escrow.js';
 import { recordEscrowPaymentSafely } from '../lib/escrowAccounting.js';
 import { ComplianceBlockedError, ensureCleared, screenEmployer } from '../lib/clearance.js';
-import { anchorConfigured, sendAnchorPayout } from '../rails/anchor.js';
 import { reconcileEscrows } from '../lib/escrowReconcile.js';
-import { AnchorActionRequiredError, AnchorAmountMismatchError, interactiveUrlUsable } from '../lib/anchor.js';
 import { moneygramConfigured } from '../lib/moneygram.js';
 import { requireCompliance, resolveEnterpriseSecret } from '../app.js';
 
@@ -94,33 +92,6 @@ async function notify(userId: string, type: string, title: string, body: string,
   }
 }
 
-// ── Payout receipt ────────────────────────────────────────────────────────────
-
-const REFERENCE_ANCHOR_DOMAIN = 'testanchor.stellar.org';
-
-/** `iso4217:USD` -> `USD`, `stellar:native` -> `XLM`, `stellar:USDC:G…` -> `USDC`. */
-export function friendlyAsset(asset?: string | null): string | null {
-  if (!asset) return null;
-  if (asset === 'stellar:native') return 'XLM';
-  const parts = asset.split(':');
-  return parts[1] ?? asset;
-}
-
-/**
- * What the worker can check against their own bank: who it was addressed to and
- * which account — never the full account number.
- */
-export function maskDestination(details: Record<string, string> | null | undefined) {
-  const d = details ?? {};
-  const account = d.bank_account_number ?? '';
-  return {
-    name: [d.first_name, d.last_name].filter(Boolean).join(' ') || null,
-    email: d.email_address ?? null,
-    bankNumber: d.bank_number ?? null,
-    accountLast4: account ? account.slice(-4) : null,
-  };
-}
-
 // ── Milestone review trail ────────────────────────────────────────────────────
 
 const MAX_NOTE = 2000;
@@ -187,10 +158,7 @@ async function listMilestones(escrowIds: string[]) {
   if (escrowIds.length === 0) return {} as Record<string, unknown[]>;
   const rows = await query(
     `SELECT escrow_id, idx, description, amount, status, approved_at, claimed_at, claim_tx_hash,
-            approve_tx_hash, refund_tx_hash, cashout_at, review_status,
-            payout_destination, anchor_amount_out, anchor_amount_out_asset, anchor_fee, anchor_fee_asset, anchor_domain,
-            cashout_xlm_spent,
-            cashout_status, anchor_tx_id, anchor_settlement_hash, anchor_status, anchor_more_info_url, cashout_error
+            approve_tx_hash, refund_tx_hash, review_status
        FROM escrow_milestones WHERE escrow_id = ANY($1::uuid[]) ORDER BY idx`,
     [escrowIds],
   );
@@ -206,28 +174,7 @@ async function listMilestones(escrowIds: string[]) {
       claimTxHash: m.claim_tx_hash,
       approveTxHash: m.approve_tx_hash ?? null,
       refundTxHash: m.refund_tx_hash ?? null,
-      cashoutAt: m.cashout_at ?? null,
       reviewStatus: m.review_status ?? 'none',
-      payout: m.cashout_status === 'completed'
-        ? {
-            destination: m.payout_destination ?? null,
-            receivedAmount: m.anchor_amount_out ?? null,
-            receivedAsset: friendlyAsset(m.anchor_amount_out_asset),
-            fee: m.anchor_fee ?? null,
-            feeAsset: friendlyAsset(m.anchor_fee_asset),
-            anchorDomain: m.anchor_domain ?? null,
-            // The SDF test anchor moves no real money; the UI says so.
-            // Payouts from before the anchor was recorded fall back to the configured one.
-            sandbox: (m.anchor_domain ?? process.env.ANCHOR_HOME_DOMAIN) === REFERENCE_ANCHOR_DOMAIN,
-          }
-        : null,
-      cashoutStatus: m.cashout_status ?? 'none',
-      cashoutXlmSpent: m.cashout_xlm_spent != null ? Number(m.cashout_xlm_spent) : null,
-      anchorTxId: m.anchor_tx_id ?? null,
-      anchorSettlementHash: m.anchor_settlement_hash ?? null,
-      anchorStatus: m.anchor_status ?? null,
-      anchorMoreInfoUrl: m.anchor_more_info_url ?? null,
-      cashoutError: m.cashout_error ?? null,
     });
   }
   return byEscrow;
@@ -248,133 +195,6 @@ async function finalizeEscrowStatus(escrowId: string): Promise<void> {
       WHERE e.id = $1`,
     [escrowId],
   );
-}
-
-// ── Anchor cash-out (second leg of a claim) ──────────────────────────────────
-
-interface CashoutResult {
-  status: 'completed' | 'failed' | 'action_required';
-  anchorTxId?: string;
-  settlementHash?: string;
-  anchorStatus?: string;
-  /** The anchor's own page the worker must visit (status = action_required). */
-  moreInfoUrl?: string;
-  error?: string;
-}
-
-/**
- * Routes an already-claimed milestone's funds from the worker's wallet through
- * the configured anchor. Never throws: a failure is recorded on the milestone
- * (retryable) because the claim itself already succeeded on-chain and the
- * funds are safe in the worker's wallet.
- *
- * Money safety:
- *  - the cash-out is taken atomically (none|failed|action_required -> pending),
- *    so a double-click or retry can't run two attempts at once;
- *  - the anchor transaction id and the on-chain settlement hash are persisted
- *    the instant they exist, and a retry resumes from them — an attempt that
- *    already paid the anchor is never paid a second time.
- */
-async function cashOutMilestone(escrowId: string, idx: number, workerId: string): Promise<CashoutResult | 'in_progress'> {
-  const taken = await query(
-    `UPDATE escrow_milestones SET cashout_status = 'pending', cashout_error = NULL
-      WHERE escrow_id = $1 AND idx = $2 AND status = 'claimed'
-        AND cashout_status IN ('none', 'failed', 'action_required')
-      RETURNING amount, anchor_tx_id, anchor_protocol, anchor_settlement_hash, anchor_more_info_url`,
-    [escrowId, idx],
-  );
-  if (!taken.rows.length) return 'in_progress';
-  const amountXlm = String(Number(taken.rows[0].amount));
-  const priorAnchorTxId: string | null = taken.rows[0].anchor_tx_id ?? null;
-  const priorSettlementHash: string | null = taken.rows[0].anchor_settlement_hash ?? null;
-  const priorInteractiveUrl: string | undefined = taken.rows[0].anchor_more_info_url ?? undefined;
-  const priorProtocol: 'sep6' | 'sep24' = taken.rows[0].anchor_protocol === 'sep24' ? 'sep24' : 'sep6';
-
-  // A parked SEP-24 cash-out whose form link is unusable (status page or
-  // expired token) can't be completed: start a fresh anchor transaction. Only
-  // while nothing was paid — a settlement hash always resumes, never restarts.
-  const abandonPriorAnchorTx = !!priorAnchorTxId && !priorSettlementHash
-    && priorProtocol === 'sep24' && !interactiveUrlUsable(priorInteractiveUrl);
-
-  try {
-    if (!anchorConfigured()) throw new Error('No disbursement anchor is configured');
-    const w = await query(`SELECT stellar_secret_key, payout_details FROM users WHERE id = $1`, [workerId]);
-    const row = w.rows[0];
-    if (!row?.stellar_secret_key) throw new Error('Worker Stellar account is not set up');
-
-    const result = await sendAnchorPayout({
-      payerSecret: decryptFromString(row.stellar_secret_key),
-      amountXlm,
-      kyc: row.payout_details ?? {},
-      resume: priorAnchorTxId && !abandonPriorAnchorTx
-        ? { anchorTxId: priorAnchorTxId, protocol: priorProtocol, settlementHash: priorSettlementHash ?? undefined, interactiveUrl: priorInteractiveUrl }
-        : undefined,
-      onWithdrawCreated: async (anchorTxId, protocol, interactiveUrl) => {
-        await query(
-          `UPDATE escrow_milestones SET anchor_tx_id = $3, anchor_protocol = $4, anchor_more_info_url = $5
-            WHERE escrow_id = $1 AND idx = $2`,
-          [escrowId, idx, anchorTxId, protocol, interactiveUrl ?? null],
-        );
-      },
-      onSettled: async (settlementHash) => {
-        await query(
-          `UPDATE escrow_milestones SET anchor_settlement_hash = $3 WHERE escrow_id = $1 AND idx = $2`,
-          [escrowId, idx, settlementHash],
-        );
-      },
-    });
-    await query(
-      `UPDATE escrow_milestones
-          SET cashout_status = 'completed', anchor_tx_id = $3, anchor_settlement_hash = $4,
-              anchor_status = $5, anchor_more_info_url = NULL, cashout_at = NOW(),
-              payout_destination = $6::jsonb, anchor_amount_out = $7, anchor_amount_out_asset = $8,
-              anchor_fee = $9, anchor_fee_asset = $10, anchor_domain = $11, cashout_xlm_spent = $12
-        WHERE escrow_id = $1 AND idx = $2`,
-      [
-        escrowId, idx, result.anchorTxId, result.settlementHash, result.anchorStatus,
-        JSON.stringify(maskDestination(row.payout_details)),
-        result.receipt?.amountOut ?? null, result.receipt?.amountOutAsset ?? null,
-        result.receipt?.fee ?? null, result.receipt?.feeAsset ?? null,
-        process.env.ANCHOR_HOME_DOMAIN ?? null,
-        amountXlm,
-      ],
-    );
-    return {
-      status: 'completed',
-      anchorTxId: result.anchorTxId,
-      settlementHash: result.settlementHash,
-      anchorStatus: result.anchorStatus,
-    };
-  } catch (err) {
-    if (err instanceof AnchorActionRequiredError) {
-      // Not a failure: the anchor wants the worker to finish a step on its own
-      // site. Park the cash-out; the same anchor transaction resumes on retry.
-      await query(
-        `UPDATE escrow_milestones
-            SET cashout_status = 'action_required', anchor_tx_id = $3, anchor_more_info_url = $4
-          WHERE escrow_id = $1 AND idx = $2`,
-        [escrowId, idx, err.anchorTxId, err.moreInfoUrl],
-      );
-      return { status: 'action_required', anchorTxId: err.anchorTxId, moreInfoUrl: err.moreInfoUrl };
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    if (err instanceof AnchorAmountMismatchError) {
-      // That anchor transaction is unusable (nothing was sent): forget it so the
-      // retry starts a fresh one instead of resuming the wrong-amount one.
-      await query(
-        `UPDATE escrow_milestones
-            SET anchor_tx_id = NULL, anchor_protocol = NULL, anchor_more_info_url = NULL
-          WHERE escrow_id = $1 AND idx = $2 AND anchor_settlement_hash IS NULL`,
-        [escrowId, idx],
-      );
-    }
-    logger.error('Anchor cash-out failed', { escrowId, idx, error: message });
-    await query(
-      `UPDATE escrow_milestones SET cashout_status = 'failed', cashout_error = $3 WHERE escrow_id = $1 AND idx = $2`,
-      [escrowId, idx, message.slice(0, 500)],
-    );
-    return { status: 'failed', error: message };
-  }
 }
 
 // ── POST /escrows — create + fund on-chain ────────────────────────────────────
@@ -648,10 +468,6 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response) =>
   if (!workerId) return;
   const { id } = req.params;
   const idx = Number(req.params.idx);
-  const wantsAnchorCashout = (req.body as { cashout?: string } | undefined)?.cashout === 'anchor';
-  if (wantsAnchorCashout && !anchorConfigured()) {
-    return res.status(400).json({ error: 'Anchor cash-out is not available — no anchor is configured' });
-  }
 
   try {
     const escrowRes = await query(
@@ -695,55 +511,10 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response) =>
       `Your worker claimed milestone ${idx + 1} (${Number(ms.rows[0].amount)} XLM).`, id,
     );
 
-    // Claim and cash-out are separate legs: a failed anchor never undoes the
-    // claim, it just leaves a retryable cash-out.
-    const cashout = wantsAnchorCashout ? await cashOutMilestone(id, idx, workerId) : undefined;
-    res.json({ txHash: hash, ...(cashout && { cashout }) });
+    res.json({ txHash: hash });
   } catch (err) {
     logger.error('Failed to claim milestone', { id, idx, error: String(err) });
     sendChainError(res, err, 'Failed to claim on-chain');
-  }
-});
-
-// ── POST /escrows/:id/milestones/:idx/cashout (worker) ───────────────────────
-// Cash out an already-claimed milestone through the anchor: either the
-// "claim now, cash out later" path or a retry after a failed anchor leg.
-
-router.post('/:id/milestones/:idx/cashout', async (req: Request, res: Response) => {
-  const workerId = requireWorker(req, res);
-  if (!workerId) return;
-  const { id } = req.params;
-  const idx = Number(req.params.idx);
-  if (!anchorConfigured()) {
-    return res.status(400).json({ error: 'Anchor cash-out is not available — no anchor is configured' });
-  }
-
-  try {
-    const owned = await query(
-      `SELECT m.status, m.cashout_status
-         FROM escrow_milestones m JOIN escrows e ON e.id = m.escrow_id
-        WHERE m.escrow_id = $1 AND m.idx = $2 AND e.worker_id = $3`,
-      [id, idx, workerId],
-    );
-    const m = owned.rows[0];
-    if (!m) return res.status(404).json({ error: 'Milestone not found' });
-    if (m.status !== 'claimed') {
-      return res.status(409).json({ error: `Milestone is ${m.status} — claim it before cashing out` });
-    }
-
-    // Re-screen before money leaves the platform for a bank/cash destination.
-    const pub = await workerPublicKey(workerId);
-    if (!pub) return res.status(400).json({ error: 'Your Stellar account is not set up' });
-    await ensureCleared(workerId, pub);
-
-    const result = await cashOutMilestone(id, idx, workerId);
-    if (result === 'in_progress') {
-      return res.status(409).json({ error: `Cash-out is already ${m.cashout_status}` });
-    }
-    res.status(result.status === 'failed' ? 502 : 200).json({ cashout: result });
-  } catch (err) {
-    logger.error('Failed to cash out milestone', { id, idx, error: String(err) });
-    sendChainError(res, err, 'Failed to cash out milestone');
   }
 });
 
@@ -831,10 +602,10 @@ router.post('/:id/refund', async (req: Request, res: Response) => {
 });
 
 // ── GET /escrows/cashout-options ──────────────────────────────────────────────
-// Which cash-out methods this deployment has configured, so the UI only offers real ones.
+// Whether MoneyGram cash-out is configured on this deployment, so the UI only offers it when real.
 
 router.get('/cashout-options', (_req: Request, res: Response) => {
-  res.json({ moneygram: moneygramConfigured(), anchor: anchorConfigured() });
+  res.json({ moneygram: moneygramConfigured() });
 });
 
 // ── GET /escrows/summary ──────────────────────────────────────────────────────
@@ -864,14 +635,13 @@ router.get('/summary', async (req: Request, res: Response) => {
       `SELECT
          COALESCE(SUM(m.amount) FILTER (WHERE m.status IN ('pending', 'approved')), 0) AS locked,
          COALESCE(SUM(m.amount) FILTER (WHERE m.status = 'claimed'), 0) AS claimed,
-         COALESCE(SUM(m.amount) FILTER (WHERE m.status = 'refunded'), 0) AS refunded,
-         COALESCE(SUM(m.cashout_xlm_spent) FILTER (WHERE m.cashout_status = 'completed'), 0) AS cashed_out
+         COALESCE(SUM(m.amount) FILTER (WHERE m.status = 'refunded'), 0) AS refunded
        FROM escrow_milestones m JOIN escrows e ON e.id = m.escrow_id
       WHERE ${column} = $1`,
       [scopeId],
     );
     const row = r.rows[0] ?? {};
-    // Wallet cash-outs (MoneyGram) belong to the worker; employers only see milestone payouts.
+    // Cash-outs (MoneyGram) come out of the worker's wallet; employers do not see them.
     const wallet = role === 'worker'
       ? Number((await query(
           `SELECT COALESCE(SUM(xlm_spent), 0) AS spent FROM cashouts WHERE worker_id = $1 AND status IN ('pending', 'completed')`,
@@ -882,7 +652,7 @@ router.get('/summary', async (req: Request, res: Response) => {
       lockedXlm: Number(row.locked ?? 0),
       claimedXlm: Number(row.claimed ?? 0),
       refundedXlm: Number(row.refunded ?? 0),
-      cashedOutXlm: Number(row.cashed_out ?? 0) + wallet,
+      cashedOutXlm: wallet,
     });
   } catch (err) {
     logger.error('Failed to summarize escrows', { error: String(err) });

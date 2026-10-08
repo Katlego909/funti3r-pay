@@ -63,8 +63,6 @@ export const WORKER_ROW = {
   stellar_public_key: 'GDESTWORKERPUBLICKEYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
   stellar_secret_key: 'SWORKERSECRETKEYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
   email: 'worker@test.com',
-  payout_method: 'stellar',
-  payout_details: null,
 };
 
 export const HANDLER_NO_EXISTING_IDEMPOTENCY_ROW: QueryHandler = {
