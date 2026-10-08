@@ -42,7 +42,7 @@ export default function EscrowPayouts({ escrow }: { escrow: Escrow }) {
       <div className="table-responsive">
         <table className="data-table" style={{ whiteSpace: 'nowrap' }}>
           <thead>
-            <tr><th>Milestone</th><th>Paid to</th><th>Account</th><th>Anchor pays out</th><th>Anchor fee</th></tr>
+            <tr><th>Milestone</th><th>Paid to</th><th>Account / reference</th><th>Recipient gets</th><th>Fee</th></tr>
           </thead>
           <tbody>
             {paid.map((m) => {
@@ -52,7 +52,9 @@ export default function EscrowPayouts({ escrow }: { escrow: Escrow }) {
                 <tr key={m.idx}>
                   <td data-label="Milestone" style={{ fontWeight: 600 }}>
                     {m.description || `Milestone ${m.idx + 1}`}
-                    <div style={{ fontSize: '0.75rem', fontWeight: 400, color: '#6b7280' }}>{m.amountXlm} XLM sent</div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 400, color: '#6b7280' }}>
+                      {p.rail === 'moneygram' ? `${m.amountXlm} XLM milestone` : `${m.amountXlm} XLM sent`}
+                    </div>
                   </td>
                   <td data-label="Paid to">
                     {p.rail === 'moneygram' ? (
@@ -67,7 +69,7 @@ export default function EscrowPayouts({ escrow }: { escrow: Escrow }) {
                       </>
                     ) : NOT_RECORDED}
                   </td>
-                  <td data-label="Account">
+                  <td data-label="Account / reference">
                     {p.rail === 'moneygram' ? (
                       p.referenceNumber ? (
                         <>
@@ -82,8 +84,8 @@ export default function EscrowPayouts({ escrow }: { escrow: Escrow }) {
                       </>
                     ) : NOT_RECORDED}
                   </td>
-                  <td data-label="Anchor pays out">{money(p.receivedAmount, p.receivedAsset) ?? NOT_RECORDED}</td>
-                  <td data-label="Anchor fee">{money(p.fee, p.feeAsset) ?? NOT_RECORDED}</td>
+                  <td data-label="Recipient gets">{money(p.receivedAmount, p.receivedAsset) ?? NOT_RECORDED}</td>
+                  <td data-label="Fee">{money(p.fee, p.feeAsset) ?? NOT_RECORDED}</td>
                 </tr>
               );
             })}
