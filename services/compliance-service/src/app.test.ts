@@ -242,3 +242,10 @@ test('the status says what verified rests on: a reviewer, an auto-approval or no
     auto.close();
   }
 });
+
+test('the sanctions list status is reachable (not mistaken for a user id)', async () => {
+  fresh();
+  const res = await call('GET', '/sanctions/status', enterprise(OWNER_A));
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { list: null });
+});

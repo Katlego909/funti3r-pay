@@ -104,6 +104,37 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
     }
   });
 
+  // ── Sanctions list: what is loaded, a manual refresh, and a name check ──────
+  // Registered ahead of every `/:userId/...` route so these literal paths are not read as user ids.
+
+  app.get('/sanctions/status', async (_req, res) => {
+    try {
+      res.json({ list: await sanctions.status() });
+    } catch (err) {
+      logger.error('Sanctions status failed', { error: String(err) });
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.post('/sanctions/refresh', async (req, res) => {
+    if (req.headers['x-user-role'] !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+    try {
+      res.json(await sanctions.refresh());
+    } catch (err) {
+      logger.error('Sanctions refresh failed', { error: String(err) });
+      res.status(502).json({ error: err instanceof Error ? err.message : 'Sanctions refresh failed' });
+    }
+  });
+
+  // Screens bare names (the payment service uses it for the employer funding an escrow).
+  app.post('/screen', (req, res) => {
+    const names = (req.body as { names?: unknown })?.names;
+    if (!Array.isArray(names) || names.some((n) => typeof n !== 'string')) {
+      return res.status(400).json({ error: 'names must be an array of strings' });
+    }
+    res.json({ matches: sanctions.screen(names as string[]) });
+  });
+
   // ── Status check ────────────────────────────────────────────────────────────
 
   app.get('/:userId/status', async (req, res) => {
@@ -184,37 +215,6 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
       logger.error('Bulk status check failed', { error: String(err) });
       res.status(500).json({ error: 'Internal server error' });
     }
-  });
-
-  // ── Sanctions list: what is loaded, a manual refresh, and a name check ──────
-  // Registered ahead of `/:userId/...` so these literal paths are not read as user ids.
-
-  app.get('/sanctions/status', async (_req, res) => {
-    try {
-      res.json({ list: await sanctions.status() });
-    } catch (err) {
-      logger.error('Sanctions status failed', { error: String(err) });
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
-
-  app.post('/sanctions/refresh', async (req, res) => {
-    if (req.headers['x-user-role'] !== 'admin') return res.status(403).json({ error: 'Admin role required' });
-    try {
-      res.json(await sanctions.refresh());
-    } catch (err) {
-      logger.error('Sanctions refresh failed', { error: String(err) });
-      res.status(502).json({ error: err instanceof Error ? err.message : 'Sanctions refresh failed' });
-    }
-  });
-
-  // Screens bare names (the payment service uses it for the employer funding an escrow).
-  app.post('/screen', (req, res) => {
-    const names = (req.body as { names?: unknown })?.names;
-    if (!Array.isArray(names) || names.some((n) => typeof n !== 'string')) {
-      return res.status(400).json({ error: 'names must be an array of strings' });
-    }
-    res.json({ matches: sanctions.screen(names as string[]) });
   });
 
   // ── Flagged (sanctions match) records, admin only ───────────────────────────
