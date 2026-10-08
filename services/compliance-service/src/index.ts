@@ -1,6 +1,7 @@
 import { createLogger } from '@funti3r/shared-utils';
 import { initPostgres, query } from '@funti3r/database';
 import { createApp } from './app.js';
+import { createSanctionsService } from './sanctions/service.js';
 import { sealExistingRecords } from './sealExisting.js';
 
 const logger = createLogger('ComplianceService');
@@ -10,6 +11,25 @@ const logger = createLogger('ComplianceService');
  * immediately and reports any user as verified. Set false to require review.
  */
 const AUTO_APPROVE = process.env.COMPLIANCE_AUTO_APPROVE === 'true';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Keeps the sanctions list current: a refresh shortly after boot when none is loaded yet or the loaded
+ * one is over a day old, then daily. SANCTIONS_REFRESH=false turns it off (offline dev, tests).
+ * A failed download is logged and the list in use stays as it was.
+ */
+function scheduleSanctionsRefresh(sanctions: Awaited<ReturnType<typeof createSanctionsService>>) {
+  if (process.env.SANCTIONS_REFRESH === 'false') return;
+  const run = () => sanctions.refresh().catch((err) => logger.error('Scheduled sanctions refresh failed', { error: String(err) }));
+  sanctions.status()
+    .then((meta) => {
+      const stale = !meta || Date.now() - new Date(meta.fetchedAt).getTime() > DAY_MS;
+      if (stale) setTimeout(run, 5_000);
+    })
+    .catch(() => {});
+  setInterval(run, DAY_MS).unref();
+}
 
 async function start() {
   try {
@@ -21,7 +41,10 @@ async function start() {
     logger.warn('PostgreSQL unavailable at startup', { error: String(err) });
   }
 
-  const app = createApp({ query, autoApprove: AUTO_APPROVE });
+  const sanctions = await createSanctionsService(query);
+  scheduleSanctionsRefresh(sanctions);
+
+  const app = createApp({ query, autoApprove: AUTO_APPROVE, sanctions });
   const PORT = parseInt(process.env.COMPLIANCE_SERVICE_PORT || '3003', 10);
   app.listen(PORT, '0.0.0.0', () => {
     logger.info(`Compliance Service running on port ${PORT}${AUTO_APPROVE ? ' [AUTO-APPROVE MODE]' : ''}`);

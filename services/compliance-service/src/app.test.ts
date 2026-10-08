@@ -8,6 +8,9 @@ process.env.MASTER_ENCRYPTION_KEY ??= 'ab'.repeat(32);
 const { createApp } = await import('./app.js');
 const { isSealed } = await import('./pii.js');
 const { sealExistingRecords } = await import('./sealExisting.js');
+const { screenNames } = await import('./sanctions/screen.js');
+
+const sanctions = { screen: (names: string[]) => screenNames(names), status: async () => null, refresh: async () => ({ entries: 0, rescreened: 0, newlyFlagged: 0 }) };
 
 // A tiny in-memory stand-in for the tables the service touches.
 const ADMIN = '00000000-0000-0000-0000-0000000000a1';
@@ -34,8 +37,8 @@ const query = async (sql: string, params: unknown[] = []): Promise<{ rows: any[]
     return { rows: m ? [{ company_role: m.role }] : [] };
   }
   if (/INSERT INTO kyc_records/.test(sql)) {
-    const [userId, status, data, verifiedAt, sanctionsStatus, matches] = params as string[];
-    records[userId] = { id: `rec-${userId}`, user_id: userId, status, data: JSON.parse(data), verified_at: verifiedAt, sanctions_status: sanctionsStatus, sanctions_matches: matches, created_at: 'now' };
+    const [userId, status, data, verifiedAt, sanctionsStatus, matches, expiresAt] = params as string[];
+    records[userId] = { id: `rec-${userId}`, user_id: userId, status, data: JSON.parse(data), verified_at: verifiedAt, expires_at: expiresAt, sanctions_status: sanctionsStatus, sanctions_matches: matches, created_at: 'now' };
     return { rows: [records[userId]] };
   }
   if (/INSERT INTO kyc_events/.test(sql)) {
@@ -73,7 +76,7 @@ const query = async (sql: string, params: unknown[] = []): Promise<{ rows: any[]
 let server: Server;
 let base: string;
 before(async () => {
-  server = createApp({ query, autoApprove: false }).listen(0);
+  server = createApp({ query, autoApprove: false, sanctions }).listen(0);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
 after(() => { server.close(); });
@@ -186,4 +189,34 @@ test('records written before encryption are sealed on boot and still read back',
 
   const body = await (await call('GET', `/${WORKER_A}`, worker(WORKER_A))).json() as any;
   assert.equal(body.identity.idNumber, '7001015009087');
+});
+
+test('an approval carries an expiry (a year by default); a pending submission has none', async () => {
+  fresh();
+  await submit(WORKER_A);
+  assert.equal(records[WORKER_A].expires_at, null);
+
+  const approvedServer = createApp({ query, autoApprove: true, sanctions, validityDays: 30 }).listen(0);
+  try {
+    const url = `http://127.0.0.1:${(approvedServer.address() as AddressInfo).port}`;
+    await fetch(`${url}/submit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-user-id': WORKER_B, 'x-user-role': 'worker' },
+      body: JSON.stringify({ userId: WORKER_B, identity: { fullName: 'Lerato Dlamini' } }),
+    });
+    const days = (Date.parse(records[WORKER_B].expires_at) - Date.now()) / 86_400_000;
+    assert.ok(days > 29 && days <= 30, `expires in ${days} days`);
+  } finally {
+    approvedServer.close();
+  }
+});
+
+test('anyone can screen bare names; the platform admin refreshes the list', async () => {
+  fresh();
+  const hit = await (await call('POST', '/screen', worker(WORKER_A), { names: ['Sanctions Test Subject', 'Thandi Nkosi'] })).json() as any;
+  assert.equal(hit.matches.length, 1);
+  assert.equal((await call('POST', '/screen', worker(WORKER_A), { names: 'nope' })).status, 400);
+
+  assert.equal((await call('POST', '/sanctions/refresh', enterprise(OWNER_A))).status, 403);
+  assert.equal((await call('POST', '/sanctions/refresh', admin)).status, 200);
 });

@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
+import { query } from '@funti3r/database';
 import * as escrow from '../lib/escrow.js';
 
 // setup.ts replaces lib/clearance.js for the route tests; here the real module
 // is the unit under test, with the chain calls (lib/escrow.js) mocked.
-const { ensureCleared, ComplianceBlockedError } =
+const { ensureCleared, screenEmployer, ComplianceBlockedError } =
   await vi.importActual<typeof import('../lib/clearance.js')>('../lib/clearance.js');
 
 const WORKER_ID = 'worker-1111-1111-1111-111111111111';
@@ -84,5 +85,43 @@ describe('ensureCleared', () => {
 
     await expect(ensureCleared(WORKER_ID, WORKER_PUB)).rejects.toThrow(/Compliance service unavailable/);
     expect(setClearance).not.toHaveBeenCalled();
+  });
+});
+
+describe('screenEmployer', () => {
+  const OWNER_ID = 'owner-1111-1111-1111-111111111111';
+  const company = (row: Record<string, unknown> = { company_name: 'Acme Logistics', first_name: 'Thandi', last_name: 'Nkosi' }) =>
+    vi.mocked(query).mockResolvedValue({ rows: [row] } as never);
+
+  beforeEach(() => {
+    vi.mocked(axios.post).mockReset();
+  });
+
+  it('screens the company name and the owner, and passes a clean company', async () => {
+    company();
+    vi.mocked(axios.post).mockResolvedValue({ data: { matches: [] } });
+
+    await expect(screenEmployer(OWNER_ID)).resolves.toBeUndefined();
+    expect(vi.mocked(axios.post).mock.calls[0][1]).toEqual({ names: ['Acme Logistics', 'Thandi Nkosi'] });
+  });
+
+  it('blocks a company that matches the sanctions list', async () => {
+    company();
+    vi.mocked(axios.post).mockResolvedValue({ data: { matches: [{ matchedName: 'ACME LOGISTICS' }] } });
+
+    await expect(screenEmployer(OWNER_ID)).rejects.toThrow(/blocked pending compliance review/);
+  });
+
+  it('fails closed when the compliance service cannot be reached', async () => {
+    company();
+    vi.mocked(axios.post).mockRejectedValue(new Error('ECONNREFUSED'));
+
+    await expect(screenEmployer(OWNER_ID)).rejects.toThrow(ComplianceBlockedError);
+  });
+
+  it('has nothing to screen for an account with no names', async () => {
+    company({ company_name: null, first_name: null, last_name: null });
+    await expect(screenEmployer(OWNER_ID)).resolves.toBeUndefined();
+    expect(axios.post).not.toHaveBeenCalled();
   });
 });

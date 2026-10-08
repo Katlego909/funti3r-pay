@@ -5,7 +5,7 @@ import { createLogger, decryptFromString } from '@funti3r/shared-utils';
 import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from '../lib/company.js';
 import * as escrow from '../lib/escrow.js';
 import { recordEscrowPaymentSafely } from '../lib/escrowAccounting.js';
-import { ComplianceBlockedError, ensureCleared } from '../lib/clearance.js';
+import { ComplianceBlockedError, ensureCleared, screenEmployer } from '../lib/clearance.js';
 import { anchorConfigured, sendAnchorPayout } from '../rails/anchor.js';
 import { reconcileEscrows } from '../lib/escrowReconcile.js';
 import { AnchorActionRequiredError, AnchorAmountMismatchError, interactiveUrlUsable } from '../lib/anchor.js';
@@ -424,7 +424,8 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     // The contract enforces the gate; this brings its clearance in line with
-    // the current KYC + sanctions verdict first.
+    // the current KYC + sanctions verdict first. The funding company is screened too.
+    await screenEmployer(ctx.ownerUserId);
     await ensureCleared(workerId, worker.stellar_public_key);
 
     const { secret, error } = await resolveEnterpriseSecret(ctx.ownerUserId);

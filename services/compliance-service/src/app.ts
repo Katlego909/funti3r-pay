@@ -1,6 +1,6 @@
 import express from 'express';
 import { createLogger, NotFoundError } from '@funti3r/shared-utils';
-import { screenNames } from './sanctions/screen.js';
+import { candidateNamesFromSubmission } from './names.js';
 import type { Deps } from './deps.js';
 import { canDecide, kycAccess } from './access.js';
 import { recordKycEvent } from './events.js';
@@ -15,17 +15,16 @@ function toFrontendStatus(dbStatus: string): string {
   return dbStatus === 'approved' ? 'verified' : dbStatus;
 }
 
-function candidateNamesFromSubmission(details: Record<string, any>): string[] {
-  return [
-    details?.identity?.fullName,
-    details?.identity?.legalName,
-    details?.bankAccount?.accountHolderName,
-  ].filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
-}
-
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
-export function createApp({ query, autoApprove }: Deps): express.Express {
+/**
+ * An approval lapses: the record then reads 'expired' everywhere a status is reported, and the
+ * payment service (which only clears 'verified' workers) stops them until they are re-verified.
+ */
+const EFFECTIVE_STATUS = `CASE WHEN status = 'approved' AND expires_at IS NOT NULL AND expires_at < NOW() THEN 'expired' ELSE status END`;
+const DEFAULT_VALIDITY_DAYS = 365;
+
+export function createApp({ query, autoApprove, sanctions, validityDays = DEFAULT_VALIDITY_DAYS }: Deps): express.Express {
   const app = express();
   app.use(express.json());
 
@@ -56,25 +55,27 @@ export function createApp({ query, autoApprove }: Deps): express.Express {
     }
 
     try {
-      const sanctionsMatches = screenNames(candidateNamesFromSubmission(details));
+      const sanctionsMatches = sanctions.screen(candidateNamesFromSubmission(details));
       const sanctionsStatus = sanctionsMatches.length > 0 ? 'flagged' : 'clear';
 
       const status = sanctionsStatus === 'flagged' ? 'rejected' : (autoApprove ? 'approved' : 'pending');
       const verifiedAt = status === 'approved' ? new Date().toISOString() : null;
+      const expiresAt = status === 'approved' ? new Date(Date.now() + validityDays * 86_400_000).toISOString() : null;
 
       const result = await query(
-        `INSERT INTO kyc_records (user_id, provider, status, data, verified_at, sanctions_status, sanctions_matches, sanctions_checked_at, updated_at)
-           VALUES ($1, 'manual', $2, $3, $4, $5, $6, NOW(), NOW())
+        `INSERT INTO kyc_records (user_id, provider, status, data, verified_at, expires_at, sanctions_status, sanctions_matches, sanctions_checked_at, updated_at)
+           VALUES ($1, 'manual', $2, $3, $4, $7, $5, $6, NOW(), NOW())
          ON CONFLICT (user_id) DO UPDATE SET
            status = EXCLUDED.status,
            data = EXCLUDED.data,
            verified_at = EXCLUDED.verified_at,
+           expires_at = EXCLUDED.expires_at,
            sanctions_status = EXCLUDED.sanctions_status,
            sanctions_matches = EXCLUDED.sanctions_matches,
            sanctions_checked_at = EXCLUDED.sanctions_checked_at,
            updated_at = NOW()
          RETURNING id, status, verified_at, sanctions_status, created_at`,
-        [userId, status, sealDetails(details), verifiedAt, sanctionsStatus, JSON.stringify(sanctionsMatches)],
+        [userId, status, sealDetails(details), verifiedAt, sanctionsStatus, JSON.stringify(sanctionsMatches), expiresAt],
       );
 
       const row = result.rows[0];
@@ -104,7 +105,7 @@ export function createApp({ query, autoApprove }: Deps): express.Express {
   app.get('/:userId/status', async (req, res) => {
     try {
       const result = await query(
-        `SELECT id, status, verified_at, created_at, updated_at, sanctions_status, sanctions_checked_at
+        `SELECT id, ${EFFECTIVE_STATUS} AS status, verified_at, created_at, updated_at, sanctions_status, sanctions_checked_at
            FROM kyc_records WHERE user_id = $1`,
         [req.params.userId],
       );
@@ -146,7 +147,7 @@ export function createApp({ query, autoApprove }: Deps): express.Express {
 
     try {
       const result = await query(
-        `SELECT user_id, status, verified_at, created_at, updated_at, sanctions_status
+        `SELECT user_id, ${EFFECTIVE_STATUS} AS status, verified_at, created_at, updated_at, sanctions_status
            FROM kyc_records WHERE user_id = ANY($1::uuid[])`,
         [userIds],
       );
@@ -176,6 +177,37 @@ export function createApp({ query, autoApprove }: Deps): express.Express {
       logger.error('Bulk status check failed', { error: String(err) });
       res.status(500).json({ error: 'Internal server error' });
     }
+  });
+
+  // ── Sanctions list: what is loaded, a manual refresh, and a name check ──────
+  // Registered ahead of `/:userId/...` so these literal paths are not read as user ids.
+
+  app.get('/sanctions/status', async (_req, res) => {
+    try {
+      res.json({ list: await sanctions.status() });
+    } catch (err) {
+      logger.error('Sanctions status failed', { error: String(err) });
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.post('/sanctions/refresh', async (req, res) => {
+    if (req.headers['x-user-role'] !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+    try {
+      res.json(await sanctions.refresh());
+    } catch (err) {
+      logger.error('Sanctions refresh failed', { error: String(err) });
+      res.status(502).json({ error: err instanceof Error ? err.message : 'Sanctions refresh failed' });
+    }
+  });
+
+  // Screens bare names (the payment service uses it for the employer funding an escrow).
+  app.post('/screen', (req, res) => {
+    const names = (req.body as { names?: unknown })?.names;
+    if (!Array.isArray(names) || names.some((n) => typeof n !== 'string')) {
+      return res.status(400).json({ error: 'names must be an array of strings' });
+    }
+    res.json({ matches: sanctions.screen(names as string[]) });
   });
 
   // ── Flagged (sanctions match) records, admin only ───────────────────────────
@@ -211,7 +243,7 @@ export function createApp({ query, autoApprove }: Deps): express.Express {
       if (!access) return res.status(403).json({ error: 'Not authorized to view this KYC record' });
 
       const result = await query(
-        `SELECT id, user_id, status, data, verified_at, created_at, updated_at, sanctions_status, sanctions_matches
+        `SELECT id, user_id, ${EFFECTIVE_STATUS} AS status, data, verified_at, created_at, updated_at, sanctions_status, sanctions_matches
            FROM kyc_records WHERE user_id = $1`,
         [targetUserId],
       );
@@ -286,11 +318,12 @@ export function createApp({ query, autoApprove }: Deps): express.Express {
         `UPDATE kyc_records
             SET status = $1,
                 verified_at = CASE WHEN $1 = 'approved' THEN NOW() ELSE verified_at END,
+                expires_at = CASE WHEN $1 = 'approved' THEN NOW() + make_interval(days => $3) ELSE expires_at END,
                 sanctions_status = CASE WHEN $1 = 'approved' THEN 'clear' ELSE sanctions_status END,
                 updated_at = NOW()
           WHERE user_id = $2
           RETURNING status`,
-        [newStatus, targetUserId],
+        [newStatus, targetUserId, validityDays],
       );
       if (result.rows.length === 0) throw new NotFoundError('KYC record');
 

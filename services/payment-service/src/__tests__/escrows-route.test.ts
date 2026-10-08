@@ -3,7 +3,7 @@ import request from 'supertest';
 import axios from 'axios';
 import { query } from '@funti3r/database';
 import * as escrow from '../lib/escrow.js';
-import { ensureCleared, ComplianceBlockedError } from '../lib/clearance.js';
+import { ensureCleared, screenEmployer, ComplianceBlockedError } from '../lib/clearance.js';
 import { anchorConfigured, sendAnchorPayout } from '../rails/anchor.js';
 import { AnchorActionRequiredError, AnchorAmountMismatchError } from '../lib/anchor.js';
 import app from '../app.js';
@@ -211,6 +211,16 @@ describe('compliance gate', () => {
   it('403s escrow creation and never touches the chain when the worker is blocked', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_LOOKUP, HANDLER_COMPANY_WORKER, HANDLER_SECRET]));
     vi.mocked(ensureCleared).mockRejectedValue(new ComplianceBlockedError('Worker is blocked pending compliance review (sanctions match)'));
+
+    const res = await request(app).post('/escrows').set(enterpriseHeaders).send(body());
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ code: 'compliance_blocked' });
+    expect(escrow.createEscrow).not.toHaveBeenCalled();
+  });
+
+  it('403s escrow creation and never touches the chain when the funding company is sanctioned', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_LOOKUP, HANDLER_COMPANY_WORKER, HANDLER_SECRET]));
+    vi.mocked(screenEmployer).mockRejectedValueOnce(new ComplianceBlockedError('Your company is blocked pending compliance review (sanctions match)'));
 
     const res = await request(app).post('/escrows').set(enterpriseHeaders).send(body());
     expect(res.status).toBe(403);

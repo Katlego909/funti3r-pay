@@ -11,6 +11,7 @@
  * Fails closed: if the compliance service can't be reached, nothing is cleared.
  */
 import axios from 'axios';
+import { query } from '@funti3r/database';
 import { createLogger } from '@funti3r/shared-utils';
 import {
   attestationHash,
@@ -97,4 +98,33 @@ export async function ensureCleared(workerId: string, workerPublic: string): Pro
     logger.warn('Worker clearance revoked on-chain', { workerId, reason, txHash });
   }
   throw new ComplianceBlockedError(reason);
+}
+
+/**
+ * The employer funding an escrow is screened against the sanctions list too, not just the worker:
+ * the company's registered name and its owner's name. Fails closed like the worker check.
+ */
+export async function screenEmployer(ownerUserId: string): Promise<void> {
+  const r = await query(
+    `SELECT e.company_name, u.first_name, u.last_name
+       FROM users u LEFT JOIN enterprises e ON e.user_id = u.id WHERE u.id = $1`,
+    [ownerUserId],
+  );
+  const row = r.rows[0];
+  const names = [row?.company_name, [row?.first_name, row?.last_name].filter(Boolean).join(' ')]
+    .filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
+  if (names.length === 0) return;
+
+  let matches: unknown[];
+  try {
+    const resp = await axios.post<{ matches: unknown[] }>(`${COMPLIANCE_SERVICE_URL}/screen`, { names }, { timeout: 5000 });
+    matches = resp.data.matches ?? [];
+  } catch (err) {
+    logger.error('Employer screening failed — blocking escrow funding', { ownerUserId, error: String(err) });
+    throw new ComplianceBlockedError('Compliance service unavailable');
+  }
+  if (matches.length > 0) {
+    logger.warn('Employer blocked by sanctions screening', { ownerUserId, matchCount: matches.length });
+    throw new ComplianceBlockedError('Your company is blocked pending compliance review (sanctions match)');
+  }
 }

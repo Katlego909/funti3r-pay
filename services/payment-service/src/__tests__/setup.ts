@@ -57,6 +57,7 @@ vi.mock('../lib/escrow.js', () => ({
 // and the contract; routes only care whether it resolves or blocks.
 vi.mock('../lib/clearance.js', () => ({
   ensureCleared: vi.fn().mockResolvedValue({ cleared: true }),
+  screenEmployer: vi.fn().mockResolvedValue(undefined),
   ComplianceBlockedError: class ComplianceBlockedError extends Error {},
 }));
 
