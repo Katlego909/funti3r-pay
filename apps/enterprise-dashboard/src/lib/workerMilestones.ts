@@ -11,17 +11,7 @@ export interface MilestoneState {
   group: MilestoneGroup;
 }
 
-export interface PayoutState {
-  variant: Variant;
-  label: string;
-  /** Whether trying the anchor payout again can succeed. */
-  retryable: boolean;
-}
-
-/** The test anchor refuses payouts above its own limit; asking again never helps. */
-const ANCHOR_LIMIT_ERROR = /maximum disbursement|only pays out up to/i;
-
-/** Where a milestone is in its life: submit -> review -> approve -> claim. Cash-outs are not part of it. */
+/** Where a milestone is in its life: submit -> review -> approve -> claim. Cashing out is a wallet matter. */
 export function milestoneState(e: Escrow, m: EscrowMilestone, now = Date.now()): MilestoneState {
   if (m.status === 'refunded') return { variant: 'failed', label: 'Refunded', group: 'done' };
   if (m.status === 'claimed') return { variant: 'completed', label: 'Claimed', group: 'done' };
@@ -33,36 +23,13 @@ export function milestoneState(e: Escrow, m: EscrowMilestone, now = Date.now()):
   return { variant: 'pending', label: 'Not submitted', group: 'todo' };
 }
 
-/** The separate bank payout through the anchor; null when none was ever started. */
-export function payoutState(m: EscrowMilestone): PayoutState | null {
-  if (m.status !== 'claimed') return null;
-  switch (m.cashoutStatus) {
-    case 'completed': return { variant: 'completed', label: 'Paid out via anchor', retryable: false };
-    case 'pending': return { variant: 'pending', label: 'In progress', retryable: false };
-    case 'action_required': return { variant: 'pending', label: 'Needs your step', retryable: false };
-    case 'failed':
-      return ANCHOR_LIMIT_ERROR.test(m.cashoutError ?? '')
-        ? { variant: 'failed', label: 'Over the test anchor limit', retryable: false }
-        : { variant: 'failed', label: 'Payout failed', retryable: true };
-    default: return null;
-  }
-}
-
 export interface MilestoneRow {
   escrow: Escrow;
   milestone: EscrowMilestone;
   state: MilestoneState;
-  payout: PayoutState | null;
 }
 
 export type MilestoneTab = 'active' | 'finished' | 'all';
-
-/** A claimed milestone whose bank payout still needs the worker is not finished. */
-function effectiveGroup(row: MilestoneRow): MilestoneGroup {
-  if (row.state.group === 'done' && row.milestone.status === 'claimed'
-    && (row.milestone.cashoutStatus === 'action_required' || row.payout?.retryable)) return 'todo';
-  return row.state.group;
-}
 
 const RANK: Record<MilestoneGroup, number> = { todo: 0, waiting: 1, done: 2 };
 
@@ -70,15 +37,15 @@ const RANK: Record<MilestoneGroup, number> = { todo: 0, waiting: 1, done: 2 };
 export function buildMilestoneRows(escrows: Escrow[], now = Date.now()): MilestoneRow[] {
   return escrows
     .flatMap((escrow) => escrow.milestones.map((milestone) => ({
-      escrow, milestone, state: milestoneState(escrow, milestone, now), payout: payoutState(milestone),
+      escrow, milestone, state: milestoneState(escrow, milestone, now),
     })))
     .sort((a, b) =>
-      RANK[effectiveGroup(a)] - RANK[effectiveGroup(b)]
+      RANK[a.state.group] - RANK[b.state.group]
       || Date.parse(b.escrow.createdAt) - Date.parse(a.escrow.createdAt)
       || a.milestone.idx - b.milestone.idx);
 }
 
 export function inTab(row: MilestoneRow, tab: MilestoneTab): boolean {
   if (tab === 'all') return true;
-  return (effectiveGroup(row) === 'done') === (tab === 'finished');
+  return (row.state.group === 'done') === (tab === 'finished');
 }

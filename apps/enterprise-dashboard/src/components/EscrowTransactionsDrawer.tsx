@@ -6,7 +6,6 @@ import { StatusBadge } from './StatusBadge.js';
 import CopyButton from './CopyButton.js';
 import EscrowTransactions from './EscrowTransactions.js';
 import EscrowReviewLog from './EscrowReviewLog.js';
-import EscrowPayouts from './EscrowPayouts.js';
 import EscrowMoneyTrail from './EscrowMoneyTrail.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 
@@ -59,9 +58,6 @@ export default function EscrowTransactionsDrawer({ escrow, onClose }: { escrow: 
 
           <SectionTitle>Where the money went</SectionTitle>
           <EscrowMoneyTrail escrow={current} viewer="worker" />
-
-          <SectionTitle>Payouts</SectionTitle>
-          <EscrowPayouts escrow={current} />
 
           <SectionTitle>Review activity</SectionTitle>
           <EscrowReviewLog escrow={current} />

@@ -14,7 +14,6 @@ import SlideOver, { Row, SectionTitle } from '../components/SlideOver.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 import EscrowTransactions from '../components/EscrowTransactions.js';
 import EscrowReviewLog from '../components/EscrowReviewLog.js';
-import EscrowPayouts from '../components/EscrowPayouts.js';
 import RejectWorkModal from '../components/RejectWorkModal.js';
 
 interface WorkerOption { id: string; email: string }
@@ -34,16 +33,11 @@ const MILESTONE_BADGE: Record<string, ['completed' | 'failed' | 'pending', strin
   refunded: ['failed', 'Refunded'],
 };
 
-/** One badge per milestone, folding in the worker's anchor cash-out once claimed. */
+/** One badge per milestone, folding in the worker's review state while it is still pending. */
 function milestoneBadge(m: Escrow['milestones'][number]): ['completed' | 'failed' | 'pending', string] {
   if (m.status === 'pending') {
     if (m.reviewStatus === 'submitted') return ['pending', 'Work submitted'];
     if (m.reviewStatus === 'rejected') return ['failed', 'Sent back to worker'];
-  }
-  if (m.status === 'claimed') {
-    if (m.cashoutStatus === 'completed') return ['completed', 'Paid out via anchor'];
-    if (m.cashoutStatus === 'action_required') return ['pending', 'Claimed · cash-out pending'];
-    if (m.cashoutStatus === 'failed') return ['failed', 'Claimed · cash-out failed'];
   }
   return MILESTONE_BADGE[m.status];
 }
@@ -154,9 +148,6 @@ function EscrowDetailDrawer({
 
         <SectionTitle>Where the money went</SectionTitle>
         <EscrowMoneyTrail escrow={current} viewer="employer" />
-
-        <SectionTitle>Payouts</SectionTitle>
-        <EscrowPayouts escrow={current} />
 
         <SectionTitle>Review activity</SectionTitle>
         <EscrowReviewLog escrow={current} />

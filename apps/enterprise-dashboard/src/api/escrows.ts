@@ -10,30 +10,8 @@ export interface EscrowMilestone {
   claimTxHash: string | null;
   approveTxHash: string | null;
   refundTxHash: string | null;
-  cashoutAt: string | null;
   /** Worker/employer review of the work itself (off-chain). */
   reviewStatus: 'none' | 'submitted' | 'rejected';
-  /** Receipt of a completed anchor cash-out; null until paid out. */
-  payout: {
-    destination: { name: string | null; email: string | null; bankNumber: string | null; accountLast4: string | null } | null;
-    receivedAmount: string | null;
-    receivedAsset: string | null;
-    fee: string | null;
-    feeAsset: string | null;
-    anchorDomain: string | null;
-    /** True for the SDF test anchor: nothing real is deposited anywhere. */
-    sandbox: boolean;
-  } | null;
-  /** Second leg of a claim: routing the claimed funds through an anchor. */
-  cashoutStatus: 'none' | 'pending' | 'action_required' | 'completed' | 'failed';
-  /** XLM actually spent by the anchor cash-out. */
-  cashoutXlmSpent: number | null;
-  anchorTxId: string | null;
-  anchorSettlementHash: string | null;
-  anchorStatus: string | null;
-  /** The anchor's own page the worker must visit when action_required. */
-  anchorMoreInfoUrl: string | null;
-  cashoutError: string | null;
 }
 
 export interface ReviewEvent {
@@ -43,15 +21,6 @@ export interface ReviewEvent {
   note: string | null;
   links: string[];
   at: string;
-}
-
-export interface CashoutResult {
-  status: 'completed' | 'failed' | 'action_required';
-  anchorTxId?: string;
-  settlementHash?: string;
-  anchorStatus?: string;
-  moreInfoUrl?: string;
-  error?: string;
 }
 
 export interface Escrow {
@@ -91,22 +60,9 @@ export async function approveMilestone(escrowId: string, idx: number): Promise<s
   return data.txHash;
 }
 
-export async function claimMilestone(
-  escrowId: string,
-  idx: number,
-  opts?: { cashout?: 'anchor' },
-): Promise<{ txHash: string; cashout?: CashoutResult }> {
-  const { data } = await api.post<{ txHash: string; cashout?: CashoutResult }>(
-    `/escrows/${escrowId}/milestones/${idx}/claim`,
-    opts ?? {},
-  );
-  return data;
-}
-
-/** Cash out an already-claimed milestone through the anchor (or resume one). */
-export async function cashOutMilestone(escrowId: string, idx: number): Promise<CashoutResult> {
-  const { data } = await api.post<{ cashout: CashoutResult }>(`/escrows/${escrowId}/milestones/${idx}/cashout`);
-  return data.cashout;
+export async function claimMilestone(escrowId: string, idx: number): Promise<string> {
+  const { data } = await api.post<{ txHash: string }>(`/escrows/${escrowId}/milestones/${idx}/claim`);
+  return data.txHash;
 }
 
 export async function refundEscrow(escrowId: string): Promise<{ refundedXlm: number; txHash: string }> {
@@ -137,8 +93,8 @@ export interface MoneyGramSession {
   maxXlm: number;
 }
 
-export async function getCashoutOptions(): Promise<{ moneygram: boolean; anchor: boolean }> {
-  const { data } = await api.get<{ moneygram: boolean; anchor: boolean }>('/escrows/cashout-options');
+export async function getCashoutOptions(): Promise<{ moneygram: boolean }> {
+  const { data } = await api.get<{ moneygram: boolean }>('/escrows/cashout-options');
   return data;
 }
 

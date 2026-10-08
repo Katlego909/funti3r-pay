@@ -14,9 +14,6 @@ interface TxRow {
   at?: string | null;
   /** On-chain transaction hash, when the step has one. */
   hash?: string | null;
-  /** Off-chain reference (the anchor's own transaction id). */
-  reference?: string;
-  note?: string;
 }
 
 const fmtDate = (iso?: string | null) =>
@@ -37,25 +34,6 @@ function buildRows(escrow: Escrow, dc: DisplayCurrency): TxRow[] {
     }
     if (m.status === 'claimed') {
       rows.push({ key: `c${m.idx}`, step: 'Claimed', milestone, at: m.claimedAt, hash: m.claimTxHash });
-    }
-    if (m.anchorSettlementHash) {
-      rows.push({
-        key: `p${m.idx}`,
-        step: 'Anchor payout',
-        milestone,
-        at: m.cashoutAt,
-        hash: m.anchorSettlementHash,
-        note: m.anchorStatus ? `Anchor: ${m.anchorStatus}` : undefined,
-      });
-    }
-    if (m.anchorTxId) {
-      rows.push({
-        key: `r${m.idx}`,
-        step: m.cashoutStatus === 'failed' ? 'Anchor withdrawal (failed)' : 'Anchor withdrawal',
-        milestone,
-        reference: m.anchorTxId,
-        note: m.cashoutError ?? (m.cashoutStatus === 'action_required' ? 'Waiting for the anchor form' : undefined),
-      });
     }
     if (m.status === 'refunded') {
       rows.push({ key: `f${m.idx}`, step: 'Refunded', milestone, hash: m.refundTxHash });
@@ -81,7 +59,6 @@ export default function EscrowTransactions({ escrow }: { escrow: Escrow }) {
               <td data-label="Step">
                 <div style={{ fontWeight: 600 }}>{r.step}</div>
                 {r.milestone && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{r.milestone}</div>}
-                {r.note && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{r.note}</div>}
               </td>
               <td data-label="Date" style={{ whiteSpace: 'nowrap' }}>{fmtDate(r.at)}</td>
               <td data-label="Transaction">
@@ -97,11 +74,6 @@ export default function EscrowTransactions({ escrow }: { escrow: Escrow }) {
                       {short(r.hash)} <HiOutlineArrowTopRightOnSquare size={12} />
                     </a>
                     <CopyButton text={r.hash} title="Copy transaction hash" />
-                  </span>
-                ) : r.reference ? (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontFamily: 'monospace', fontSize: '0.78rem' }} title={r.reference}>{short(r.reference)}</span>
-                    <CopyButton text={r.reference} title="Copy anchor transaction id" />
                   </span>
                 ) : (
                   <span style={{ color: '#9ca3af', fontSize: '0.78rem' }}>Not recorded</span>
