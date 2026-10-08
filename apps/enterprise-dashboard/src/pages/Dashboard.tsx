@@ -193,7 +193,7 @@ export default function Dashboard() {
             <>
               <div className="metric-value">{dc.format(summary.completedVolumeUsd, 'USD')}</div>
               <div className="metric-change">
-                Lifetime total {isEnterprise ? 'sent' : 'received'} · {summary.totalCount} transactions
+                Lifetime total {isEnterprise ? 'sent' : 'received'} · {summary.byStatus['completed'] ?? 0} transactions
               </div>
             </>
           ) : (
