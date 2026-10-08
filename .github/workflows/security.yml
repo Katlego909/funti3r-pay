@@ -1,0 +1,38 @@
+name: Security
+
+# Dependency and secret checks. Runs on every push and pull request, and weekly so a newly published
+# advisory against a dependency we already ship does not wait for the next code change.
+
+on:
+  push:
+    branches: [main, develop, master]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # Critical advisories fail the build. One high advisory (`braces`, in a wallet-kit build tool) has no patched
+      # release upstream; revisit it and tighten this to `high` once it does.
+      - run: pnpm audit --prod --audit-level=critical
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

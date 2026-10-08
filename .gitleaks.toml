@@ -1,0 +1,11 @@
+# Secret scanning config. The defaults apply; the allowlist only covers values that are fake on purpose.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake credentials used by unit tests and the example env file"
+paths = [
+  '''(^|/)__tests__/''',
+  '''\.test\.ts$''',
+  '''(^|/)\.env\.example$''',
+]
