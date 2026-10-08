@@ -221,6 +221,62 @@ export default function Wallet() {
       {error && <div className="error-banner">{error}</div>}
 
       <div style={{ display: 'grid', gap: '14px', marginTop: '14px' }}>
+        {/* Balance: the whole wallet as one figure in the viewer's currency */}
+        <section className="section">
+          <h3>Balance</h3>
+          {(() => {
+            const parts = balances.map((bal) => {
+              const code = bal.asset_code || (bal.asset_type === 'native' ? 'XLM' : bal.asset_type);
+              return dc.convert(parseFloat(bal.balance), code);
+            });
+            if (balances.length === 0) {
+              return (
+                <div className="empty-state" style={{ textAlign: 'center' }}>
+                  <HiOutlineBanknotes size={40} style={{ color: '#d1d5db', margin: '0 auto 12px' }} />
+                  <p style={{ margin: 0 }}>No balance yet. Once your wallet receives payments, they will appear here.</p>
+                </div>
+              );
+            }
+            // If any asset can't be priced, say so rather than quietly under-counting.
+            const total = parts.every((v) => v !== null) ? (parts as number[]).reduce((sum, v) => sum + v, 0) : null;
+            return (
+              <div>
+                <div style={{ fontFamily: "'Archivo Black', sans-serif", fontSize: '28px', fontWeight: 800, letterSpacing: '-0.5px', color: 'var(--gray-900)' }}>
+                  {total !== null ? dc.formatValue(total) : '—'}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--gray-600)', marginTop: 4 }}>
+                  Everything in your wallet, shown in {dc.code}. Use "View on Explorer" above to see each asset.
+                </div>
+                {moneygramOn && (
+                  <button
+                    className="btn-primary"
+                    style={{ marginTop: 12, padding: '9px 18px', fontSize: '0.85rem' }}
+                    onClick={() => setMgOpen(true)}
+                  >
+                    Cash out with MoneyGram
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+        </section>
+
+        {/* Milestone escrows — funds locked for this worker on-chain */}
+        {escrows.length > 0 && (
+          <WorkerMilestonesTable
+            escrows={escrows}
+            payoutMethod={payoutMethod}
+            moneygramOn={moneygramOn}
+            busyKey={claiming}
+            onClaim={handleClaim}
+            onCashout={handleCashout}
+            onSubmitWork={setSubmitFor}
+            onOpen={setTxEscrow}
+          />
+        )}
+
+        <CashoutsTable cashouts={cashouts} />
+
         {/* Payout currency preference */}
         <section className="section">
           <h3>Get Paid In</h3>
@@ -299,24 +355,6 @@ export default function Wallet() {
           </div>
         </section>
 
-        {/* Milestone escrows — funds locked for this worker on-chain */}
-        {escrows.length > 0 && (
-          <WorkerMilestonesTable
-            escrows={escrows}
-            payoutMethod={payoutMethod}
-            moneygramOn={moneygramOn}
-            busyKey={claiming}
-            onClaim={handleClaim}
-            onCashout={handleCashout}
-            onSubmitWork={setSubmitFor}
-            onOpen={setTxEscrow}
-          />
-        )}
-
-        <EscrowTransactionsDrawer escrow={txEscrow} onClose={() => setTxEscrow(null)} />
-        <SubmitWorkModal target={submitFor} onClose={() => setSubmitFor(null)} onDone={loadEscrows} />
-        <MoneyGramCashoutModal open={mgOpen} onClose={() => setMgOpen(false)} onChanged={() => { loadCashouts(); fetchWallet(); }} />
-
         {/* Stellar Account */}
         <section className="section">
           <h3>Stellar Account</h3>
@@ -346,47 +384,9 @@ export default function Wallet() {
           )}
         </section>
 
-        {/* Balance: the whole wallet as one figure in the viewer's currency */}
-        <section className="section">
-          <h3>Balance</h3>
-          {(() => {
-            const parts = balances.map((bal) => {
-              const code = bal.asset_code || (bal.asset_type === 'native' ? 'XLM' : bal.asset_type);
-              return dc.convert(parseFloat(bal.balance), code);
-            });
-            if (balances.length === 0) {
-              return (
-                <div className="empty-state" style={{ textAlign: 'center' }}>
-                  <HiOutlineBanknotes size={40} style={{ color: '#d1d5db', margin: '0 auto 12px' }} />
-                  <p style={{ margin: 0 }}>No balance yet. Once your wallet receives payments, they will appear here.</p>
-                </div>
-              );
-            }
-            // If any asset can't be priced, say so rather than quietly under-counting.
-            const total = parts.every((v) => v !== null) ? (parts as number[]).reduce((sum, v) => sum + v, 0) : null;
-            return (
-              <div>
-                <div style={{ fontFamily: "'Archivo Black', sans-serif", fontSize: '28px', fontWeight: 800, letterSpacing: '-0.5px', color: 'var(--gray-900)' }}>
-                  {total !== null ? dc.formatValue(total) : '—'}
-                </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--gray-600)', marginTop: 4 }}>
-                  Everything in your wallet, shown in {dc.code}. Use "View on Explorer" above to see each asset.
-                </div>
-                {moneygramOn && (
-                  <button
-                    className="btn-primary"
-                    style={{ marginTop: 12, padding: '9px 18px', fontSize: '0.85rem' }}
-                    onClick={() => setMgOpen(true)}
-                  >
-                    Cash out with MoneyGram
-                  </button>
-                )}
-              </div>
-            );
-          })()}
-        </section>
-
-        <CashoutsTable cashouts={cashouts} />
+        <EscrowTransactionsDrawer escrow={txEscrow} onClose={() => setTxEscrow(null)} />
+        <SubmitWorkModal target={submitFor} onClose={() => setSubmitFor(null)} onDone={loadEscrows} />
+        <MoneyGramCashoutModal open={mgOpen} onClose={() => setMgOpen(false)} onChanged={() => { loadCashouts(); fetchWallet(); }} />
       </div>
     </div>
   );
