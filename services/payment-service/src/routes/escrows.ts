@@ -237,6 +237,7 @@ async function listMilestones(escrowIds: string[]) {
       cashoutStatus: m.cashout_status ?? 'none',
       cashoutRail: m.cashout_rail ?? 'anchor',
       rampsStatus: m.ramps_status ?? null,
+      rampsReference: m.ramps_reference_number ?? null,
       anchorTxId: m.anchor_tx_id ?? null,
       anchorSettlementHash: m.anchor_settlement_hash ?? null,
       anchorStatus: m.anchor_status ?? null,
@@ -899,8 +900,13 @@ router.post('/:id/milestones/:idx/ramps/deposit', async (req: Request, res: Resp
       `UPDATE escrow_milestones SET anchor_settlement_hash = $3 WHERE escrow_id = $1 AND idx = $2`,
       [id, idx, hash],
     );
-    const outcome = await awaitRampsAcknowledgement(id, idx, tx.id);
-    res.json({ txHash: hash, status: outcome });
+    // Answer now. MoneyGram takes up to a minute to acknowledge a payment, and the gateway cuts a
+    // request off after 30s — waiting here made a successful payment look like a failure to the
+    // browser. The acknowledgement is settled in the background (and by the scheduled sweep).
+    void awaitRampsAcknowledgement(id, idx, tx.id).catch((err) =>
+      logger.warn('MoneyGram acknowledgement check failed', { id, idx, error: String(err) }),
+    );
+    res.json({ txHash: hash, status: 'pending' });
   } catch (err) {
     logger.error('Failed to handle MoneyGram deposit', { id, idx, error: String(err) });
     sendChainError(res, err, 'Failed to handle the MoneyGram deposit');

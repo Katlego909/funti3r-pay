@@ -19,7 +19,7 @@ interface TxRow {
 
 const fmtDate = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
-const short = (h: string) => `${h.slice(0, 8)}…${h.slice(-6)}`;
+const short = (h: string) => (h.length <= 16 ? h : `${h.slice(0, 8)}…${h.slice(-6)}`);
 
 /** Every step of an escrow in the order it happens. */
 function buildRows(escrow: Escrow): TxRow[] {
@@ -36,20 +36,24 @@ function buildRows(escrow: Escrow): TxRow[] {
     if (m.status === 'claimed') {
       rows.push({ key: `c${m.idx}`, step: 'Claimed', milestone, at: m.claimedAt, hash: m.claimTxHash });
     }
+    const mg = m.cashoutRail === 'moneygram';
     if (m.anchorSettlementHash) {
       rows.push({
         key: `p${m.idx}`,
-        step: 'Anchor payout',
+        step: mg ? 'USDC sent to MoneyGram' : 'Anchor payout',
         milestone,
         at: m.cashoutAt,
         hash: m.anchorSettlementHash,
-        note: m.anchorStatus ? `Anchor: ${m.anchorStatus}` : undefined,
+        note: mg ? (m.rampsStatus ? `MoneyGram: ${m.rampsStatus}` : undefined) : (m.anchorStatus ? `Anchor: ${m.anchorStatus}` : undefined),
       });
+    }
+    if (mg && m.rampsReference) {
+      rows.push({ key: `q${m.idx}`, step: 'Cash-pickup reference', milestone, reference: m.rampsReference, note: 'Quoted at the MoneyGram location to collect cash' });
     }
     if (m.anchorTxId) {
       rows.push({
         key: `r${m.idx}`,
-        step: m.cashoutStatus === 'failed' ? 'Anchor withdrawal (failed)' : 'Anchor withdrawal',
+        step: mg ? 'MoneyGram transaction' : m.cashoutStatus === 'failed' ? 'Anchor withdrawal (failed)' : 'Anchor withdrawal',
         milestone,
         reference: m.anchorTxId,
         note: m.cashoutError ?? (m.cashoutStatus === 'action_required' ? 'Waiting for the anchor form' : undefined),

@@ -34,6 +34,8 @@ export interface EscrowMilestone {
   /** Which cash-out rail the milestone is on. */
   cashoutRail: 'anchor' | 'moneygram';
   rampsStatus: string | null;
+  /** MoneyGram cash-pickup reference number (available as soon as MoneyGram has the transaction). */
+  rampsReference: string | null;
   anchorTxId: string | null;
   anchorSettlementHash: string | null;
   anchorStatus: string | null;

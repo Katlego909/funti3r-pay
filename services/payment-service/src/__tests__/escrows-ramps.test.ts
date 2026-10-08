@@ -208,7 +208,7 @@ describe('POST .../ramps/deposit', () => {
     const res = await deposit();
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ txHash: 'usdc-payment-hash', status: 'received' });
+    expect(res.body).toEqual({ txHash: 'usdc-payment-hash', status: 'pending' });
     const [, destination, code, issuer, amount, , , opts] = vi.mocked(payExactWithXlm).mock.calls[0] as unknown as [
       string, string, string, string, string, number, undefined, { sendMaxXlm: string; memo: Memo },
     ];
@@ -221,16 +221,24 @@ describe('POST .../ramps/deposit', () => {
     expect(opts.memo.value).toBe(MEMO);
   });
 
-  it('persists the payment hash before waiting on MoneyGram, then reports the outcome', async () => {
+  it('persists the payment hash first, then answers without waiting on MoneyGram (the gateway cuts off slow requests)', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([...base, TAKE]));
-    vi.mocked(awaitRampsAcknowledgement).mockImplementation(async () => {
-      // by the time we wait on MoneyGram, the hash must already be on the row
-      expect(calls(/SET anchor_settlement_hash = \$3/)[0][1]).toEqual([ESCROW_ID, 0, 'usdc-payment-hash']);
-      return 'waiting';
-    });
+    // MoneyGram never acknowledges in this test — the response must not depend on it.
+    vi.mocked(awaitRampsAcknowledgement).mockImplementation((() => new Promise(() => {})) as never);
+    vi.mocked(awaitRampsAcknowledgement).mockClear();
     const res = await deposit();
-    expect(res.body.status).toBe('waiting');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ txHash: 'usdc-payment-hash', status: 'pending' });
+    expect(calls(/SET anchor_settlement_hash = \$3/)[0][1]).toEqual([ESCROW_ID, 0, 'usdc-payment-hash']);
     expect(awaitRampsAcknowledgement).toHaveBeenCalledWith(ESCROW_ID, 0, 'mg-tx-1');
+  });
+
+  it('a failing background acknowledgement never turns a successful payment into an error', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([...base, TAKE]));
+    vi.mocked(awaitRampsAcknowledgement).mockRejectedValue(new Error('MoneyGram down'));
+    const res = await deposit();
+    expect(res.status).toBe(200);
+    expect(res.body.txHash).toBe('usdc-payment-hash');
   });
 
   it('marks the cash-out failed (retryable) when the on-chain payment fails, and never records a hash', async () => {
