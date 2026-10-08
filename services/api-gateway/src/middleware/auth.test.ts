@@ -7,6 +7,7 @@ process.env.INTERNAL_AUTH_SECRET = 'i'.repeat(40);
 
 const { authMiddleware } = await import('./auth.js');
 const { generateToken, stripIdentity, verifyIdentity } = await import('@funti3r/shared-utils');
+const { UserRole } = await import('@funti3r/shared-types');
 
 type Headers = Record<string, string | string[] | undefined>;
 
@@ -20,7 +21,7 @@ function run(path: string, headers: Headers, method = 'GET') {
 }
 
 test('a valid token gets its identity set from the token and signed for the services', () => {
-  const headers: Headers = { authorization: `Bearer ${generateToken('user-1', 'w@x.io', 'worker', 'co-1')}` };
+  const headers: Headers = { authorization: `Bearer ${generateToken('user-1', 'w@x.io', UserRole.WORKER, 'co-1')}` };
   assert.deepEqual(run('/payouts', headers), { status: undefined, passed: true });
   assert.equal(headers['x-user-id'], 'user-1');
   assert.equal(headers['x-user-role'], 'worker');
@@ -31,7 +32,7 @@ test('a valid token gets its identity set from the token and signed for the serv
 test('identity a client sends is replaced, never believed', () => {
   // The index strips client-supplied identity before auth runs; do the same here, then authenticate as a worker.
   const headers: Headers = {
-    authorization: `Bearer ${generateToken('user-1', 'w@x.io', 'worker')}`,
+    authorization: `Bearer ${generateToken('user-1', 'w@x.io', UserRole.WORKER)}`,
     'x-user-role': 'admin', 'x-user-id': 'someone-else', 'x-company-id': 'other-co',
     'x-gateway-ts': '1', 'x-gateway-sig': 'forged',
   };
