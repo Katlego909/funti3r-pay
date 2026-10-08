@@ -92,11 +92,73 @@ async function notify(userId: string, type: string, title: string, body: string,
   }
 }
 
+// ── Milestone review trail ────────────────────────────────────────────────────
+
+const MAX_NOTE = 2000;
+const MAX_REASON = 1000;
+const MAX_LINKS = 5;
+
+/** Validates a worker's submission: an optional note plus up to 5 http(s) links, at least one of the two. */
+export function parseSubmission(body: unknown): { note: string; links: string[] } | { error: string } {
+  const b = (body ?? {}) as { note?: unknown; links?: unknown };
+  const note = typeof b.note === 'string' ? b.note.trim() : '';
+  if (note.length > MAX_NOTE) return { error: `Note must be at most ${MAX_NOTE} characters` };
+
+  const rawLinks = b.links === undefined ? [] : b.links;
+  if (!Array.isArray(rawLinks)) return { error: 'links must be an array of URLs' };
+  if (rawLinks.length > MAX_LINKS) return { error: `At most ${MAX_LINKS} links are allowed` };
+  const links: string[] = [];
+  for (const raw of rawLinks) {
+    const value = typeof raw === 'string' ? raw.trim() : '';
+    let ok = false;
+    try {
+      const u = new URL(value);
+      ok = (u.protocol === 'http:' || u.protocol === 'https:') && value.length <= 500;
+    } catch { /* not a URL */ }
+    if (!ok) return { error: `Not a valid http(s) link: ${String(raw).slice(0, 60)}` };
+    links.push(value);
+  }
+  if (!note && links.length === 0) return { error: 'Add a note or at least one link describing the work' };
+  return { note, links };
+}
+
+/** Appends to the audit trail. Never fails the request — the state change it describes already happened. */
+async function recordReviewEvent(
+  escrowId: string, idx: number, kind: 'submitted' | 'approved' | 'rejected',
+  actorId: string | undefined, actorRole: 'worker' | 'enterprise', note: string | null, links: string[] = [],
+) {
+  try {
+    await query(
+      `INSERT INTO escrow_milestone_events (escrow_id, idx, kind, actor_id, actor_role, note, links)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+      [escrowId, idx, kind, actorId ?? null, actorRole, note, JSON.stringify(links)],
+    );
+  } catch (err) {
+    logger.warn('Failed to record milestone review event', { escrowId, idx, kind, error: String(err) });
+  }
+}
+
+async function listReviewEvents(escrowIds: string[]) {
+  if (escrowIds.length === 0) return {} as Record<string, unknown[]>;
+  const rows = await query(
+    `SELECT escrow_id, idx, kind, actor_role, note, links, created_at
+       FROM escrow_milestone_events WHERE escrow_id = ANY($1::uuid[]) ORDER BY created_at, id`,
+    [escrowIds],
+  );
+  const byEscrow: Record<string, unknown[]> = {};
+  for (const e of rows.rows) {
+    (byEscrow[e.escrow_id] ??= []).push({
+      idx: e.idx, kind: e.kind, by: e.actor_role, note: e.note ?? null, links: e.links ?? [], at: e.created_at,
+    });
+  }
+  return byEscrow;
+}
+
 async function listMilestones(escrowIds: string[]) {
   if (escrowIds.length === 0) return {} as Record<string, unknown[]>;
   const rows = await query(
     `SELECT escrow_id, idx, description, amount, status, approved_at, claimed_at, claim_tx_hash,
-            approve_tx_hash, refund_tx_hash, cashout_at,
+            approve_tx_hash, refund_tx_hash, cashout_at, review_status,
             cashout_status, anchor_tx_id, anchor_settlement_hash, anchor_status, anchor_more_info_url, cashout_error
        FROM escrow_milestones WHERE escrow_id = ANY($1::uuid[]) ORDER BY idx`,
     [escrowIds],
@@ -114,6 +176,7 @@ async function listMilestones(escrowIds: string[]) {
       approveTxHash: m.approve_tx_hash ?? null,
       refundTxHash: m.refund_tx_hash ?? null,
       cashoutAt: m.cashout_at ?? null,
+      reviewStatus: m.review_status ?? 'none',
       cashoutStatus: m.cashout_status ?? 'none',
       anchorTxId: m.anchor_tx_id ?? null,
       anchorSettlementHash: m.anchor_settlement_hash ?? null,
@@ -398,6 +461,11 @@ router.post('/:id/milestones/:idx/approve', async (req: Request, res: Response) 
       [id, idx, hash],
     );
 
+    const approveNote = typeof (req.body as { note?: unknown } | undefined)?.note === 'string'
+      ? (req.body as { note: string }).note.trim().slice(0, MAX_REASON) || null
+      : null;
+    await recordReviewEvent(id, idx, 'approved', req.headers['x-user-id'] as string | undefined, 'enterprise', approveNote);
+
     await notify(
       row.worker_id, 'escrow_milestone_approved', 'Milestone approved',
       `Milestone ${idx + 1} (${Number(ms.rows[0].amount)} XLM) is approved — claim it from your wallet.`, id,
@@ -407,6 +475,114 @@ router.post('/:id/milestones/:idx/approve', async (req: Request, res: Response) 
   } catch (err) {
     logger.error('Failed to approve milestone', { id, idx, error: String(err) });
     sendChainError(res, err, 'Failed to approve on-chain');
+  }
+});
+
+// ── POST /escrows/:id/milestones/:idx/submit (worker) ─────────────────────────
+// "The work is done": a note and/or links for the employer to review. Off-chain
+// only — the contract's moment is the employer's approval.
+
+router.post('/:id/milestones/:idx/submit', async (req: Request, res: Response) => {
+  const workerId = requireWorker(req, res);
+  if (!workerId) return;
+  const { id } = req.params;
+  const idx = Number(req.params.idx);
+
+  const parsed = parseSubmission(req.body);
+  if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+
+  try {
+    const found = await query(
+      `SELECT e.enterprise_id, e.status AS escrow_status, m.status, m.review_status
+         FROM escrows e JOIN escrow_milestones m ON m.escrow_id = e.id
+        WHERE e.id = $1 AND e.worker_id = $2 AND m.idx = $3`,
+      [id, workerId, idx],
+    );
+    const row = found.rows[0];
+    if (!row) return res.status(404).json({ error: 'Milestone not found' });
+    if (row.escrow_status !== 'active') return res.status(409).json({ error: 'Escrow is no longer active' });
+    if (row.status !== 'pending') {
+      return res.status(409).json({ error: `Milestone is ${row.status} — there is nothing left to submit` });
+    }
+    if (row.review_status === 'submitted') {
+      return res.status(409).json({ error: 'Already submitted — waiting for the employer to review it' });
+    }
+
+    // Guarded so a double-click can't record the same submission twice.
+    const taken = await query(
+      `UPDATE escrow_milestones SET review_status = 'submitted'
+        WHERE escrow_id = $1 AND idx = $2 AND status = 'pending' AND review_status <> 'submitted'
+        RETURNING idx`,
+      [id, idx],
+    );
+    if (!taken.rows.length) {
+      return res.status(409).json({ error: 'Already submitted — waiting for the employer to review it' });
+    }
+
+    await recordReviewEvent(id, idx, 'submitted', workerId, 'worker', parsed.note || null, parsed.links);
+    await notify(
+      row.enterprise_id, 'escrow_work_submitted', 'Work submitted for review',
+      `Your worker submitted milestone ${idx + 1} for review.`, id,
+    );
+    res.json({ reviewStatus: 'submitted' });
+  } catch (err) {
+    logger.error('Failed to submit milestone work', { id, idx, error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /escrows/:id/milestones/:idx/reject (enterprise) ─────────────────────
+// Sends submitted work back with a reason; the worker can resubmit. Nothing
+// on-chain changes — the milestone simply stays Pending.
+
+router.post('/:id/milestones/:idx/reject', async (req: Request, res: Response) => {
+  const ctx = await requireCompanyWrite(req, res);
+  if (!ctx) return;
+  const { id } = req.params;
+  const idx = Number(req.params.idx);
+
+  const reason = typeof (req.body as { reason?: unknown } | undefined)?.reason === 'string'
+    ? (req.body as { reason: string }).reason.trim()
+    : '';
+  if (!reason) return res.status(400).json({ error: 'A reason is required so the worker knows what to change' });
+  if (reason.length > MAX_REASON) return res.status(400).json({ error: `Reason must be at most ${MAX_REASON} characters` });
+
+  try {
+    const found = await query(
+      `SELECT e.worker_id, e.status AS escrow_status, m.status, m.review_status
+         FROM escrows e JOIN escrow_milestones m ON m.escrow_id = e.id
+        WHERE e.id = $1 AND e.enterprise_id = $2 AND m.idx = $3`,
+      [id, ctx.ownerUserId, idx],
+    );
+    const row = found.rows[0];
+    if (!row) return res.status(404).json({ error: 'Milestone not found' });
+    if (row.escrow_status !== 'active') return res.status(409).json({ error: 'Escrow is no longer active' });
+    if (row.status !== 'pending') {
+      return res.status(409).json({ error: `Milestone is ${row.status} — only pending milestones can be sent back` });
+    }
+    if (row.review_status !== 'submitted') {
+      return res.status(409).json({ error: 'The worker has not submitted this milestone for review' });
+    }
+
+    const taken = await query(
+      `UPDATE escrow_milestones SET review_status = 'rejected'
+        WHERE escrow_id = $1 AND idx = $2 AND status = 'pending' AND review_status = 'submitted'
+        RETURNING idx`,
+      [id, idx],
+    );
+    if (!taken.rows.length) {
+      return res.status(409).json({ error: 'This submission was already reviewed' });
+    }
+
+    await recordReviewEvent(id, idx, 'rejected', req.headers['x-user-id'] as string | undefined, 'enterprise', reason);
+    await notify(
+      row.worker_id, 'escrow_work_rejected', 'Changes requested',
+      `Milestone ${idx + 1} was sent back: ${reason.slice(0, 140)}`, id,
+    );
+    res.json({ reviewStatus: 'rejected' });
+  } catch (err) {
+    logger.error('Failed to reject milestone', { id, idx, error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -624,7 +800,9 @@ router.get('/', async (req: Request, res: Response) => {
       );
     }
 
-    const milestones = await listMilestones(rows.rows.map((r) => r.id));
+    const escrowIds = rows.rows.map((r) => r.id);
+    const milestones = await listMilestones(escrowIds);
+    const reviewEvents = await listReviewEvents(escrowIds);
     res.json({
       escrows: rows.rows.map((r) => ({
         id: r.id,
@@ -640,6 +818,7 @@ router.get('/', async (req: Request, res: Response) => {
         createTxHash: r.create_tx_hash,
         createdAt: r.created_at,
         milestones: milestones[r.id] ?? [],
+        reviewEvents: reviewEvents[r.id] ?? [],
       })),
     });
   } catch (err) {

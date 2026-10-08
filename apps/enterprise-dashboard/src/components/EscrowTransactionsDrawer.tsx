@@ -5,6 +5,7 @@ import SlideOver, { Row, SectionTitle } from './SlideOver.js';
 import { StatusBadge } from './StatusBadge.js';
 import CopyButton from './CopyButton.js';
 import EscrowTransactions from './EscrowTransactions.js';
+import EscrowReviewLog from './EscrowReviewLog.js';
 
 const STATUS: Record<Escrow['status'], ['completed' | 'pending', string]> = {
   active: ['completed', 'Active'],
@@ -51,6 +52,9 @@ export default function EscrowTransactionsDrawer({ escrow, onClose }: { escrow: 
             </a>
             <CopyButton text={current.contractAddress} style={{ marginLeft: 6, verticalAlign: 'middle' }} />
           </Row>
+
+          <SectionTitle>Review activity</SectionTitle>
+          <EscrowReviewLog escrow={current} />
 
           <SectionTitle>Transactions</SectionTitle>
           <EscrowTransactions escrow={current} />

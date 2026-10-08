@@ -18,6 +18,7 @@ import { CurrencyIcon } from '../components/CurrencyIcon.js';
 import CopyButton from '../components/CopyButton.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 import EscrowTransactionsDrawer from '../components/EscrowTransactionsDrawer.js';
+import SubmitWorkModal from '../components/SubmitWorkModal.js';
 import { listEscrows, claimMilestone, cashOutMilestone, type CashoutResult, type Escrow } from '../api/escrows.js';
 
 interface WalletBalance {
@@ -47,12 +48,22 @@ function fmtBalance(n: string) {
   return Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** The employer's most recent "changes requested" note for a milestone. */
+function lastRejection(e: Escrow, idx: number): string | undefined {
+  const rejected = (e.reviewEvents ?? []).filter((ev) => ev.idx === idx && ev.kind === 'rejected');
+  return rejected[rejected.length - 1]?.note ?? undefined;
+}
+
 type MilestoneBadge = ['completed' | 'failed' | 'pending', string];
 
 /** One badge per milestone: where it is in approve -> claim -> payout. */
 function milestoneState(e: Escrow, m: Escrow['milestones'][number]): MilestoneBadge {
   if (e.frozen && m.status !== 'claimed') return ['failed', 'On compliance hold'];
-  if (m.status === 'pending') return ['pending', 'Awaiting approval'];
+  if (m.status === 'pending') {
+    if (m.reviewStatus === 'submitted') return ['pending', 'Submitted for review'];
+    if (m.reviewStatus === 'rejected') return ['failed', 'Changes requested'];
+    return ['pending', 'Not submitted'];
+  }
   if (m.status === 'approved') return ['pending', 'Ready to claim'];
   if (m.status === 'refunded') return ['failed', 'Refunded'];
   switch (m.cashoutStatus) {
@@ -82,6 +93,7 @@ export default function Wallet() {
   const [escrows, setEscrows] = useState<Escrow[]>([]);
   const [claiming, setClaiming] = useState<string | null>(null);
   const [txEscrow, setTxEscrow] = useState<Escrow | null>(null);
+  const [submitFor, setSubmitFor] = useState<{ escrowId: string; idx: number; title: string; previousReason?: string } | null>(null);
 
   // Payout method (Stellar wallet vs anchor bank/cash disbursement)
   const [payoutMethod, setPayoutMethodState] = useState<PayoutMethod>('stellar');
@@ -344,6 +356,11 @@ export default function Wallet() {
                         <td data-label="Expires">{new Date(e.expiresAt).toLocaleDateString()}</td>
                         <td data-label="Status">
                           <StatusBadge variant={variant} title={m.cashoutError ?? undefined}>{label}</StatusBadge>
+                          {m.status === 'pending' && m.reviewStatus === 'rejected' && lastRejection(e, m.idx) && (
+                            <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
+                              {lastRejection(e, m.idx)}
+                            </div>
+                          )}
                           {m.cashoutStatus === 'failed' && m.cashoutError && (
                             <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
                               {m.cashoutError}
@@ -351,6 +368,19 @@ export default function Wallet() {
                           )}
                         </td>
                         <td data-label="" onClick={(ev) => ev.stopPropagation()} style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {m.status === 'pending' && e.status === 'active' && m.reviewStatus !== 'submitted' && (
+                            <button
+                              className="btn-secondary"
+                              style={{ padding: '6px 14px', fontSize: '0.8rem' }}
+                              onClick={() => setSubmitFor({
+                                escrowId: e.id, idx: m.idx,
+                                title: m.description || `Milestone ${m.idx + 1}`,
+                                previousReason: m.reviewStatus === 'rejected' ? lastRejection(e, m.idx) : undefined,
+                              })}
+                            >
+                              {m.reviewStatus === 'rejected' ? 'Resubmit' : 'Submit work'}
+                            </button>
+                          )}
                           {m.status === 'approved' && (
                             <button
                               className="btn-primary"
@@ -401,6 +431,7 @@ export default function Wallet() {
         )}
 
         <EscrowTransactionsDrawer escrow={txEscrow} onClose={() => setTxEscrow(null)} />
+        <SubmitWorkModal target={submitFor} onClose={() => setSubmitFor(null)} onDone={loadEscrows} />
 
         {/* Stellar Account */}
         <section className="section">

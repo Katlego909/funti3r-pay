@@ -11,6 +11,8 @@ export interface EscrowMilestone {
   approveTxHash: string | null;
   refundTxHash: string | null;
   cashoutAt: string | null;
+  /** Worker/employer review of the work itself (off-chain). */
+  reviewStatus: 'none' | 'submitted' | 'rejected';
   /** Second leg of a claim: routing the claimed funds through an anchor. */
   cashoutStatus: 'none' | 'pending' | 'action_required' | 'completed' | 'failed';
   anchorTxId: string | null;
@@ -19,6 +21,15 @@ export interface EscrowMilestone {
   /** The anchor's own page the worker must visit when action_required. */
   anchorMoreInfoUrl: string | null;
   cashoutError: string | null;
+}
+
+export interface ReviewEvent {
+  idx: number;
+  kind: 'submitted' | 'approved' | 'rejected';
+  by: 'worker' | 'enterprise';
+  note: string | null;
+  links: string[];
+  at: string;
 }
 
 export interface CashoutResult {
@@ -45,6 +56,7 @@ export interface Escrow {
   createTxHash: string | null;
   createdAt: string;
   milestones: EscrowMilestone[];
+  reviewEvents: ReviewEvent[];
 }
 
 export async function listEscrows(): Promise<Escrow[]> {
@@ -87,4 +99,18 @@ export async function cashOutMilestone(escrowId: string, idx: number): Promise<C
 export async function refundEscrow(escrowId: string): Promise<{ refundedXlm: number; txHash: string }> {
   const { data } = await api.post(`/escrows/${escrowId}/refund`);
   return data;
+}
+
+/** Worker hands a pending milestone in for the employer to review. */
+export async function submitMilestoneWork(
+  escrowId: string,
+  idx: number,
+  payload: { note: string; links: string[] },
+): Promise<void> {
+  await api.post(`/escrows/${escrowId}/milestones/${idx}/submit`, payload);
+}
+
+/** Employer sends submitted work back with a reason (nothing happens on-chain). */
+export async function rejectMilestone(escrowId: string, idx: number, reason: string): Promise<void> {
+  await api.post(`/escrows/${escrowId}/milestones/${idx}/reject`, { reason });
 }

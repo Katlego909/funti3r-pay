@@ -11,6 +11,8 @@ import ConfirmDialog from '../components/ConfirmDialog.js';
 import SlideOver, { Row, SectionTitle } from '../components/SlideOver.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 import EscrowTransactions from '../components/EscrowTransactions.js';
+import EscrowReviewLog from '../components/EscrowReviewLog.js';
+import RejectWorkModal from '../components/RejectWorkModal.js';
 
 interface WorkerOption { id: string; email: string }
 interface MilestoneRow { description: string; amountXlm: string }
@@ -30,6 +32,10 @@ const MILESTONE_BADGE: Record<string, ['completed' | 'failed' | 'pending', strin
 
 /** One badge per milestone, folding in the worker's anchor cash-out once claimed. */
 function milestoneBadge(m: Escrow['milestones'][number]): ['completed' | 'failed' | 'pending', string] {
+  if (m.status === 'pending') {
+    if (m.reviewStatus === 'submitted') return ['pending', 'Work submitted'];
+    if (m.reviewStatus === 'rejected') return ['failed', 'Sent back to worker'];
+  }
   if (m.status === 'claimed') {
     if (m.cashoutStatus === 'completed') return ['completed', 'Paid out via anchor'];
     if (m.cashoutStatus === 'action_required') return ['pending', 'Claimed · cash-out pending'];
@@ -41,11 +47,12 @@ function milestoneBadge(m: Escrow['milestones'][number]): ['completed' | 'failed
 const txLink = (hash: string) => `https://stellar.expert/explorer/testnet/tx/${hash}`;
 
 function EscrowDetailDrawer({
-  escrow, acting, onApprove, onRefund, onClose,
+  escrow, acting, onApprove, onReject, onRefund, onClose,
 }: {
   escrow: Escrow | null;
   acting: boolean;
   onApprove: (escrow: Escrow, idx: number) => void;
+  onReject: (escrow: Escrow, idx: number) => void;
   onRefund: (escrow: Escrow) => void;
   onClose: () => void;
 }) {
@@ -108,17 +115,29 @@ function EscrowDetailDrawer({
                     <td data-label="Milestone" style={{ fontWeight: 600 }}>{m.description || `Milestone ${m.idx + 1}`}</td>
                     <td data-label="Amount">{m.amountXlm} XLM</td>
                     <td data-label="Status"><StatusBadge variant={variant}>{label}</StatusBadge></td>
-                    <td data-label="" style={{ textAlign: 'right' }}>
+                    <td data-label="" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {m.status === 'pending' && current.status === 'active' && (
-                        <button
-                          className="btn-secondary"
-                          style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
-                          disabled={acting || current.frozen}
-                          title={current.frozen ? 'On compliance hold' : undefined}
-                          onClick={() => onApprove(current, m.idx)}
-                        >
-                          Approve
-                        </button>
+                        <span style={{ display: 'inline-flex', gap: 8 }}>
+                          {m.reviewStatus === 'submitted' && (
+                            <button
+                              className="btn-secondary"
+                              style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem', color: 'var(--danger)', borderColor: '#fecaca' }}
+                              disabled={acting}
+                              onClick={() => onReject(current, m.idx)}
+                            >
+                              Request changes
+                            </button>
+                          )}
+                          <button
+                            className={m.reviewStatus === 'submitted' ? 'btn-primary' : 'btn-secondary'}
+                            style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
+                            disabled={acting || current.frozen}
+                            title={current.frozen ? 'On compliance hold' : undefined}
+                            onClick={() => onApprove(current, m.idx)}
+                          >
+                            Approve
+                          </button>
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -127,6 +146,9 @@ function EscrowDetailDrawer({
             </tbody>
           </table>
         </div>
+
+        <SectionTitle>Review activity</SectionTitle>
+        <EscrowReviewLog escrow={current} />
 
         <SectionTitle>Transactions</SectionTitle>
         <EscrowTransactions escrow={current} />
@@ -164,6 +186,7 @@ export default function Escrows() {
   const [selected, setSelected] = useState<Escrow | null>(null);
   const [pendingApprove, setPendingApprove] = useState<{ escrow: Escrow; idx: number } | null>(null);
   const [pendingRefund, setPendingRefund] = useState<Escrow | null>(null);
+  const [pendingReject, setPendingReject] = useState<{ escrow: Escrow; idx: number } | null>(null);
   const [acting, setActing] = useState(false);
 
   function load() {
@@ -396,8 +419,19 @@ export default function Escrows() {
         escrow={selected}
         acting={acting}
         onApprove={(escrow, idx) => setPendingApprove({ escrow, idx })}
+        onReject={(escrow, idx) => setPendingReject({ escrow, idx })}
         onRefund={(escrow) => setPendingRefund(escrow)}
         onClose={() => setSelected(null)}
+      />
+
+      <RejectWorkModal
+        target={pendingReject && {
+          escrowId: pendingReject.escrow.id,
+          idx: pendingReject.idx,
+          title: pendingReject.escrow.milestones[pendingReject.idx]?.description || `Milestone ${pendingReject.idx + 1}`,
+        }}
+        onClose={() => setPendingReject(null)}
+        onDone={load}
       />
 
       <ConfirmDialog
