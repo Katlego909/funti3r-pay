@@ -15,6 +15,7 @@
 import { query } from '@funti3r/database';
 import { createLogger } from '@funti3r/shared-utils';
 import { complianceAuthorityPublic, getEscrow, type OnchainEscrow } from './escrow.js';
+import { recordEscrowPaymentSafely } from './escrowAccounting.js';
 
 const logger = createLogger('EscrowReconcile');
 
@@ -102,6 +103,8 @@ async function repair(chain: OnchainEscrow, drift: EscrowDrift[]): Promise<void>
         WHERE escrow_id = $1 AND idx = $2 AND status <> $3`,
       [escrowId, idx, d.chain],
     );
+    // A claim whose DB write was lost must still count as money the worker received.
+    if (d.chain === 'claimed') await recordEscrowPaymentSafely(escrowId, idx);
   }
 
   if (drift.some((d) => d.field === 'status' || d.field === 'frozen')) {

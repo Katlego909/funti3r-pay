@@ -5,6 +5,7 @@ import { createLogger } from '@funti3r/shared-utils';
 import { nextRunDate } from './lib/scheduling.js';
 import { reconcileEscrows } from './lib/escrowReconcile.js';
 import { syncPendingRamps } from './lib/rampsSync.js';
+import { recordAllMissingEscrowPayments } from './lib/escrowAccounting.js';
 
 const logger = createLogger('Scheduler');
 
@@ -221,6 +222,11 @@ export function startScheduler(): void {
   // truth): every 5 minutes, and once shortly after boot.
   const runEscrowReconcile = () =>
     reconcileEscrows()
+      // Claimed milestones must all be in the books, even if recording one failed earlier.
+      .then(async (r) => {
+        await recordAllMissingEscrowPayments();
+        return r;
+      })
       .then((r) => {
         if (r.drift.length || r.unreadable) logger.warn('Escrow reconcile finished with findings', r);
       })

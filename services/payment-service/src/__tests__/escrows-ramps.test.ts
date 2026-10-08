@@ -229,7 +229,8 @@ describe('POST .../ramps/deposit', () => {
     const res = await deposit();
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ txHash: 'usdc-payment-hash', status: 'pending' });
-    expect(calls(/SET anchor_settlement_hash = \$3/)[0][1]).toEqual([ESCROW_ID, 0, 'usdc-payment-hash']);
+    // what the cash-out actually cost (sourceAmountXlm from the path payment) is kept alongside the hash
+    expect(calls(/SET anchor_settlement_hash = \$3, cashout_xlm_spent = \$4/)[0][1]).toEqual([ESCROW_ID, 0, 'usdc-payment-hash', '92.6']);
     expect(awaitRampsAcknowledgement).toHaveBeenCalledWith(ESCROW_ID, 0, 'mg-tx-1');
   });
 

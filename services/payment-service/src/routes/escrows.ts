@@ -12,6 +12,7 @@ import {
   moneygramConfigured, moneygramPublicKey, moneygramSandbox,
 } from '../lib/moneygram.js';
 import { awaitRampsAcknowledgement } from '../lib/rampsSync.js';
+import { recordEscrowPaymentSafely } from '../lib/escrowAccounting.js';
 import { ComplianceBlockedError, ensureCleared } from '../lib/clearance.js';
 import { anchorConfigured, sendAnchorPayout } from '../rails/anchor.js';
 import { reconcileEscrows } from '../lib/escrowReconcile.js';
@@ -195,7 +196,7 @@ async function listMilestones(escrowIds: string[]) {
     `SELECT escrow_id, idx, description, amount, status, approved_at, claimed_at, claim_tx_hash,
             approve_tx_hash, refund_tx_hash, cashout_at, review_status,
             payout_destination, anchor_amount_out, anchor_amount_out_asset, anchor_fee, anchor_fee_asset, anchor_domain,
-            cashout_rail, ramps_status, ramps_reference_number, ramps_destination_country, ramps_send_usdc,
+            cashout_rail, cashout_xlm_spent, ramps_status, ramps_reference_number, ramps_destination_country, ramps_send_usdc,
             cashout_status, anchor_tx_id, anchor_settlement_hash, anchor_status, anchor_more_info_url, cashout_error
        FROM escrow_milestones WHERE escrow_id = ANY($1::uuid[]) ORDER BY idx`,
     [escrowIds],
@@ -237,6 +238,7 @@ async function listMilestones(escrowIds: string[]) {
       cashoutStatus: m.cashout_status ?? 'none',
       cashoutRail: m.cashout_rail ?? 'anchor',
       rampsStatus: m.ramps_status ?? null,
+      cashoutXlmSpent: m.cashout_xlm_spent != null ? Number(m.cashout_xlm_spent) : null,
       rampsReference: m.ramps_reference_number ?? null,
       anchorTxId: m.anchor_tx_id ?? null,
       anchorSettlementHash: m.anchor_settlement_hash ?? null,
@@ -343,7 +345,7 @@ async function cashOutMilestone(escrowId: string, idx: number, workerId: string)
           SET cashout_status = 'completed', anchor_tx_id = $3, anchor_settlement_hash = $4,
               anchor_status = $5, anchor_more_info_url = NULL, cashout_at = NOW(),
               payout_destination = $6::jsonb, anchor_amount_out = $7, anchor_amount_out_asset = $8,
-              anchor_fee = $9, anchor_fee_asset = $10, anchor_domain = $11
+              anchor_fee = $9, anchor_fee_asset = $10, anchor_domain = $11, cashout_xlm_spent = $12
         WHERE escrow_id = $1 AND idx = $2`,
       [
         escrowId, idx, result.anchorTxId, result.settlementHash, result.anchorStatus,
@@ -351,6 +353,7 @@ async function cashOutMilestone(escrowId: string, idx: number, workerId: string)
         result.receipt?.amountOut ?? null, result.receipt?.amountOutAsset ?? null,
         result.receipt?.fee ?? null, result.receipt?.feeAsset ?? null,
         process.env.ANCHOR_HOME_DOMAIN ?? null,
+        amountXlm,
       ],
     );
     return {
@@ -700,6 +703,8 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response) =>
       [id, idx, hash],
     );
     await finalizeEscrowStatus(id);
+    // The worker has now really received this money: put it in the books (Total Received, history).
+    await recordEscrowPaymentSafely(id, idx);
 
     await notify(
       row.enterprise_id, 'escrow_milestone_claimed', 'Milestone claimed',
@@ -875,13 +880,14 @@ router.post('/:id/milestones/:idx/ramps/deposit', async (req: Request, res: Resp
 
     const stored = (await query(`SELECT stellar_secret_key FROM users WHERE id = $1`, [workerId])).rows[0]?.stellar_secret_key;
     let hash: string;
+    let spentXlm: string;
     try {
       const usdc = getCurrency('USDC');
       if (!stored || !usdc?.issuer) throw new Error('USDC is not configured for this account');
       // Strict-receive: MoneyGram gets exactly the USDC it asked for, delivered straight to its
       // deposit address with its memo. sendMax is the milestone's own XLM, so the network itself
       // refuses to let this cash-out spend more than the milestone is worth.
-      ({ hash } = await payExactWithXlm(
+      ({ hash, sourceAmountXlm: spentXlm } = await payExactWithXlm(
         decryptFromString(stored), tx.depositAddress!, usdc.code, usdc.issuer, claim.amount, 0, undefined,
         { sendMaxXlm: Number(taken.rows[0].amount).toFixed(7), memo: Memo.id(tx.depositMemo!) },
       ));
@@ -897,8 +903,8 @@ router.post('/:id/milestones/:idx/ramps/deposit', async (req: Request, res: Resp
 
     // Persist the payment the instant it exists; a retry can then never pay again.
     await query(
-      `UPDATE escrow_milestones SET anchor_settlement_hash = $3 WHERE escrow_id = $1 AND idx = $2`,
-      [id, idx, hash],
+      `UPDATE escrow_milestones SET anchor_settlement_hash = $3, cashout_xlm_spent = $4 WHERE escrow_id = $1 AND idx = $2`,
+      [id, idx, hash, spentXlm],
     );
     // Answer now. MoneyGram takes up to a minute to acknowledge a payment, and the gateway cuts a
     // request off after 30s — waiting here made a successful payment look like a failure to the
@@ -1001,6 +1007,52 @@ router.post('/:id/refund', async (req: Request, res: Response) => {
 
 router.get('/cashout-options', (_req: Request, res: Response) => {
   res.json({ moneygram: moneygramConfigured(), anchor: anchorConfigured() });
+});
+
+// ── GET /escrows/summary ──────────────────────────────────────────────────────
+// Escrow money in one place, in XLM (the contract's unit); the dashboards convert it
+// to the viewer's display currency. Workers see their own, employers their company's.
+
+router.get('/summary', async (req: Request, res: Response) => {
+  const userId = req.headers['x-user-id'] as string | undefined;
+  const role = req.headers['x-user-role'] as string | undefined;
+  if (!userId) return res.status(403).json({ error: 'Authentication required' });
+
+  try {
+    let column: 'e.enterprise_id' | 'e.worker_id';
+    let scopeId = userId;
+    if (role === 'enterprise') {
+      const ctx = await requireCompanyRead(req, res);
+      if (!ctx) return;
+      column = 'e.enterprise_id';
+      scopeId = ctx.ownerUserId;
+    } else if (role === 'worker') {
+      column = 'e.worker_id';
+    } else {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    const r = await query(
+      `SELECT
+         COALESCE(SUM(m.amount) FILTER (WHERE m.status IN ('pending', 'approved')), 0) AS locked,
+         COALESCE(SUM(m.amount) FILTER (WHERE m.status = 'claimed'), 0) AS claimed,
+         COALESCE(SUM(m.amount) FILTER (WHERE m.status = 'refunded'), 0) AS refunded,
+         COALESCE(SUM(m.cashout_xlm_spent) FILTER (WHERE m.cashout_status = 'completed'), 0) AS cashed_out
+       FROM escrow_milestones m JOIN escrows e ON e.id = m.escrow_id
+      WHERE ${column} = $1`,
+      [scopeId],
+    );
+    const row = r.rows[0] ?? {};
+    res.json({
+      lockedXlm: Number(row.locked ?? 0),
+      claimedXlm: Number(row.claimed ?? 0),
+      refundedXlm: Number(row.refunded ?? 0),
+      cashedOutXlm: Number(row.cashed_out ?? 0),
+    });
+  } catch (err) {
+    logger.error('Failed to summarize escrows', { error: String(err) });
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // ── GET /escrows — enterprise (company-scoped) or worker (own) ────────────────
