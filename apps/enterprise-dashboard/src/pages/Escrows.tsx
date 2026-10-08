@@ -28,6 +28,16 @@ const MILESTONE_BADGE: Record<string, ['completed' | 'failed' | 'pending', strin
   refunded: ['failed', 'Refunded'],
 };
 
+/** One badge per milestone, folding in the worker's anchor cash-out once claimed. */
+function milestoneBadge(m: Escrow['milestones'][number]): ['completed' | 'failed' | 'pending', string] {
+  if (m.status === 'claimed') {
+    if (m.cashoutStatus === 'completed') return ['completed', 'Paid out via anchor'];
+    if (m.cashoutStatus === 'action_required') return ['pending', 'Claimed · cash-out pending'];
+    if (m.cashoutStatus === 'failed') return ['failed', 'Claimed · cash-out failed'];
+  }
+  return MILESTONE_BADGE[m.status];
+}
+
 const txLink = (hash: string) => `https://stellar.expert/explorer/testnet/tx/${hash}`;
 
 function EscrowDetailDrawer({
@@ -85,37 +95,38 @@ function EscrowDetailDrawer({
         )}
 
         <SectionTitle>Milestones</SectionTitle>
-        {current.milestones.map((m) => (
-          <div key={m.idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{m.description || `Milestone ${m.idx + 1}`}</div>
-              <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>
-                {m.amountXlm} XLM
-                {m.cashoutStatus === 'completed' && ' · paid out via anchor'}
-                {m.cashoutStatus === 'action_required' && ' · worker cash-out awaiting anchor step'}
-                {m.cashoutStatus === 'failed' && ' · cash-out failed (worker can retry)'}
-              </div>
-            </div>
-            {m.status === 'pending' && current.status === 'active' ? (
-              <button
-                className="btn-secondary"
-                style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem', flexShrink: 0 }}
-                disabled={acting}
-                onClick={() => onApprove(current, m.idx)}
-              >
-                Approve
-              </button>
-            ) : m.claimTxHash ? (
-              <a href={txLink(m.claimTxHash)} target="_blank" rel="noopener noreferrer" style={{ flexShrink: 0 }}>
-                <StatusBadge variant={MILESTONE_BADGE[m.status][0]}>{MILESTONE_BADGE[m.status][1]}</StatusBadge>
-              </a>
-            ) : (
-              <StatusBadge variant={MILESTONE_BADGE[m.status][0]} style={{ flexShrink: 0 }}>
-                {MILESTONE_BADGE[m.status][1]}
-              </StatusBadge>
-            )}
-          </div>
-        ))}
+        <div className="table-responsive">
+          <table className="data-table" style={{ whiteSpace: 'nowrap' }}>
+            <thead>
+              <tr><th>Milestone</th><th>Amount</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody>
+              {current.milestones.map((m) => {
+                const [variant, label] = milestoneBadge(m);
+                return (
+                  <tr key={m.idx}>
+                    <td data-label="Milestone" style={{ fontWeight: 600 }}>{m.description || `Milestone ${m.idx + 1}`}</td>
+                    <td data-label="Amount">{m.amountXlm} XLM</td>
+                    <td data-label="Status"><StatusBadge variant={variant}>{label}</StatusBadge></td>
+                    <td data-label="" style={{ textAlign: 'right' }}>
+                      {m.status === 'pending' && current.status === 'active' && (
+                        <button
+                          className="btn-secondary"
+                          style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
+                          disabled={acting || current.frozen}
+                          title={current.frozen ? 'On compliance hold' : undefined}
+                          onClick={() => onApprove(current, m.idx)}
+                        >
+                          Approve
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
 
         <SectionTitle>Transactions</SectionTitle>
         <EscrowTransactions escrow={current} />
