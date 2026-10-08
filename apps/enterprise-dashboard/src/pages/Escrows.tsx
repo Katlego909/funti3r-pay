@@ -64,6 +64,11 @@ function EscrowDetailDrawer({
           <StatusBadge variant={ESCROW_BADGE[current.status][0]} style={{ marginTop: '10px', display: 'inline-block' }}>
             {ESCROW_BADGE[current.status][1]}
           </StatusBadge>
+          {current.frozen && (
+            <StatusBadge variant="failed" style={{ marginTop: '10px', marginLeft: '8px', display: 'inline-block' }}>
+              On compliance hold
+            </StatusBadge>
+          )}
         </div>
 
         <SectionTitle>Escrow</SectionTitle>
@@ -83,7 +88,12 @@ function EscrowDetailDrawer({
           <div key={m.idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{m.description || `Milestone ${m.idx + 1}`}</div>
-              <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>{m.amountXlm} XLM</div>
+              <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>
+                {m.amountXlm} XLM
+                {m.cashoutStatus === 'completed' && ' · paid out via anchor'}
+                {m.cashoutStatus === 'action_required' && ' · worker cash-out awaiting anchor step'}
+                {m.cashoutStatus === 'failed' && ' · cash-out failed (worker can retry)'}
+              </div>
             </div>
             {m.status === 'pending' && current.status === 'active' ? (
               <button
@@ -110,8 +120,8 @@ function EscrowDetailDrawer({
           <button
             className="btn-secondary"
             style={{ marginTop: '16px', width: '100%', color: 'var(--danger)', borderColor: '#fecaca' }}
-            disabled={!expired || acting}
-            title={expired ? 'Reclaim all unapproved funds' : 'Available after the expiry date'}
+            disabled={!expired || acting || current.frozen}
+            title={current.frozen ? 'On compliance hold' : expired ? 'Reclaim all unapproved funds' : 'Available after the expiry date'}
             onClick={() => onRefund(current)}
           >
             {expired ? 'Refund unapproved funds' : 'Refund unlocks after expiry'}

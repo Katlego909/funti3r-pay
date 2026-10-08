@@ -8,6 +8,23 @@ export interface EscrowMilestone {
   approvedAt: string | null;
   claimedAt: string | null;
   claimTxHash: string | null;
+  /** Second leg of a claim: routing the claimed funds through an anchor. */
+  cashoutStatus: 'none' | 'pending' | 'action_required' | 'completed' | 'failed';
+  anchorTxId: string | null;
+  anchorSettlementHash: string | null;
+  anchorStatus: string | null;
+  /** The anchor's own page the worker must visit when action_required. */
+  anchorMoreInfoUrl: string | null;
+  cashoutError: string | null;
+}
+
+export interface CashoutResult {
+  status: 'completed' | 'failed' | 'action_required';
+  anchorTxId?: string;
+  settlementHash?: string;
+  anchorStatus?: string;
+  moreInfoUrl?: string;
+  error?: string;
 }
 
 export interface Escrow {
@@ -19,6 +36,8 @@ export interface Escrow {
   tokenCode: string;
   totalXlm: number;
   status: 'active' | 'completed' | 'refunded';
+  /** Compliance hold: the contract blocks approve, claim and refund. */
+  frozen: boolean;
   expiresAt: string;
   createTxHash: string | null;
   createdAt: string;
@@ -44,9 +63,22 @@ export async function approveMilestone(escrowId: string, idx: number): Promise<s
   return data.txHash;
 }
 
-export async function claimMilestone(escrowId: string, idx: number): Promise<string> {
-  const { data } = await api.post<{ txHash: string }>(`/escrows/${escrowId}/milestones/${idx}/claim`);
-  return data.txHash;
+export async function claimMilestone(
+  escrowId: string,
+  idx: number,
+  opts?: { cashout?: 'anchor' },
+): Promise<{ txHash: string; cashout?: CashoutResult }> {
+  const { data } = await api.post<{ txHash: string; cashout?: CashoutResult }>(
+    `/escrows/${escrowId}/milestones/${idx}/claim`,
+    opts ?? {},
+  );
+  return data;
+}
+
+/** Cash out an already-claimed milestone through the anchor (or resume one). */
+export async function cashOutMilestone(escrowId: string, idx: number): Promise<CashoutResult> {
+  const { data } = await api.post<{ cashout: CashoutResult }>(`/escrows/${escrowId}/milestones/${idx}/cashout`);
+  return data.cashout;
 }
 
 export async function refundEscrow(escrowId: string): Promise<{ refundedXlm: number; txHash: string }> {

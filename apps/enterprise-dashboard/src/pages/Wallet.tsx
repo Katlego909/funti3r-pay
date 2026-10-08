@@ -17,7 +17,7 @@ import {
 import { CurrencyIcon } from '../components/CurrencyIcon.js';
 import CopyButton from '../components/CopyButton.js';
 import { StatusBadge } from '../components/StatusBadge.js';
-import { listEscrows, claimMilestone, type Escrow } from '../api/escrows.js';
+import { listEscrows, claimMilestone, cashOutMilestone, type CashoutResult, type Escrow } from '../api/escrows.js';
 
 interface WalletBalance {
   asset_type: string;
@@ -116,15 +116,42 @@ export default function Wallet() {
     }
   }
 
+  function reportCashout(cashout: CashoutResult) {
+    if (cashout.status === 'completed') {
+      toast.success('Cash-out sent to your anchor — track it from the milestone');
+    } else if (cashout.status === 'action_required') {
+      toast('Your anchor needs one more step — use "Complete anchor step" below', { icon: 'ℹ️' });
+    } else {
+      toast.error(cashout.error ?? 'Cash-out failed — your funds are safe in your wallet, retry any time');
+    }
+  }
+
   async function handleClaim(escrowId: string, idx: number) {
     setClaiming(`${escrowId}:${idx}`);
     try {
-      const txHash = await claimMilestone(escrowId, idx);
+      // Workers who chose bank/cash payouts claim and cash out in one step.
+      const { txHash, cashout } = await claimMilestone(
+        escrowId, idx, payoutMethod === 'anchor' ? { cashout: 'anchor' } : undefined,
+      );
       toast.success(`Milestone claimed — funds are in your wallet (${txHash.slice(0, 8)}…)`);
+      if (cashout) reportCashout(cashout);
       loadEscrows();
       fetchWallet();
     } catch (err: any) {
       toast.error(err?.response?.data?.error ?? 'Failed to claim milestone');
+    } finally {
+      setClaiming(null);
+    }
+  }
+
+  async function handleCashout(escrowId: string, idx: number) {
+    setClaiming(`${escrowId}:${idx}`);
+    try {
+      reportCashout(await cashOutMilestone(escrowId, idx));
+      loadEscrows();
+      fetchWallet();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error ?? 'Failed to cash out milestone');
     } finally {
       setClaiming(null);
     }
@@ -280,6 +307,9 @@ export default function Wallet() {
                     {e.status === 'active' ? 'Active' : e.status === 'completed' ? 'Completed' : 'Refunded'}
                   </StatusBadge>
                   <span>{e.totalXlm} XLM total · expires {new Date(e.expiresAt).toLocaleDateString()}</span>
+                  {e.frozen && (
+                    <StatusBadge variant="failed">On compliance hold</StatusBadge>
+                  )}
                 </div>
                 <div className="status-list">
                   {e.milestones.map((m) => (
@@ -293,15 +323,62 @@ export default function Wallet() {
                           <button
                             className="btn-primary"
                             style={{ padding: '7px 16px', fontSize: '0.82rem' }}
-                            disabled={claiming === `${e.id}:${m.idx}`}
+                            disabled={e.frozen || claiming === `${e.id}:${m.idx}`}
+                            title={e.frozen ? 'This escrow is on a compliance hold' : undefined}
                             onClick={() => handleClaim(e.id, m.idx)}
                           >
-                            {claiming === `${e.id}:${m.idx}` ? 'Claiming…' : `Claim ${m.amountXlm} XLM`}
+                            {claiming === `${e.id}:${m.idx}`
+                              ? 'Claiming…'
+                              : payoutMethod === 'anchor'
+                                ? `Claim & cash out ${m.amountXlm} XLM`
+                                : `Claim ${m.amountXlm} XLM`}
                           </button>
-                        ) : m.status === 'claimed' && m.claimTxHash ? (
-                          <a href={`https://stellar.expert/explorer/testnet/tx/${m.claimTxHash}`} target="_blank" rel="noopener noreferrer">
-                            <StatusBadge variant="completed">Claimed</StatusBadge>
-                          </a>
+                        ) : m.status === 'claimed' ? (
+                          <>
+                            {m.claimTxHash && (
+                              <a href={`https://stellar.expert/explorer/testnet/tx/${m.claimTxHash}`} target="_blank" rel="noopener noreferrer">
+                                <StatusBadge variant="completed">Claimed</StatusBadge>
+                              </a>
+                            )}
+                            {m.cashoutStatus === 'pending' && <StatusBadge variant="pending">Cashing out…</StatusBadge>}
+                            {m.cashoutStatus === 'completed' && (
+                              <a
+                                href={m.anchorSettlementHash ? `https://stellar.expert/explorer/testnet/tx/${m.anchorSettlementHash}` : undefined}
+                                target="_blank" rel="noopener noreferrer"
+                              >
+                                <StatusBadge variant="completed">Paid out via anchor</StatusBadge>
+                              </a>
+                            )}
+                            {m.cashoutStatus === 'action_required' && (
+                              <>
+                                {m.anchorMoreInfoUrl && (
+                                  <a className="btn-secondary" href={m.anchorMoreInfoUrl} target="_blank" rel="noopener noreferrer"
+                                    style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                                    Complete anchor step
+                                  </a>
+                                )}
+                                <button
+                                  className="btn-primary"
+                                  style={{ padding: '7px 14px', fontSize: '0.8rem' }}
+                                  disabled={claiming === `${e.id}:${m.idx}`}
+                                  onClick={() => handleCashout(e.id, m.idx)}
+                                >
+                                  {claiming === `${e.id}:${m.idx}` ? 'Checking…' : 'Resume cash-out'}
+                                </button>
+                              </>
+                            )}
+                            {(m.cashoutStatus === 'failed' || (m.cashoutStatus === 'none' && payoutMethod === 'anchor')) && (
+                              <button
+                                className="btn-secondary"
+                                style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                                title={m.cashoutError ?? undefined}
+                                disabled={e.frozen || claiming === `${e.id}:${m.idx}`}
+                                onClick={() => handleCashout(e.id, m.idx)}
+                              >
+                                {m.cashoutStatus === 'failed' ? 'Retry cash-out' : 'Cash out'}
+                              </button>
+                            )}
+                          </>
                         ) : (
                           <StatusBadge variant={m.status === 'refunded' ? 'failed' : 'pending'}>
                             {m.status === 'refunded' ? 'Refunded' : 'Awaiting approval'}
