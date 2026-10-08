@@ -15,10 +15,13 @@ const STATUS: Record<WalletCashout['status'], ['completed' | 'failed' | 'pending
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
+const num = (v: string | number) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
 /**
- * Every MoneyGram cash-out from the worker's wallet: what it cost, what the recipient
- * collects and the reference they quote at the pickup location. On the sandbox no
- * cash is dispensed, and the table says so.
+ * Every MoneyGram cash-out from the worker's wallet, in the order it happens: what left
+ * the wallet, what MoneyGram was sent, what the recipient collects and the reference they
+ * quote at the pickup location. Each step is shown in its own asset, because on testnet
+ * the swap between them does not follow real prices. On the sandbox no cash is dispensed.
  */
 export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] }) {
   const dc = useDisplayCurrency();
@@ -34,12 +37,14 @@ export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] 
         }}>
           <strong>MoneyGram sandbox.</strong> The reference number is a real MoneyGram test reference, but no cash is
           dispensed. On the live service the recipient quotes it at the pickup location to collect the money.
+          Testnet also trades XLM for USDC at about 1:1 (the real market is about 5:1), so these cash-outs pay out far
+          more than the same XLM would on the live network.
         </div>
       )}
       <div className="table-responsive">
         <table className="data-table" style={{ whiteSpace: 'nowrap' }}>
           <thead>
-            <tr><th>Date</th><th>Cost to you</th><th>Pickup</th><th>Reference</th><th>Recipient gets</th><th>Fee</th><th>Status</th></tr>
+            <tr><th>Date</th><th>Taken from wallet</th><th>Sent to MoneyGram</th><th>Pickup</th><th>Reference</th><th>Recipient gets</th><th>Fee</th><th>Status</th></tr>
           </thead>
           <tbody>
             {cashouts.map((c) => {
@@ -47,10 +52,15 @@ export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] 
               return (
                 <tr key={c.id}>
                   <td data-label="Date">{fmtDate(c.createdAt)}</td>
-                  <td data-label="Cost to you">
-                    {c.xlmSpent != null ? dc.format(c.xlmSpent, 'XLM') : NOT_YET}
-                    {c.sendUsdc && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{dc.format(Number(c.sendUsdc), 'USDC')} sent</div>}
+                  <td data-label="Taken from wallet">
+                    {c.xlmSpent != null ? (
+                      <>
+                        <div>{dc.format(c.xlmSpent, 'XLM')}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{num(c.xlmSpent)} XLM</div>
+                      </>
+                    ) : NOT_YET}
                   </td>
+                  <td data-label="Sent to MoneyGram">{c.sendUsdc ? `${num(c.sendUsdc)} USDC` : NOT_YET}</td>
                   <td data-label="Pickup">
                     <div>Cash pickup</div>
                     {c.destinationCountry && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Country {c.destinationCountry}</div>}
@@ -64,9 +74,9 @@ export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] 
                     ) : NOT_YET}
                   </td>
                   <td data-label="Recipient gets">
-                    {c.receiveAmount ? `${c.receiveAmount}${c.receiveCurrency ? ` ${c.receiveCurrency}` : ''}` : NOT_YET}
+                    {c.receiveAmount ? `${num(c.receiveAmount)}${c.receiveCurrency ? ` ${c.receiveCurrency}` : ''}` : NOT_YET}
                   </td>
-                  <td data-label="Fee">{c.fee ? dc.format(Number(c.fee), c.feeCurrency ?? 'USDC') : NOT_YET}</td>
+                  <td data-label="Fee">{c.fee ? `${num(c.fee)} ${c.feeCurrency ?? 'USDC'}` : NOT_YET}</td>
                   <td data-label="Status">
                     <StatusBadge variant={variant} title={c.error ?? undefined}>{label}</StatusBadge>
                     {c.settlementHash && (
