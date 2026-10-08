@@ -361,6 +361,11 @@ export default function Wallet() {
                               {lastRejection(e, m.idx)}
                             </div>
                           )}
+                          {m.status === 'claimed' && m.cashoutStatus === 'action_required' && (
+                            <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
+                              Enter exactly {m.amountXlm} XLM in the anchor form
+                            </div>
+                          )}
                           {m.cashoutStatus === 'failed' && m.cashoutError && (
                             <div style={{ fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 }}>
                               {m.cashoutError}

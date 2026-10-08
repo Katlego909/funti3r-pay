@@ -28,6 +28,12 @@ import { sendAnchorPayout } from '../src/rails/anchor.js';
 const explorer = (hash: string) => `https://stellar.expert/explorer/testnet/tx/${hash}`;
 const MILESTONE_XLM = '10';
 
+/** Stands in for the worker's saved payout details (users.payout_details). */
+const WORKER_DETAILS = {
+  first_name: 'Lionel', last_name: 'Rich', email_address: 'createdbylionel@gmail.com',
+  bank_number: '23123', bank_account_number: '1234567890',
+};
+
 async function fund(pub: string) {
   await axios.get(`https://friendbot.stellar.org?addr=${encodeURIComponent(pub)}`, { timeout: 30000 });
 }
@@ -48,7 +54,7 @@ async function cashOutWithAnchor(workerSecret: string) {
       return await sendAnchorPayout({
         payerSecret: workerSecret,
         amountXlm: MILESTONE_XLM,
-        kyc: {},
+        kyc: WORKER_DETAILS,
         resume: anchorTxId ? { anchorTxId, protocol, settlementHash } : undefined,
         onWithdrawCreated: async (id, p) => { anchorTxId = id; protocol = p; },
         onSettled: async (hash) => { settlementHash = hash; },

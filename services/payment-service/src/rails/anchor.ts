@@ -26,6 +26,7 @@ import {
   sep6Withdraw,
   sep6WithdrawInfo,
 } from '../lib/anchor.js';
+import { autofillReferenceForm } from '../lib/anchorReferenceUi.js';
 import { sendPayment } from '../lib/stellar.js';
 
 const logger = createLogger('Rail:Anchor');
@@ -130,7 +131,7 @@ async function startWithdrawal(
   // already knows, so anything we didn't supply the first time never gets
   // asked for again. `payout_type` is a SEP-6 concept, not a SEP-12 field.
   const { payout_type: _pt, ...kycFields } = opts.kyc;
-  await sep12PutCustomer(jwt, {
+  const customerId = await sep12PutCustomer(jwt, {
     first_name: opts.kyc.first_name ?? 'Funti3r',
     last_name: opts.kyc.last_name ?? 'Worker',
     ...kycFields,
@@ -151,9 +152,15 @@ async function startWithdrawal(
       assetCode: 'native',
       account: Keypair.fromSecret(opts.payerSecret).publicKey(),
       amount: opts.amountXlm,
+      customerId,
       prefill: kycFields,
     });
     logger.info('Anchor withdrawal created', { anchorTxId: wd24.id, protocol });
+
+    // The SDF reference anchor ignores prefill and shows a blank form; on testnet
+    // (opt-in) submit it for the worker from their saved details. Best effort —
+    // if it doesn't take, the normal "complete the anchor form" step still applies.
+    await autofillReferenceForm({ interactiveUrl: wd24.url, amountXlm: opts.amountXlm, details: opts.kyc });
     return { id: wd24.id, protocol, interactiveUrl: wd24.url };
   }
 

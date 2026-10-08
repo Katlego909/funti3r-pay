@@ -406,12 +406,21 @@ export async function sep24WithdrawInfo(): Promise<Sep24AssetInfo[]> {
 /** Starts an interactive withdrawal; `prefill` are SEP-9 fields shown pre-filled in the form. */
 export async function sep24WithdrawInteractive(
   jwt: string,
-  params: { assetCode: string; account: string; amount: string; prefill?: Record<string, string> },
+  params: {
+    assetCode: string; account: string; amount: string;
+    /** SEP-12 customer id already on file, so the anchor can reuse that KYC. */
+    customerId?: string;
+    prefill?: Record<string, string>;
+  },
 ): Promise<Sep24Withdrawal> {
   const config = await fetchAnchorConfig();
   const { data } = await axios.post(
     `${config.transferServerSep24}/transactions/withdraw/interactive`,
-    { asset_code: params.assetCode, account: params.account, amount: params.amount, ...params.prefill },
+    {
+      asset_code: params.assetCode, account: params.account, amount: params.amount,
+      ...(params.customerId ? { customer_id: params.customerId } : {}),
+      ...params.prefill,
+    },
     { headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' }, timeout: 20000 },
   );
   logger.info('SEP-24 interactive withdrawal initiated', { id: data.id });
