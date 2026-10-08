@@ -20,6 +20,7 @@ import {
   NotFoundError,
   requireGatewayIdentity,
   assertInternalAuthConfigured,
+  assertJwtConfigured,
 } from '@funti3r/shared-utils';
 import { sendRecoveryEmail } from './lib/email.js';
 import { initPostgres, runInitialMigrations, initRedis, query, transaction, setJSON, getJSON, deleteKey } from '@funti3r/database';
@@ -1608,6 +1609,7 @@ async function start() {
 
   const PORT = parseInt(process.env.USER_SERVICE_PORT || '3001', 10);
   assertInternalAuthConfigured();
+  assertJwtConfigured();
   app.listen(PORT, '0.0.0.0', () => {
     logger.info(`User Service running on port ${PORT}`);
   });

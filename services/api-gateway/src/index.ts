@@ -5,7 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { v4 as uuid } from 'uuid';
-import { createLogger, assertInternalAuthConfigured, stripIdentity } from '@funti3r/shared-utils';
+import { createLogger, assertInternalAuthConfigured, assertJwtConfigured, stripIdentity } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, getRedis } from '@funti3r/database';
 import { authMiddleware } from './middleware/auth.js';
 
@@ -94,6 +94,7 @@ const moneyLimiter = rateLimit({
 // A client never gets to say who it is: drop any identity headers it sent (public routes included),
 // then the auth middleware sets and signs the real ones from the verified token.
 assertInternalAuthConfigured();
+assertJwtConfigured();
 app.use((req, _res, next) => {
   stripIdentity(req.headers);
   next();
