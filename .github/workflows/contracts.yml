@@ -1,0 +1,67 @@
+name: Contracts
+
+# Tests the Soroban escrow contract and builds the deployable wasm. The wasm
+# and its sha256 are uploaded as an artifact so a reviewer can compare the hash
+# with the one deployed on testnet.
+
+on:
+  push:
+    branches: [main, develop, master]
+    paths: ['contracts/**', '.github/workflows/contracts.yml']
+  pull_request:
+    paths: ['contracts/**', '.github/workflows/contracts.yml']
+
+env:
+  STELLAR_CLI_VERSION: 28.1.0
+
+jobs:
+  escrow:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('contracts/Cargo.lock') }}
+
+      - name: Install stellar-cli
+        working-directory: .
+        run: |
+          curl -sSL -o stellar.tar.gz \
+            "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          tar xzf stellar.tar.gz stellar
+          sudo mv stellar /usr/local/bin/stellar
+          stellar --version
+
+      - name: Unit tests
+        run: cargo test -p funti3r-escrow --locked
+
+      - name: Build wasm
+        run: stellar contract build --package funti3r-escrow
+
+      - name: Hash wasm
+        run: |
+          sha256sum target/wasm32v1-none/release/funti3r_escrow.wasm | tee funti3r_escrow.wasm.sha256
+          ls -l target/wasm32v1-none/release/funti3r_escrow.wasm
+
+      - name: Upload wasm
+        uses: actions/upload-artifact@v4
+        with:
+          name: funti3r-escrow-wasm
+          path: |
+            contracts/target/wasm32v1-none/release/funti3r_escrow.wasm
+            contracts/funti3r_escrow.wasm.sha256
