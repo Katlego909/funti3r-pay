@@ -96,7 +96,7 @@ app.post('/submit', submitKycHandler);
 const statusHandler = async (req: express.Request, res: express.Response) => {
   try {
     const result = await query(
-      `SELECT id, status, verified_at, created_at, updated_at, sanctions_status
+      `SELECT id, status, verified_at, created_at, updated_at, sanctions_status, sanctions_checked_at
          FROM kyc_records WHERE user_id = $1`,
       [req.params.userId],
     );
@@ -118,6 +118,7 @@ const statusHandler = async (req: express.Request, res: express.Response) => {
       submitted_at: row.created_at,
       updated_at: row.updated_at,
       sanctions_status: row.sanctions_status,
+      sanctions_checked_at: row.sanctions_checked_at,
     });
   } catch (err) {
     logger.error('Status check failed', { error: String(err) });

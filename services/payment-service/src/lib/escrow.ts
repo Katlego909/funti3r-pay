@@ -18,7 +18,9 @@ import {
   nativeToScVal,
   scValToNative,
   rpc,
+  xdr,
 } from '@stellar/stellar-sdk';
+import { createHash } from 'node:crypto';
 import { createLogger } from '@funti3r/shared-utils';
 
 const logger = createLogger('EscrowService');
@@ -58,6 +60,41 @@ async function pollTransaction(txHash: string): Promise<rpc.Api.GetTransactionRe
   throw new Error(`Transaction ${txHash} not confirmed after 60s`);
 }
 
+/** Mirror of the contract's `Error` enum (contracts/escrow/src/lib.rs). */
+export const CONTRACT_ERRORS: Record<number, string> = {
+  1: 'Escrow not found',
+  2: 'An escrow needs at least one milestone',
+  3: 'Invalid milestone amount',
+  4: 'Expiry must be in the future',
+  5: 'Escrow is no longer active',
+  6: 'Milestone does not exist',
+  7: 'Milestone is not pending',
+  8: 'Milestone is not approved',
+  9: 'Escrow has not expired yet',
+  10: 'Nothing to refund',
+  11: 'Worker is not compliance-cleared',
+  12: 'Escrow is frozen by compliance',
+  13: 'Clearance expiry must be in the future',
+};
+
+/** A rejection by the escrow contract itself, with its numeric error code. */
+export class EscrowContractError extends Error {
+  constructor(public readonly code: number, public readonly method: string) {
+    super(CONTRACT_ERRORS[code] ?? `Escrow contract error #${code}`);
+    this.name = 'EscrowContractError';
+  }
+  /** True when the compliance gate (not a business rule) rejected the call. */
+  get isComplianceBlock(): boolean {
+    return this.code === 11 || this.code === 12;
+  }
+}
+
+/** Soroban surfaces contract errors as "Error(Contract, #N)" in sim/result text. */
+function contractErrorCode(text: string): number | undefined {
+  const m = /Error\(Contract, #(\d+)\)/.exec(text);
+  return m ? Number(m[1]) : undefined;
+}
+
 /** Simulate, assemble, sign as `signer` (also the source account), submit, poll. */
 async function invoke(
   signerSecret: string,
@@ -76,7 +113,15 @@ async function invoke(
     .setTimeout(60)
     .build();
 
-  const prepared = await server.prepareTransaction(tx);
+  let prepared;
+  try {
+    prepared = await server.prepareTransaction(tx);
+  } catch (err) {
+    // Simulation runs the contract, so a gate rejection surfaces here.
+    const code = contractErrorCode(String(err instanceof Error ? err.message : err));
+    if (code !== undefined) throw new EscrowContractError(code, method);
+    throw err;
+  }
   prepared.sign(signer);
 
   const sent = await server.sendTransaction(prepared);
@@ -85,12 +130,84 @@ async function invoke(
   }
   const result = await pollTransaction(sent.hash);
   if (result.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
+    const code = contractErrorCode(JSON.stringify(result, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)));
+    if (code !== undefined) throw new EscrowContractError(code, method);
     throw new Error(`Escrow ${method} failed on-chain: ${result.status}`);
   }
   const returnValue =
     'returnValue' in result && result.returnValue ? scValToNative(result.returnValue) : undefined;
   logger.info('Escrow contract call succeeded', { method, hash: sent.hash });
   return { hash: sent.hash, returnValue };
+}
+
+function complianceSecret(): string {
+  const secret = process.env.ESCROW_COMPLIANCE_SECRET;
+  if (!secret) throw new Error('ESCROW_COMPLIANCE_SECRET is not configured');
+  return secret;
+}
+
+/** Public key of the compliance authority (the contract's `compliance` role). */
+export function complianceAuthorityPublic(): string {
+  return Keypair.fromSecret(complianceSecret()).publicKey();
+}
+
+/** 32-byte hash binding an on-chain clearance to the off-chain screening record. */
+export function attestationHash(record: unknown): Buffer {
+  return createHash('sha256').update(JSON.stringify(record)).digest();
+}
+
+/** Compliance authority clears `workerPublic` until `expiryUnix`. */
+export async function setClearance(
+  workerPublic: string,
+  expiryUnix: number,
+  attestation: Buffer,
+): Promise<string> {
+  const { hash } = await invoke(complianceSecret(), 'set_clearance', [
+    nativeToScVal(new Address(workerPublic), { type: 'address' }),
+    nativeToScVal(BigInt(expiryUnix), { type: 'u64' }),
+    nativeToScVal(attestation, { type: 'bytes' }),
+  ]);
+  return hash;
+}
+
+/** Compliance authority immediately removes a worker's clearance. */
+export async function revokeClearance(workerPublic: string): Promise<string> {
+  const { hash } = await invoke(complianceSecret(), 'revoke_clearance', [
+    nativeToScVal(new Address(workerPublic), { type: 'address' }),
+  ]);
+  return hash;
+}
+
+/** Compliance hold on / release of a single escrow. */
+export async function setFrozen(escrowId: bigint, frozen: boolean): Promise<string> {
+  const { hash } = await invoke(complianceSecret(), 'set_frozen', [
+    nativeToScVal(escrowId, { type: 'u64' }),
+    xdr.ScVal.scvBool(frozen),
+  ]);
+  return hash;
+}
+
+/** Read-only: does the worker hold a live on-chain clearance? */
+export async function isCleared(workerPublic: string): Promise<boolean> {
+  const sourcePublic = complianceAuthorityPublic();
+  const account = await server.getAccount(sourcePublic);
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      new Contract(contractAddress()).call(
+        'is_cleared',
+        nativeToScVal(new Address(workerPublic), { type: 'address' }),
+      ),
+    )
+    .setTimeout(60)
+    .build();
+  const sim = await server.simulateTransaction(tx);
+  if (!rpc.Api.isSimulationSuccess(sim) || !sim.result?.retval) {
+    throw new Error('is_cleared simulation failed');
+  }
+  return scValToNative(sim.result.retval) === true;
 }
 
 export interface OnchainEscrow {
@@ -101,6 +218,7 @@ export interface OnchainEscrow {
   milestones: string[]; // 'Pending' | 'Approved' | 'Claimed' | 'Refunded'
   expiry: bigint;
   status: string; // 'Active' | 'Completed' | 'Refunded'
+  frozen: boolean;
 }
 
 /** Enterprise funds a new escrow; returns the on-chain escrow id + tx hash. */
@@ -181,5 +299,6 @@ export async function getEscrow(escrowId: bigint, sourcePublic: string): Promise
     milestones: raw.milestones.map((m: unknown) => String(Array.isArray(m) ? m[0] : m)),
     expiry: raw.expiry,
     status: String(Array.isArray(raw.status) ? raw.status[0] : raw.status),
+    frozen: raw.frozen === true,
   };
 }

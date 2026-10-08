@@ -5,7 +5,10 @@
  *   1. cd contracts && cargo build --target wasm32v1-none --release -p funti3r-escrow
  *      (wasm32v1-none, NOT wasm32-unknown-unknown — modern rustc emits
  *      post-MVP WASM features there that the Soroban VM rejects)
- *   2. STELLAR_OPERATOR_SECRET in .env.local (funded testnet account)
+ *   2. STELLAR_OPERATOR_SECRET in .env.local (funded testnet account) — becomes
+ *      the contract admin
+ *   3. ESCROW_COMPLIANCE_SECRET in .env.local (funded testnet account) — becomes
+ *      the compliance authority that grants/revokes worker clearances
  *
  * Run: node --env-file=../../.env.local --import tsx scripts/deploy-escrow.ts
  * Then add the printed ESCROW_CONTRACT_ADDRESS to .env.local.
@@ -13,6 +16,7 @@
 import {
   Address,
   BASE_FEE,
+  nativeToScVal,
   Keypair,
   Networks,
   Operation,
@@ -68,6 +72,9 @@ async function main() {
   const operatorSecret = process.env.STELLAR_OPERATOR_SECRET;
   if (!operatorSecret) throw new Error('STELLAR_OPERATOR_SECRET is required');
   const keypair = Keypair.fromSecret(operatorSecret);
+  const complianceSecret = process.env.ESCROW_COMPLIANCE_SECRET;
+  if (!complianceSecret) throw new Error('ESCROW_COMPLIANCE_SECRET is required');
+  const compliancePublic = Keypair.fromSecret(complianceSecret).publicKey();
   const wasmBytes = readFileSync(WASM_PATH);
   const wasmHash = hash(wasmBytes);
 
@@ -86,6 +93,11 @@ async function main() {
       address: new Address(keypair.publicKey()),
       wasmHash,
       salt: randomBytes(32),
+      // __constructor(admin, compliance) runs atomically with deployment.
+      constructorArgs: [
+        nativeToScVal(new Address(keypair.publicKey()), { type: 'address' }),
+        nativeToScVal(new Address(compliancePublic), { type: 'address' }),
+      ],
     }),
   );
   if (create.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
@@ -95,6 +107,8 @@ async function main() {
 
   console.log('\n── Escrow contract deployed ──────────────────────────────');
   console.log(`Contract address : ${contractAddress}`);
+  console.log(`Admin            : ${keypair.publicKey()}`);
+  console.log(`Compliance       : ${compliancePublic}`);
   console.log(`Deploy tx        : ${create.txHash}`);
   console.log(`Explorer         : https://stellar.expert/explorer/testnet/contract/${contractAddress}`);
   console.log('\nAdd to .env.local:');

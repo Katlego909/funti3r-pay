@@ -4,6 +4,9 @@ import { query } from '@funti3r/database';
 import { createLogger, decryptFromString } from '@funti3r/shared-utils';
 import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from '../lib/company.js';
 import * as escrow from '../lib/escrow.js';
+import { ComplianceBlockedError, ensureCleared } from '../lib/clearance.js';
+import { anchorConfigured, sendAnchorPayout } from '../rails/anchor.js';
+import { AnchorActionRequiredError } from '../lib/anchor.js';
 import { requireCompliance, resolveEnterpriseSecret } from '../app.js';
 
 const router: RouterType = Router();
@@ -52,6 +55,30 @@ function requireWorker(req: Request, res: Response): string | null {
   return userId;
 }
 
+async function workerPublicKey(workerId: string): Promise<string | undefined> {
+  const r = await query(`SELECT stellar_public_key FROM users WHERE id = $1`, [workerId]);
+  return r.rows[0]?.stellar_public_key;
+}
+
+/**
+ * Maps a failure to an HTTP response: compliance blocks (from the sync step or
+ * from the contract's own gate) are 403, other contract-rule rejections are
+ * 409, everything else is a 502 from the chain.
+ */
+function sendChainError(res: Response, err: unknown, fallback: string) {
+  if (err instanceof ComplianceBlockedError) {
+    return res.status(403).json({ error: err.message, code: 'compliance_blocked' });
+  }
+  if (err instanceof escrow.EscrowContractError) {
+    return res.status(err.isComplianceBlock ? 403 : 409).json({
+      error: err.message,
+      code: err.isComplianceBlock ? 'compliance_blocked' : 'contract_rejected',
+      contractCode: err.code,
+    });
+  }
+  return res.status(502).json({ error: err instanceof Error ? err.message : fallback });
+}
+
 async function notify(userId: string, type: string, title: string, body: string, escrowId: string) {
   try {
     await query(
@@ -67,7 +94,8 @@ async function notify(userId: string, type: string, title: string, body: string,
 async function listMilestones(escrowIds: string[]) {
   if (escrowIds.length === 0) return {} as Record<string, unknown[]>;
   const rows = await query(
-    `SELECT escrow_id, idx, description, amount, status, approved_at, claimed_at, claim_tx_hash
+    `SELECT escrow_id, idx, description, amount, status, approved_at, claimed_at, claim_tx_hash,
+            cashout_status, anchor_tx_id, anchor_settlement_hash, anchor_status, anchor_more_info_url, cashout_error
        FROM escrow_milestones WHERE escrow_id = ANY($1::uuid[]) ORDER BY idx`,
     [escrowIds],
   );
@@ -81,6 +109,12 @@ async function listMilestones(escrowIds: string[]) {
       approvedAt: m.approved_at,
       claimedAt: m.claimed_at,
       claimTxHash: m.claim_tx_hash,
+      cashoutStatus: m.cashout_status ?? 'none',
+      anchorTxId: m.anchor_tx_id ?? null,
+      anchorSettlementHash: m.anchor_settlement_hash ?? null,
+      anchorStatus: m.anchor_status ?? null,
+      anchorMoreInfoUrl: m.anchor_more_info_url ?? null,
+      cashoutError: m.cashout_error ?? null,
     });
   }
   return byEscrow;
@@ -101,6 +135,108 @@ async function finalizeEscrowStatus(escrowId: string): Promise<void> {
       WHERE e.id = $1`,
     [escrowId],
   );
+}
+
+// ── Anchor cash-out (second leg of a claim) ──────────────────────────────────
+
+interface CashoutResult {
+  status: 'completed' | 'failed' | 'action_required';
+  anchorTxId?: string;
+  settlementHash?: string;
+  anchorStatus?: string;
+  /** The anchor's own page the worker must visit (status = action_required). */
+  moreInfoUrl?: string;
+  error?: string;
+}
+
+/**
+ * Routes an already-claimed milestone's funds from the worker's wallet through
+ * the configured anchor. Never throws: a failure is recorded on the milestone
+ * (retryable) because the claim itself already succeeded on-chain and the
+ * funds are safe in the worker's wallet.
+ *
+ * Money safety:
+ *  - the cash-out is taken atomically (none|failed|action_required -> pending),
+ *    so a double-click or retry can't run two attempts at once;
+ *  - the anchor transaction id and the on-chain settlement hash are persisted
+ *    the instant they exist, and a retry resumes from them — an attempt that
+ *    already paid the anchor is never paid a second time.
+ */
+async function cashOutMilestone(escrowId: string, idx: number, workerId: string): Promise<CashoutResult | 'in_progress'> {
+  const taken = await query(
+    `UPDATE escrow_milestones SET cashout_status = 'pending', cashout_error = NULL
+      WHERE escrow_id = $1 AND idx = $2 AND status = 'claimed'
+        AND cashout_status IN ('none', 'failed', 'action_required')
+      RETURNING amount, anchor_tx_id, anchor_protocol, anchor_settlement_hash, anchor_more_info_url`,
+    [escrowId, idx],
+  );
+  if (!taken.rows.length) return 'in_progress';
+  const amountXlm = String(Number(taken.rows[0].amount));
+  const priorAnchorTxId: string | null = taken.rows[0].anchor_tx_id ?? null;
+  const priorSettlementHash: string | null = taken.rows[0].anchor_settlement_hash ?? null;
+  const priorInteractiveUrl: string | undefined = taken.rows[0].anchor_more_info_url ?? undefined;
+  const priorProtocol: 'sep6' | 'sep24' = taken.rows[0].anchor_protocol === 'sep24' ? 'sep24' : 'sep6';
+
+  try {
+    if (!anchorConfigured()) throw new Error('No disbursement anchor is configured');
+    const w = await query(`SELECT stellar_secret_key, payout_details FROM users WHERE id = $1`, [workerId]);
+    const row = w.rows[0];
+    if (!row?.stellar_secret_key) throw new Error('Worker Stellar account is not set up');
+
+    const result = await sendAnchorPayout({
+      payerSecret: decryptFromString(row.stellar_secret_key),
+      amountXlm,
+      kyc: row.payout_details ?? {},
+      resume: priorAnchorTxId
+        ? { anchorTxId: priorAnchorTxId, protocol: priorProtocol, settlementHash: priorSettlementHash ?? undefined, interactiveUrl: priorInteractiveUrl }
+        : undefined,
+      onWithdrawCreated: async (anchorTxId, protocol, interactiveUrl) => {
+        await query(
+          `UPDATE escrow_milestones SET anchor_tx_id = $3, anchor_protocol = $4, anchor_more_info_url = $5
+            WHERE escrow_id = $1 AND idx = $2`,
+          [escrowId, idx, anchorTxId, protocol, interactiveUrl ?? null],
+        );
+      },
+      onSettled: async (settlementHash) => {
+        await query(
+          `UPDATE escrow_milestones SET anchor_settlement_hash = $3 WHERE escrow_id = $1 AND idx = $2`,
+          [escrowId, idx, settlementHash],
+        );
+      },
+    });
+    await query(
+      `UPDATE escrow_milestones
+          SET cashout_status = 'completed', anchor_tx_id = $3, anchor_settlement_hash = $4,
+              anchor_status = $5, anchor_more_info_url = NULL, cashout_at = NOW()
+        WHERE escrow_id = $1 AND idx = $2`,
+      [escrowId, idx, result.anchorTxId, result.settlementHash, result.anchorStatus],
+    );
+    return {
+      status: 'completed',
+      anchorTxId: result.anchorTxId,
+      settlementHash: result.settlementHash,
+      anchorStatus: result.anchorStatus,
+    };
+  } catch (err) {
+    if (err instanceof AnchorActionRequiredError) {
+      // Not a failure: the anchor wants the worker to finish a step on its own
+      // site. Park the cash-out; the same anchor transaction resumes on retry.
+      await query(
+        `UPDATE escrow_milestones
+            SET cashout_status = 'action_required', anchor_tx_id = $3, anchor_more_info_url = $4
+          WHERE escrow_id = $1 AND idx = $2`,
+        [escrowId, idx, err.anchorTxId, err.moreInfoUrl],
+      );
+      return { status: 'action_required', anchorTxId: err.anchorTxId, moreInfoUrl: err.moreInfoUrl };
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error('Anchor cash-out failed', { escrowId, idx, error: message });
+    await query(
+      `UPDATE escrow_milestones SET cashout_status = 'failed', cashout_error = $3 WHERE escrow_id = $1 AND idx = $2`,
+      [escrowId, idx, message.slice(0, 500)],
+    );
+    return { status: 'failed', error: message };
+  }
 }
 
 // ── POST /escrows — create + fund on-chain ────────────────────────────────────
@@ -149,6 +285,10 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(403).json({ error: err instanceof Error ? err.message : String(err) });
     }
 
+    // The contract enforces the gate; this brings its clearance in line with
+    // the current KYC + sanctions verdict first.
+    await ensureCleared(workerId, worker.stellar_public_key);
+
     const { secret, error } = await resolveEnterpriseSecret(ctx.ownerUserId);
     if (!secret) return res.status(400).json({ error });
 
@@ -193,7 +333,7 @@ router.post('/', async (req: Request, res: Response) => {
     res.status(201).json({ id, onchainEscrowId: onchainId.toString(), txHash: hash });
   } catch (err) {
     logger.error('Failed to create escrow', { error: String(err) });
-    res.status(502).json({ error: err instanceof Error ? err.message : 'Failed to create escrow on-chain' });
+    sendChainError(res, err, 'Failed to create escrow on-chain');
   }
 });
 
@@ -223,6 +363,10 @@ router.post('/:id/milestones/:idx/approve', async (req: Request, res: Response) 
       return res.status(409).json({ error: `Milestone is ${ms.rows[0].status}, not pending` });
     }
 
+    const workerPub = await workerPublicKey(row.worker_id);
+    if (!workerPub) return res.status(404).json({ error: 'Worker Stellar account not found' });
+    await ensureCleared(row.worker_id, workerPub);
+
     const { secret, error } = await resolveEnterpriseSecret(ctx.ownerUserId);
     if (!secret) return res.status(400).json({ error });
 
@@ -240,7 +384,7 @@ router.post('/:id/milestones/:idx/approve', async (req: Request, res: Response) 
     res.json({ txHash: hash });
   } catch (err) {
     logger.error('Failed to approve milestone', { id, idx, error: String(err) });
-    res.status(502).json({ error: err instanceof Error ? err.message : 'Failed to approve on-chain' });
+    sendChainError(res, err, 'Failed to approve on-chain');
   }
 });
 
@@ -251,6 +395,10 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response) =>
   if (!workerId) return;
   const { id } = req.params;
   const idx = Number(req.params.idx);
+  const wantsAnchorCashout = (req.body as { cashout?: string } | undefined)?.cashout === 'anchor';
+  if (wantsAnchorCashout && !anchorConfigured()) {
+    return res.status(400).json({ error: 'Anchor cash-out is not available — no anchor is configured' });
+  }
 
   try {
     const escrowRes = await query(
@@ -273,6 +421,12 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response) =>
     const stored = secretRes.rows[0]?.stellar_secret_key;
     if (!stored) return res.status(400).json({ error: 'Your Stellar account is not set up for claiming' });
 
+    // Re-screen at release time: a worker flagged since approval is revoked
+    // on-chain here, before the claim can move any funds.
+    const claimerPub = await workerPublicKey(workerId);
+    if (!claimerPub) return res.status(400).json({ error: 'Your Stellar account is not set up for claiming' });
+    await ensureCleared(workerId, claimerPub);
+
     const hash = await escrow.claimMilestone(decryptFromString(stored), BigInt(row.onchain_escrow_id), idx);
     await query(
       `UPDATE escrow_milestones SET status = 'claimed', claimed_at = NOW(), claim_tx_hash = $3
@@ -286,10 +440,81 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response) =>
       `Your worker claimed milestone ${idx + 1} (${Number(ms.rows[0].amount)} XLM).`, id,
     );
 
-    res.json({ txHash: hash });
+    // Claim and cash-out are separate legs: a failed anchor never undoes the
+    // claim, it just leaves a retryable cash-out.
+    const cashout = wantsAnchorCashout ? await cashOutMilestone(id, idx, workerId) : undefined;
+    res.json({ txHash: hash, ...(cashout && { cashout }) });
   } catch (err) {
     logger.error('Failed to claim milestone', { id, idx, error: String(err) });
-    res.status(502).json({ error: err instanceof Error ? err.message : 'Failed to claim on-chain' });
+    sendChainError(res, err, 'Failed to claim on-chain');
+  }
+});
+
+// ── POST /escrows/:id/milestones/:idx/cashout (worker) ───────────────────────
+// Cash out an already-claimed milestone through the anchor: either the
+// "claim now, cash out later" path or a retry after a failed anchor leg.
+
+router.post('/:id/milestones/:idx/cashout', async (req: Request, res: Response) => {
+  const workerId = requireWorker(req, res);
+  if (!workerId) return;
+  const { id } = req.params;
+  const idx = Number(req.params.idx);
+  if (!anchorConfigured()) {
+    return res.status(400).json({ error: 'Anchor cash-out is not available — no anchor is configured' });
+  }
+
+  try {
+    const owned = await query(
+      `SELECT m.status, m.cashout_status
+         FROM escrow_milestones m JOIN escrows e ON e.id = m.escrow_id
+        WHERE m.escrow_id = $1 AND m.idx = $2 AND e.worker_id = $3`,
+      [id, idx, workerId],
+    );
+    const m = owned.rows[0];
+    if (!m) return res.status(404).json({ error: 'Milestone not found' });
+    if (m.status !== 'claimed') {
+      return res.status(409).json({ error: `Milestone is ${m.status} — claim it before cashing out` });
+    }
+
+    // Re-screen before money leaves the platform for a bank/cash destination.
+    const pub = await workerPublicKey(workerId);
+    if (!pub) return res.status(400).json({ error: 'Your Stellar account is not set up' });
+    await ensureCleared(workerId, pub);
+
+    const result = await cashOutMilestone(id, idx, workerId);
+    if (result === 'in_progress') {
+      return res.status(409).json({ error: `Cash-out is already ${m.cashout_status}` });
+    }
+    res.status(result.status === 'failed' ? 502 : 200).json({ cashout: result });
+  } catch (err) {
+    logger.error('Failed to cash out milestone', { id, idx, error: String(err) });
+    sendChainError(res, err, 'Failed to cash out milestone');
+  }
+});
+
+// ── POST /escrows/:id/freeze (compliance admin) ───────────────────────────────
+// Compliance hold: while frozen the contract blocks approve, claim and refund
+// for this escrow. Admin-only — same role gate as the KYC flagged list.
+
+router.post('/:id/freeze', async (req: Request, res: Response) => {
+  if (req.headers['x-user-role'] !== 'admin') {
+    return res.status(403).json({ error: 'Admin role required' });
+  }
+  const { id } = req.params;
+  const frozen = (req.body as { frozen?: unknown })?.frozen;
+  if (typeof frozen !== 'boolean') return res.status(400).json({ error: 'frozen (boolean) is required' });
+
+  try {
+    const r = await query(`SELECT onchain_escrow_id FROM escrows WHERE id = $1`, [id]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Escrow not found' });
+
+    const hash = await escrow.setFrozen(BigInt(r.rows[0].onchain_escrow_id), frozen);
+    await query(`UPDATE escrows SET frozen = $2, updated_at = NOW() WHERE id = $1`, [id, frozen]);
+    logger.warn('Escrow freeze changed', { id, frozen, hash, by: req.headers['x-user-id'] });
+    res.json({ frozen, txHash: hash });
+  } catch (err) {
+    logger.error('Failed to change escrow freeze', { id, error: String(err) });
+    sendChainError(res, err, 'Failed to change freeze on-chain');
   }
 });
 
@@ -326,7 +551,7 @@ router.post('/:id/refund', async (req: Request, res: Response) => {
     res.json({ refundedXlm: Number(refundedStroops) / 1e7, txHash: hash });
   } catch (err) {
     logger.error('Failed to refund escrow', { id, error: String(err) });
-    res.status(502).json({ error: err instanceof Error ? err.message : 'Failed to refund on-chain' });
+    sendChainError(res, err, 'Failed to refund on-chain');
   }
 });
 
@@ -368,6 +593,7 @@ router.get('/', async (req: Request, res: Response) => {
         tokenCode: r.token_code,
         totalXlm: Number(r.total_amount),
         status: r.status,
+        frozen: r.frozen === true,
         expiresAt: r.expires_at,
         createTxHash: r.create_tx_hash,
         createdAt: r.created_at,

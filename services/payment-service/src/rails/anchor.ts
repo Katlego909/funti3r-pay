@@ -9,13 +9,19 @@
  * currently serves SEP-6 only.
  */
 import { createLogger } from '@funti3r/shared-utils';
+import { Keypair } from '@stellar/stellar-sdk';
 import {
+  type AnchorProtocol,
+  anchorGetTransaction,
   anchorHomeDomain,
   anchorMemo,
+  anchorProtocol,
   sep10Auth,
+  sep24AwaitSettlementDetails,
+  sep24WithdrawInfo,
+  sep24WithdrawInteractive,
   sep12PutCustomer,
   sep6AwaitSettlementDetails,
-  sep6GetTransaction,
   sep6Withdraw,
   sep6WithdrawInfo,
 } from '../lib/anchor.js';
@@ -57,12 +63,66 @@ export async function sendAnchorPayout(opts: {
   payerSecret: string;
   amountXlm: string;
   kyc: Record<string, string>;
+  /**
+   * Continue an earlier attempt instead of starting a new anchor transaction.
+   * With `settlementHash` the on-chain payment already happened, so it is
+   * NEVER repeated — only the anchor status is re-read.
+   */
+  resume?: { anchorTxId: string; protocol?: AnchorProtocol; settlementHash?: string; interactiveUrl?: string };
+  /** Called as soon as the anchor transaction exists (before any money moves). */
+  onWithdrawCreated?: (anchorTxId: string, protocol: AnchorProtocol, interactiveUrl?: string) => Promise<void>;
+  /** Called immediately after the on-chain settlement payment lands. */
+  onSettled?: (settlementHash: string) => Promise<void>;
 }): Promise<AnchorPayoutResult> {
   if (!anchorConfigured()) {
     throw new Error('No disbursement anchor is configured (ANCHOR_HOME_DOMAIN)');
   }
 
   const jwt = await sep10Auth(opts.payerSecret);
+
+  let anchorTxId: string;
+  let protocol: AnchorProtocol;
+  let interactiveUrl: string | undefined;
+  let settlementHash: string;
+  if (opts.resume) {
+    anchorTxId = opts.resume.anchorTxId;
+    protocol = opts.resume.protocol ?? 'sep6';
+    if (opts.resume.settlementHash) {
+      settlementHash = opts.resume.settlementHash;
+    } else {
+      interactiveUrl = opts.resume.interactiveUrl;
+      settlementHash = await settleWithAnchor(jwt, protocol, anchorTxId, interactiveUrl, opts);
+    }
+  } else {
+    const started = await startWithdrawal(jwt, opts);
+    anchorTxId = started.id;
+    protocol = started.protocol;
+    interactiveUrl = started.interactiveUrl;
+    await opts.onWithdrawCreated?.(anchorTxId, protocol, interactiveUrl);
+    settlementHash = await settleWithAnchor(jwt, protocol, anchorTxId, interactiveUrl, opts);
+  }
+
+  // Give the anchor a short window to confirm; the settlement is already
+  // on-chain either way, and the anchor tx id stays queryable.
+  let anchorStatus = 'pending_anchor';
+  for (let i = 0; i < 10; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    const s = await anchorGetTransaction(protocol, jwt, anchorTxId);
+    anchorStatus = s.status;
+    if (['completed', 'error', 'refunded'].includes(anchorStatus)) break;
+  }
+
+  logger.info('Anchor payout settled', {
+    anchor: anchorHomeDomain(), anchorTxId, settlementHash, anchorStatus,
+  });
+  return { settlementHash, anchorTxId, anchorStatus };
+}
+
+/** SEP-12 KYC + withdraw request on the preferred protocol; returns the anchor transaction. */
+async function startWithdrawal(
+  jwt: string,
+  opts: { payerSecret: string; amountXlm: string; kyc: Record<string, string> },
+): Promise<{ id: string; protocol: AnchorProtocol; interactiveUrl?: string }> {
   // Register the customer with EVERY field we know up front (not just
   // name/email). The reference anchor otherwise leaves a repeat payer's
   // withdrawal stuck at `incomplete` — it won't re-prompt a customer it
@@ -74,6 +134,27 @@ export async function sendAnchorPayout(opts: {
     last_name: opts.kyc.last_name ?? 'Worker',
     ...kycFields,
   });
+
+  const protocol = await anchorProtocol();
+  if (protocol === 'sep24') {
+    const info = (await sep24WithdrawInfo()).find((a) => a.code === 'native');
+    if (!info) throw new Error(`Anchor ${anchorHomeDomain()} does not offer native XLM withdrawals`);
+    const amt = Number(opts.amountXlm);
+    if (info.minAmount && amt < info.minAmount) {
+      throw new Error(`Anchor minimum disbursement is ${info.minAmount} XLM (payout is ${opts.amountXlm})`);
+    }
+    if (info.maxAmount && amt > info.maxAmount) {
+      throw new Error(`Anchor maximum disbursement is ${info.maxAmount} XLM (payout is ${opts.amountXlm})`);
+    }
+    const wd24 = await sep24WithdrawInteractive(jwt, {
+      assetCode: 'native',
+      account: Keypair.fromSecret(opts.payerSecret).publicKey(),
+      amount: opts.amountXlm,
+      prefill: kycFields,
+    });
+    logger.info('Anchor withdrawal created', { anchorTxId: wd24.id, protocol });
+    return { id: wd24.id, protocol, interactiveUrl: wd24.url };
+  }
 
   const assets = await sep6WithdrawInfo();
   const native = assets.find((a) => a.code === 'native');
@@ -98,11 +179,27 @@ export async function sendAnchorPayout(opts: {
     amount: opts.amountXlm,
     dest: opts.kyc.bank_account_number ?? '123456789',
   });
+  logger.info('Anchor withdrawal created', { anchorTxId: wd.id, type, protocol });
+  return { id: wd.id, protocol };
+}
 
-  const settle = wd.accountId
-    ? { accountId: wd.accountId, memoType: wd.memoType, memo: wd.memo }
-    : await sep6AwaitSettlementDetails(jwt, wd.id, (name, spec) => opts.kyc[name] ?? defaultKycValue(name, spec));
-
+/**
+ * Waits for the anchor's settlement details, then sends the on-chain payment
+ * with the anchor's memo. Throws AnchorActionRequiredError when the anchor is
+ * waiting on the user's own web step.
+ */
+async function settleWithAnchor(
+  jwt: string,
+  protocol: AnchorProtocol,
+  anchorTxId: string,
+  interactiveUrl: string | undefined,
+  opts: { payerSecret: string; amountXlm: string; kyc: Record<string, string>; onSettled?: (hash: string) => Promise<void> },
+): Promise<string> {
+  const settle = protocol === 'sep24'
+    ? await sep24AwaitSettlementDetails(jwt, anchorTxId, interactiveUrl)
+    : await sep6AwaitSettlementDetails(
+      jwt, anchorTxId, (name, spec) => opts.kyc[name] ?? defaultKycValue(name, spec),
+    );
   const settlementHash = await sendPayment(
     opts.payerSecret,
     settle.accountId,
@@ -111,19 +208,7 @@ export async function sendAnchorPayout(opts: {
     undefined,
     anchorMemo(settle.memoType, settle.memo),
   );
-
-  // Give the anchor a short window to confirm; the settlement is already
-  // on-chain either way, and the anchor tx id stays queryable.
-  let anchorStatus = 'pending_anchor';
-  for (let i = 0; i < 10; i++) {
-    await new Promise((r) => setTimeout(r, 3000));
-    const s = await sep6GetTransaction(jwt, wd.id);
-    anchorStatus = s.status;
-    if (['completed', 'error', 'refunded'].includes(anchorStatus)) break;
-  }
-
-  logger.info('Anchor payout settled', {
-    anchor: anchorHomeDomain(), anchorTxId: wd.id, settlementHash, anchorStatus, type,
-  });
-  return { settlementHash, anchorTxId: wd.id, anchorStatus };
+  // Persist immediately: from here on a retry must never pay the anchor again.
+  await opts.onSettled?.(settlementHash);
+  return settlementHash;
 }

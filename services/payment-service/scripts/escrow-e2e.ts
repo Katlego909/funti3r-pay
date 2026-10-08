@@ -1,21 +1,29 @@
 /**
- * End-to-end escrow evidence run on testnet (SOW Section 6):
- *   fresh enterprise+worker accounts → create (fund) → approve+claim
- *   milestone 0 → wait past expiry → refund milestone 1 → verify balances.
+ * End-to-end escrow + compliance-gate evidence run on testnet (SOW Section 6):
+ *   fresh enterprise+worker → create BLOCKED (uncleared) → compliance clears
+ *   worker → create (fund) → approve → compliance REVOKES (simulated sanctions
+ *   hit) → claim BLOCKED → freeze BLOCKED → re-clear → claim pays out → wait
+ *   past expiry → refund → verify balances.
  *
  * Prints every transaction hash with stellar.expert links.
  *
  * Run: node --env-file=../../.env.local --import tsx scripts/escrow-e2e.ts
- * Requires ESCROW_CONTRACT_ADDRESS in the environment.
+ * Requires ESCROW_CONTRACT_ADDRESS and ESCROW_COMPLIANCE_SECRET.
  */
 import { Horizon, Keypair } from '@stellar/stellar-sdk';
 import axios from 'axios';
 import {
   approveMilestone,
   claimMilestone,
+  attestationHash,
+  complianceAuthorityPublic,
   createEscrow,
+  EscrowContractError,
   getEscrow,
   refundEscrow,
+  revokeClearance,
+  setClearance,
+  setFrozen,
 } from '../src/lib/escrow.js';
 
 const horizon = new Horizon.Server(
@@ -36,52 +44,101 @@ async function xlmBalance(pub: string): Promise<string> {
   return native?.balance ?? '0';
 }
 
+/** Runs `fn` and asserts the contract's gate rejected it with `expectedCode`. */
+async function expectBlocked(label: string, expectedCode: number, fn: () => Promise<unknown>) {
+  try {
+    await fn();
+  } catch (err) {
+    if (err instanceof EscrowContractError && err.code === expectedCode) {
+      console.log(`   ✔ ${label} rejected by the contract: #${err.code} "${err.message}"`);
+      return;
+    }
+    throw err;
+  }
+  throw new Error(`${label} should have been blocked (#${expectedCode}) but succeeded`);
+}
+
 async function main() {
   const enterprise = Keypair.random();
   const worker = Keypair.random();
   console.log(`enterprise: ${enterprise.publicKey()}`);
   console.log(`worker:     ${worker.publicKey()}`);
+  console.log(`compliance: ${complianceAuthorityPublic()}`);
 
-  console.log('\nFunding both via Friendbot…');
+  console.log('\nFunding accounts via Friendbot…');
   await fund(enterprise.publicKey());
   await fund(worker.publicKey());
+  await fund(complianceAuthorityPublic()).catch(() => undefined); // already funded is fine
 
-  // Two milestones: 25 XLM (will be approved + claimed) and 40 XLM (will be
-  // refunded after expiry). Short expiry so the refund leg runs in-band.
-  const expiry = Math.floor(Date.now() / 1000) + 90;
-  console.log('\n1) create — enterprise funds 65 XLM into escrow…');
-  const { escrowId, hash: createHash } = await createEscrow(
-    enterprise.secret(),
-    worker.publicKey(),
-    [25, 40],
-    expiry,
+  const screening = {
+    worker: worker.publicKey(),
+    status: 'verified',
+    sanctions_status: 'clear',
+    checked_at: new Date().toISOString(),
+  };
+  const expiry = Math.floor(Date.now() / 1000) + 150;
+  const clearUntil = Math.floor(Date.now() / 1000) + 3600;
+
+  console.log('\n1) GATE: create for an UNCLEARED worker…');
+  await expectBlocked('create', 11, () =>
+    createEscrow(enterprise.secret(), worker.publicKey(), [25, 40], expiry),
   );
-  console.log(`   escrow id: ${escrowId}`);
-  console.log(`   tx: ${createHash}`);
-  console.log(`   ${explorer(createHash)}`);
 
-  console.log('\n2) approve milestone 0 (enterprise)…');
+  console.log('\n2) compliance clears the worker (screening hash recorded on-chain)…');
+  const clearHash = await setClearance(worker.publicKey(), clearUntil, attestationHash(screening));
+  console.log(`   tx: ${clearHash}
+   ${explorer(clearHash)}`);
+
+  console.log('\n3) create — enterprise funds 65 XLM into escrow…');
+  const { escrowId, hash: createHash } = await createEscrow(
+    enterprise.secret(), worker.publicKey(), [25, 40], expiry,
+  );
+  console.log(`   escrow id: ${escrowId}
+   tx: ${createHash}
+   ${explorer(createHash)}`);
+
+  console.log('\n4) approve milestone 0 (enterprise)…');
   const approveHash = await approveMilestone(enterprise.secret(), escrowId, 0);
-  console.log(`   tx: ${approveHash}`);
-  console.log(`   ${explorer(approveHash)}`);
+  console.log(`   tx: ${approveHash}
+   ${explorer(approveHash)}`);
 
-  console.log('\n3) claim milestone 0 (worker receives 25 XLM)…');
+  console.log('\n5) compliance REVOKES the worker (simulated new sanctions hit)…');
+  const revokeHash = await revokeClearance(worker.publicKey());
+  console.log(`   tx: ${revokeHash}
+   ${explorer(revokeHash)}`);
+  console.log('   GATE: worker tries to claim the approved milestone…');
+  await expectBlocked('claim', 11, () => claimMilestone(worker.secret(), escrowId, 0));
+  console.log(`   worker balance still: ${await xlmBalance(worker.publicKey())} XLM`);
+
+  console.log('\n6) compliance re-clears the worker, then FREEZES the escrow…');
+  const reclearHash = await setClearance(worker.publicKey(), clearUntil, attestationHash({ ...screening, rescreened: true }));
+  console.log(`   re-clear tx: ${reclearHash}`);
+  const freezeHash = await setFrozen(escrowId, true);
+  console.log(`   freeze tx:   ${freezeHash}
+   ${explorer(freezeHash)}`);
+  await expectBlocked('claim (frozen)', 12, () => claimMilestone(worker.secret(), escrowId, 0));
+  const unfreezeHash = await setFrozen(escrowId, false);
+  console.log(`   unfreeze tx: ${unfreezeHash}`);
+
+  console.log('\n7) claim milestone 0 (worker receives 25 XLM)…');
+  const balanceBefore = Number(await xlmBalance(worker.publicKey()));
   const claimHash = await claimMilestone(worker.secret(), escrowId, 0);
-  console.log(`   tx: ${claimHash}`);
-  console.log(`   ${explorer(claimHash)}`);
-  console.log(`   worker balance: ${await xlmBalance(worker.publicKey())} XLM`);
+  console.log(`   tx: ${claimHash}
+   ${explorer(claimHash)}`);
+  const balanceAfter = Number(await xlmBalance(worker.publicKey()));
+  console.log(`   worker balance: ${balanceAfter} XLM (+${(balanceAfter - balanceBefore).toFixed(2)})`);
 
   const waitMs = expiry * 1000 - Date.now() + 10_000;
   if (waitMs > 0) {
-    console.log(`\n4) waiting ${Math.ceil(waitMs / 1000)}s for expiry…`);
+    console.log(`
+8) waiting ${Math.ceil(waitMs / 1000)}s for expiry…`);
     await new Promise((r) => setTimeout(r, waitMs));
   }
-
   console.log('   refund (enterprise reclaims the unapproved 40 XLM)…');
   const { refundedStroops, hash: refundHash } = await refundEscrow(enterprise.secret(), escrowId);
-  console.log(`   refunded: ${Number(refundedStroops) / 1e7} XLM`);
-  console.log(`   tx: ${refundHash}`);
-  console.log(`   ${explorer(refundHash)}`);
+  console.log(`   refunded: ${Number(refundedStroops) / 1e7} XLM
+   tx: ${refundHash}
+   ${explorer(refundHash)}`);
 
   const finalState = await getEscrow(escrowId, enterprise.publicKey());
   console.log('\n── Final state ───────────────────────────────────────────');
@@ -91,10 +148,13 @@ async function main() {
   console.log(`   worker:         ${await xlmBalance(worker.publicKey())} XLM`);
 
   console.log('\n── Evidence hashes (SOW Section 6) ───────────────────────');
-  console.log(`   create : ${createHash}`);
-  console.log(`   approve: ${approveHash}`);
-  console.log(`   claim  : ${claimHash}`);
-  console.log(`   refund : ${refundHash}`);
+  console.log(`   clearance : ${clearHash}`);
+  console.log(`   create    : ${createHash}`);
+  console.log(`   approve   : ${approveHash}`);
+  console.log(`   revoke    : ${revokeHash}`);
+  console.log(`   freeze    : ${freezeHash}`);
+  console.log(`   claim     : ${claimHash}`);
+  console.log(`   refund    : ${refundHash}`);
 }
 
 main().then(

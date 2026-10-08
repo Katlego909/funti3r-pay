@@ -34,6 +34,8 @@ export interface AnchorConfig {
   kycServer: string;
   directPaymentServer: string;
   transferServer: string;
+  /** SEP-24 interactive transfer server ('' when the anchor doesn't offer it). */
+  transferServerSep24: string;
   signingKey: string;
 }
 
@@ -57,6 +59,7 @@ export async function fetchAnchorConfig(): Promise<AnchorConfig> {
   const kycServer = tomlValue(data, 'KYC_SERVER');
   const directPaymentServer = tomlValue(data, 'DIRECT_PAYMENT_SERVER');
   const transferServer = tomlValue(data, 'TRANSFER_SERVER');
+  const transferServerSep24 = tomlValue(data, 'TRANSFER_SERVER_SEP0024');
   const signingKey = tomlValue(data, 'SIGNING_KEY');
   if (!webAuthEndpoint || !signingKey || (!directPaymentServer && !transferServer)) {
     throw new Error(`Anchor ${domain} toml is missing WEB_AUTH_ENDPOINT/SIGNING_KEY or any payment server`);
@@ -66,6 +69,7 @@ export async function fetchAnchorConfig(): Promise<AnchorConfig> {
     kycServer: kycServer ?? '',
     directPaymentServer: directPaymentServer ?? '',
     transferServer: transferServer ?? '',
+    transferServerSep24: transferServerSep24 ?? '',
     signingKey,
   };
   tomlCache = { domain, config };
@@ -308,11 +312,136 @@ export async function sep6Withdraw(
   };
 }
 
+/**
+ * The anchor is waiting on a step only the end user can do, in the anchor's
+ * own web UI (interactive KYC / transfer details). Not a failure: resume the
+ * same anchor transaction once the user has completed `moreInfoUrl`.
+ */
+export class AnchorActionRequiredError extends Error {
+  constructor(public readonly anchorTxId: string, public readonly moreInfoUrl: string) {
+    super('The anchor needs you to complete a step on its website before it can pay out');
+    this.name = 'AnchorActionRequiredError';
+  }
+}
+
 export interface Sep6TransactionStatus extends Sep31Status {
+  /** The anchor's own page for the user's next step (interactive KYC). */
+  moreInfoUrl?: string;
   /** Settlement details — present once the anchor is ready to receive funds. */
   withdrawAnchorAccount?: string;
   withdrawMemo?: string;
   withdrawMemoType?: string;
+}
+
+/** Which transfer protocol an anchor transaction was created with. */
+export type AnchorProtocol = 'sep6' | 'sep24';
+
+/**
+ * SEP-24 (interactive) is preferred whenever the anchor advertises it: the
+ * reference anchor leaves SEP-6 withdrawals parked at `incomplete` forever,
+ * while SEP-24 hands the user a real form and then releases settlement
+ * details. ANCHOR_PROTOCOL=sep6|sep24 forces one.
+ */
+export async function anchorProtocol(): Promise<AnchorProtocol> {
+  const forced = process.env.ANCHOR_PROTOCOL;
+  if (forced === 'sep6' || forced === 'sep24') return forced;
+  const config = await fetchAnchorConfig();
+  return config.transferServerSep24 ? 'sep24' : 'sep6';
+}
+
+export interface Sep24Withdrawal {
+  id: string;
+  /** The anchor's own form the user must complete (KYC / bank details). */
+  url: string;
+}
+
+export interface Sep24AssetInfo {
+  code: string;
+  minAmount?: number;
+  maxAmount?: number;
+}
+
+export async function sep24WithdrawInfo(): Promise<Sep24AssetInfo[]> {
+  const config = await fetchAnchorConfig();
+  const { data } = await axios.get(`${config.transferServerSep24}/info`, { timeout: 15000 });
+  return Object.entries<any>(data.withdraw ?? {})
+    .filter(([, v]) => v?.enabled)
+    .map(([code, v]) => ({ code, minAmount: v.min_amount, maxAmount: v.max_amount }));
+}
+
+/** Starts an interactive withdrawal; `prefill` are SEP-9 fields shown pre-filled in the form. */
+export async function sep24WithdrawInteractive(
+  jwt: string,
+  params: { assetCode: string; account: string; amount: string; prefill?: Record<string, string> },
+): Promise<Sep24Withdrawal> {
+  const config = await fetchAnchorConfig();
+  const { data } = await axios.post(
+    `${config.transferServerSep24}/transactions/withdraw/interactive`,
+    { asset_code: params.assetCode, account: params.account, amount: params.amount, ...params.prefill },
+    { headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' }, timeout: 20000 },
+  );
+  logger.info('SEP-24 interactive withdrawal initiated', { id: data.id });
+  return { id: data.id, url: data.url };
+}
+
+export async function sep24GetTransaction(jwt: string, id: string): Promise<Sep6TransactionStatus> {
+  const config = await fetchAnchorConfig();
+  const { data } = await axios.get(`${config.transferServerSep24}/transaction`, {
+    params: { id },
+    headers: { Authorization: `Bearer ${jwt}` },
+    timeout: 15000,
+  });
+  const t = data.transaction ?? {};
+  return {
+    id: t.id ?? id,
+    status: t.status ?? 'unknown',
+    requiredInfoMessage: t.message,
+    moreInfoUrl: t.more_info_url,
+    withdrawAnchorAccount: t.withdraw_anchor_account,
+    withdrawMemo: t.withdraw_memo,
+    withdrawMemoType: t.withdraw_memo_type,
+  };
+}
+
+/** Reads an anchor transaction on whichever protocol created it. */
+export function anchorGetTransaction(protocol: AnchorProtocol, jwt: string, id: string): Promise<Sep6TransactionStatus> {
+  return protocol === 'sep24' ? sep24GetTransaction(jwt, id) : sep6GetTransaction(jwt, id);
+}
+
+/**
+ * SEP-24: waits for the settlement details the anchor releases once the user
+ * has submitted its form. While the transaction sits at `incomplete` /
+ * `pending_user_info_update` past a short grace it is the user's turn, not
+ * ours, so this throws AnchorActionRequiredError with the form's URL.
+ */
+export async function sep24AwaitSettlementDetails(
+  jwt: string,
+  id: string,
+  fallbackUrl: string | undefined,
+  timeoutMs = 120_000,
+  actionGraceMs = 6_000,
+): Promise<{ accountId: string; memoType: string; memo: string }> {
+  const startedAt = Date.now();
+  for (;;) {
+    const t = await sep24GetTransaction(jwt, id);
+    if (t.withdrawAnchorAccount && t.withdrawMemo) {
+      return { accountId: t.withdrawAnchorAccount, memoType: t.withdrawMemoType ?? 'text', memo: t.withdrawMemo };
+    }
+    if (['error', 'refunded', 'expired', 'no_market', 'too_small', 'too_large'].includes(t.status)) {
+      throw new Error(`Anchor rejected withdrawal ${id}: ${t.status}${t.requiredInfoMessage ? ` — ${t.requiredInfoMessage}` : ''}`);
+    }
+    const userTurn = ['incomplete', 'pending_user_transfer_complete', 'pending_user_info_update'].includes(t.status);
+    // The interactive form URL from creation, NOT the transaction's own
+    // more_info_url — that one is a read-only status page with no form.
+    const url = fallbackUrl ?? t.moreInfoUrl;
+    if (userTurn && url && Date.now() - startedAt > actionGraceMs) {
+      throw new AnchorActionRequiredError(id, url);
+    }
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(`Anchor never provided settlement details for withdrawal ${id} (status ${t.status})`);
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
 }
 
 export async function sep6GetTransaction(jwt: string, id: string): Promise<Sep6TransactionStatus> {
@@ -327,6 +456,7 @@ export async function sep6GetTransaction(jwt: string, id: string): Promise<Sep6T
     id: t.id ?? id,
     status: t.status ?? 'unknown',
     requiredInfoMessage: t.required_info_message,
+    moreInfoUrl: t.more_info_url,
     withdrawAnchorAccount: t.withdraw_anchor_account,
     withdrawMemo: t.withdraw_memo,
     withdrawMemoType: t.withdraw_memo_type,
@@ -348,8 +478,13 @@ export async function sep6AwaitSettlementDetails(
   // not production infra. Poll patiently rather than failing an otherwise
   // healthy payout.
   timeoutMs = 180_000,
+  // How long a withdrawal may sit at `incomplete` (with a more_info_url and no
+  // KYC fields left to supply) before we conclude the anchor is waiting on the
+  // user's own web step rather than on us.
+  actionGraceMs = 20_000,
 ): Promise<{ accountId: string; memoType: string; memo: string }> {
-  const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
   let lastStatus = '';
   let submittedFields = false;
   for (;;) {
@@ -382,6 +517,9 @@ export async function sep6AwaitSettlementDetails(
       submittedFields = true; // don't hammer the anchor every 3s regardless of outcome
     } else if (settling) {
       submittedFields = false; // a later "needs info" episode should resubmit
+    }
+    if (t.status === 'incomplete' && t.moreInfoUrl && submittedFields && Date.now() - startedAt > actionGraceMs) {
+      throw new AnchorActionRequiredError(id, t.moreInfoUrl);
     }
     if (Date.now() > deadline) {
       throw new Error(`Anchor never provided settlement details for withdrawal ${id} (status ${t.status})`);

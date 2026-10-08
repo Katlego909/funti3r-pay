@@ -29,6 +29,11 @@ vi.mock('../rails/anchor.js', () => ({
 // Same boundary as lib/stellar.js — escrow routes orchestrate, the Soroban
 // wire protocol itself is exercised by scripts/escrow-e2e.ts on testnet.
 vi.mock('../lib/escrow.js', () => ({
+  setFrozen: vi.fn(),
+  isCleared: vi.fn(),
+  setClearance: vi.fn(),
+  revokeClearance: vi.fn(),
+  attestationHash: vi.fn(),
   createEscrow: vi.fn(),
   approveMilestone: vi.fn(),
   claimMilestone: vi.fn(),
@@ -36,6 +41,22 @@ vi.mock('../lib/escrow.js', () => ({
   getEscrow: vi.fn(),
   nativeTokenAddress: vi.fn(),
   xlmToStroops: vi.fn(),
+  // The routes classify failures with instanceof, so the class must be real.
+  EscrowContractError: class EscrowContractError extends Error {
+    constructor(public readonly code: number, public readonly method: string) {
+      super(`contract error #${code}`);
+    }
+    get isComplianceBlock() {
+      return this.code === 11 || this.code === 12;
+    }
+  },
+}));
+
+// On-chain clearance sync: the real module talks to the compliance service
+// and the contract; routes only care whether it resolves or blocks.
+vi.mock('../lib/clearance.js', () => ({
+  ensureCleared: vi.fn().mockResolvedValue({ cleared: true }),
+  ComplianceBlockedError: class ComplianceBlockedError extends Error {},
 }));
 
 vi.mock('../lib/stellar.js', () => ({
