@@ -6,28 +6,28 @@ import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { startMoneyGramCashout, submitMoneyGramDeposit, type MoneyGramSession } from '../api/escrows.js';
 
 interface Props {
-  target: { escrowId: string; idx: number; title: string } | null;
+  open: boolean;
   onClose: () => void;
   /** Called whenever the cash-out may have changed, so the list can refresh. */
   onChanged: () => void;
 }
 
-/** Worker cashes a claimed milestone out through MoneyGram (cash pickup). */
-export default function MoneyGramCashoutModal({ target, onClose, onChanged }: Props) {
+/** Worker cashes out of their wallet balance through MoneyGram (cash pickup). */
+export default function MoneyGramCashoutModal({ open, onClose, onChanged }: Props) {
   const [session, setSession] = useState<MoneyGramSession | null>(null);
   const [error, setError] = useState('');
   const dc = useDisplayCurrency();
 
   useEffect(() => {
-    if (!target) return;
+    if (!open) return;
     let cancelled = false;
     setSession(null);
     setError('');
-    startMoneyGramCashout(target.escrowId, target.idx)
+    startMoneyGramCashout()
       .then((s) => { if (!cancelled) setSession(s); })
       .catch((err: any) => { if (!cancelled) setError(err?.response?.data?.error ?? 'Could not open MoneyGram'); });
     return () => { cancelled = true; };
-  }, [target]);
+  }, [open]);
 
   function close() {
     setSession(null);
@@ -36,9 +36,8 @@ export default function MoneyGramCashoutModal({ target, onClose, onChanged }: Pr
   }
 
   async function handleDeposit(p: DepositPayload): Promise<string> {
-    if (!target) throw new Error('No cash-out in progress');
     try {
-      const { txHash } = await submitMoneyGramDeposit(target.escrowId, target.idx, {
+      const { txHash } = await submitMoneyGramDeposit({
         address: p.address, memo: p.memo, amount: String(p.amount),
       });
       toast.success('Funds sent to MoneyGram');
@@ -50,13 +49,11 @@ export default function MoneyGramCashoutModal({ target, onClose, onChanged }: Pr
   }
 
   return (
-    <Modal open={!!target} onClose={close} title="Cash out with MoneyGram" closeButton maxWidth="480px">
-      {target && (
-        <p style={{ fontSize: '0.82rem', color: '#6b7280', marginTop: 0 }}>
-          <strong>{target.title}</strong> — pick a pickup country and location, then confirm.
-          {session && <> This cash-out can use up to {dc.format(session.maxXlm, 'XLM')} from your wallet.</>}
-        </p>
-      )}
+    <Modal open={open} onClose={close} title="Cash out with MoneyGram" closeButton maxWidth="480px">
+      <p style={{ fontSize: '0.82rem', color: '#6b7280', marginTop: 0 }}>
+        Pick the amount, a pickup country and location, then confirm.
+        {session && <> You can cash out up to {dc.format(session.maxXlm, 'XLM')} from your wallet.</>}
+      </p>
       {error && <div className="error-banner">{error}</div>}
       {!session && !error && <p style={{ color: '#6b7280' }}>Opening MoneyGram…</p>}
       {session && (

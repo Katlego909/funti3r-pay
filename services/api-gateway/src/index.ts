@@ -197,6 +197,8 @@ app.all('/schedules*', proxy(PAYMENT_SERVICE));
 app.all('/api/schedules*', proxy(PAYMENT_SERVICE, { '^/api/schedules': '/schedules' }));
 app.all('/escrows*', proxy(PAYMENT_SERVICE));
 app.all('/api/escrows*', proxy(PAYMENT_SERVICE, { '^/api/escrows': '/escrows' }));
+app.all('/cashouts*', proxy(PAYMENT_SERVICE));
+app.all('/api/cashouts*', proxy(PAYMENT_SERVICE, { '^/api/cashouts': '/cashouts' }));
 
 // Compliance → compliance-service
 app.all(['/compliance*', '/api/compliance*'], proxy(COMPLIANCE_URL, { '^/api/compliance': '', '^/compliance': '' }));

@@ -38,24 +38,20 @@ function buildRows(escrow: Escrow, dc: DisplayCurrency): TxRow[] {
     if (m.status === 'claimed') {
       rows.push({ key: `c${m.idx}`, step: 'Claimed', milestone, at: m.claimedAt, hash: m.claimTxHash });
     }
-    const mg = m.cashoutRail === 'moneygram';
     if (m.anchorSettlementHash) {
       rows.push({
         key: `p${m.idx}`,
-        step: mg ? 'USDC sent to MoneyGram' : 'Anchor payout',
+        step: 'Anchor payout',
         milestone,
         at: m.cashoutAt,
         hash: m.anchorSettlementHash,
-        note: mg ? (m.rampsStatus ? `MoneyGram: ${m.rampsStatus}` : undefined) : (m.anchorStatus ? `Anchor: ${m.anchorStatus}` : undefined),
+        note: m.anchorStatus ? `Anchor: ${m.anchorStatus}` : undefined,
       });
-    }
-    if (mg && m.rampsReference) {
-      rows.push({ key: `q${m.idx}`, step: 'Cash-pickup reference', milestone, reference: m.rampsReference, note: 'Quoted at the MoneyGram location to collect cash' });
     }
     if (m.anchorTxId) {
       rows.push({
         key: `r${m.idx}`,
-        step: mg ? 'MoneyGram transaction' : m.cashoutStatus === 'failed' ? 'Anchor withdrawal (failed)' : 'Anchor withdrawal',
+        step: m.cashoutStatus === 'failed' ? 'Anchor withdrawal (failed)' : 'Anchor withdrawal',
         milestone,
         reference: m.anchorTxId,
         note: m.cashoutError ?? (m.cashoutStatus === 'action_required' ? 'Waiting for the anchor form' : undefined),

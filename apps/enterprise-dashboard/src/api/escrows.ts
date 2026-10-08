@@ -15,11 +15,6 @@ export interface EscrowMilestone {
   reviewStatus: 'none' | 'submitted' | 'rejected';
   /** Receipt of a completed anchor cash-out; null until paid out. */
   payout: {
-    rail: 'anchor' | 'moneygram';
-    /** MoneyGram: the number the recipient quotes at the location to collect cash. */
-    referenceNumber: string | null;
-    destinationCountry: string | null;
-    sendUsdc: string | null;
     destination: { name: string | null; email: string | null; bankNumber: string | null; accountLast4: string | null } | null;
     receivedAmount: string | null;
     receivedAsset: string | null;
@@ -31,12 +26,7 @@ export interface EscrowMilestone {
   } | null;
   /** Second leg of a claim: routing the claimed funds through an anchor. */
   cashoutStatus: 'none' | 'pending' | 'action_required' | 'completed' | 'failed';
-  /** Which cash-out rail the milestone is on. */
-  cashoutRail: 'anchor' | 'moneygram';
-  rampsStatus: string | null;
-  /** MoneyGram cash-pickup reference number (available as soon as MoneyGram has the transaction). */
-  rampsReference: string | null;
-  /** XLM actually spent by the cash-out (the rest of the milestone stays in the wallet). */
+  /** XLM actually spent by the anchor cash-out. */
   cashoutXlmSpent: number | null;
   anchorTxId: string | null;
   anchorSettlementHash: string | null;
@@ -143,7 +133,7 @@ export interface MoneyGramSession {
   widgetUrl: string;
   publicKey: string;
   walletAddress: string;
-  /** The most XLM this cash-out can spend: the milestone's own amount. */
+  /** The most XLM this cash-out can spend: what the wallet can spare right now. */
   maxXlm: number;
 }
 
@@ -152,23 +142,46 @@ export async function getCashoutOptions(): Promise<{ moneygram: boolean; anchor:
   return data;
 }
 
-/** Opens a MoneyGram widget session for a claimed milestone. */
-export async function startMoneyGramCashout(escrowId: string, idx: number): Promise<MoneyGramSession> {
-  const { data } = await api.post<MoneyGramSession>(`/escrows/${escrowId}/milestones/${idx}/ramps/session`);
+/** Opens a MoneyGram widget session to cash out of the wallet balance. */
+export async function startMoneyGramCashout(): Promise<MoneyGramSession> {
+  const { data } = await api.post<MoneyGramSession>('/cashouts/moneygram/session');
   return data;
 }
 
 /** Pays the deposit MoneyGram's widget asked for; the server verifies it against MoneyGram first. */
 export async function submitMoneyGramDeposit(
-  escrowId: string,
-  idx: number,
   payload: { address: string; memo: string; amount: string },
 ): Promise<{ txHash: string; status?: string }> {
-  const { data } = await api.post<{ txHash: string; status?: string }>(
-    `/escrows/${escrowId}/milestones/${idx}/ramps/deposit`,
-    payload,
-  );
+  const { data } = await api.post<{ txHash: string; status?: string }>('/cashouts/moneygram/deposit', payload);
   return data;
+}
+
+/** One cash-out from the wallet through MoneyGram. */
+export interface WalletCashout {
+  id: string;
+  status: 'pending' | 'completed' | 'failed';
+  mgStatus: string | null;
+  /** Our USDC payment to MoneyGram. */
+  settlementHash: string | null;
+  xlmSpent: number | null;
+  sendUsdc: string | null;
+  /** The number the recipient quotes at the location to collect cash. */
+  referenceNumber: string | null;
+  destinationCountry: string | null;
+  receiveAmount: string | null;
+  receiveCurrency: string | null;
+  fee: string | null;
+  feeCurrency: string | null;
+  error: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  /** True on the MoneyGram sandbox: no real cash is dispensed. */
+  sandbox: boolean;
+}
+
+export async function listWalletCashouts(): Promise<WalletCashout[]> {
+  const { data } = await api.get<{ cashouts: WalletCashout[] }>('/cashouts');
+  return data.cashouts;
 }
 
 /** Escrow money in XLM (the contract's unit); convert with useDisplayCurrency before showing. */

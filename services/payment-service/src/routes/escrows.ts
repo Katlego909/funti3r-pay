@@ -3,20 +3,13 @@ import type { Router as RouterType } from 'express';
 import { query } from '@funti3r/database';
 import { createLogger, decryptFromString } from '@funti3r/shared-utils';
 import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from '../lib/company.js';
-import { Memo } from '@stellar/stellar-sdk';
 import * as escrow from '../lib/escrow.js';
-import { payExactWithXlm } from '../lib/stellar.js';
-import { getCurrency } from '../lib/currencies.js';
-import {
-  checkDeposit, createSession, findClaimedTransaction, listTransactions,
-  moneygramConfigured, moneygramPublicKey, moneygramSandbox,
-} from '../lib/moneygram.js';
-import { awaitRampsAcknowledgement } from '../lib/rampsSync.js';
 import { recordEscrowPaymentSafely } from '../lib/escrowAccounting.js';
 import { ComplianceBlockedError, ensureCleared } from '../lib/clearance.js';
 import { anchorConfigured, sendAnchorPayout } from '../rails/anchor.js';
 import { reconcileEscrows } from '../lib/escrowReconcile.js';
 import { AnchorActionRequiredError, AnchorAmountMismatchError, interactiveUrlUsable } from '../lib/anchor.js';
+import { moneygramConfigured } from '../lib/moneygram.js';
 import { requireCompliance, resolveEnterpriseSecret } from '../app.js';
 
 const router: RouterType = Router();
@@ -196,7 +189,7 @@ async function listMilestones(escrowIds: string[]) {
     `SELECT escrow_id, idx, description, amount, status, approved_at, claimed_at, claim_tx_hash,
             approve_tx_hash, refund_tx_hash, cashout_at, review_status,
             payout_destination, anchor_amount_out, anchor_amount_out_asset, anchor_fee, anchor_fee_asset, anchor_domain,
-            cashout_rail, cashout_xlm_spent, ramps_status, ramps_reference_number, ramps_destination_country, ramps_send_usdc,
+            cashout_xlm_spent,
             cashout_status, anchor_tx_id, anchor_settlement_hash, anchor_status, anchor_more_info_url, cashout_error
        FROM escrow_milestones WHERE escrow_id = ANY($1::uuid[]) ORDER BY idx`,
     [escrowIds],
@@ -217,12 +210,7 @@ async function listMilestones(escrowIds: string[]) {
       reviewStatus: m.review_status ?? 'none',
       payout: m.cashout_status === 'completed'
         ? {
-            rail: m.cashout_rail ?? 'anchor',
             destination: m.payout_destination ?? null,
-            // MoneyGram only: the number the recipient quotes at the location to collect cash.
-            referenceNumber: m.ramps_reference_number ?? null,
-            destinationCountry: m.ramps_destination_country ?? null,
-            sendUsdc: m.ramps_send_usdc ?? null,
             receivedAmount: m.anchor_amount_out ?? null,
             receivedAsset: friendlyAsset(m.anchor_amount_out_asset),
             fee: m.anchor_fee ?? null,
@@ -230,16 +218,11 @@ async function listMilestones(escrowIds: string[]) {
             anchorDomain: m.anchor_domain ?? null,
             // The SDF test anchor moves no real money; the UI says so.
             // Payouts from before the anchor was recorded fall back to the configured one.
-            sandbox: m.cashout_rail === 'moneygram'
-              ? moneygramSandbox()
-              : (m.anchor_domain ?? process.env.ANCHOR_HOME_DOMAIN) === REFERENCE_ANCHOR_DOMAIN,
+            sandbox: (m.anchor_domain ?? process.env.ANCHOR_HOME_DOMAIN) === REFERENCE_ANCHOR_DOMAIN,
           }
         : null,
       cashoutStatus: m.cashout_status ?? 'none',
-      cashoutRail: m.cashout_rail ?? 'anchor',
-      rampsStatus: m.ramps_status ?? null,
       cashoutXlmSpent: m.cashout_xlm_spent != null ? Number(m.cashout_xlm_spent) : null,
-      rampsReference: m.ramps_reference_number ?? null,
       anchorTxId: m.anchor_tx_id ?? null,
       anchorSettlementHash: m.anchor_settlement_hash ?? null,
       anchorStatus: m.anchor_status ?? null,
@@ -295,7 +278,7 @@ interface CashoutResult {
 async function cashOutMilestone(escrowId: string, idx: number, workerId: string): Promise<CashoutResult | 'in_progress'> {
   const taken = await query(
     `UPDATE escrow_milestones SET cashout_status = 'pending', cashout_error = NULL
-      WHERE escrow_id = $1 AND idx = $2 AND status = 'claimed' AND cashout_rail = 'anchor'
+      WHERE escrow_id = $1 AND idx = $2 AND status = 'claimed'
         AND cashout_status IN ('none', 'failed', 'action_required')
       RETURNING amount, anchor_tx_id, anchor_protocol, anchor_settlement_hash, anchor_more_info_url`,
     [escrowId, idx],
@@ -763,162 +746,6 @@ router.post('/:id/milestones/:idx/cashout', async (req: Request, res: Response) 
   }
 });
 
-// ── MoneyGram Ramps cash-out ──────────────────────────────────────────────────
-// 1) POST .../ramps/session  opens a MoneyGram widget session for the worker.
-//    KYC, the quote and the pickup location all happen inside MoneyGram's widget.
-// 2) POST .../ramps/deposit  is called when the widget asks for the deposit. The
-//    browser's claim is checked against MoneyGram's own record before we pay.
-
-async function loadWorkerMilestone(escrowId: string, workerId: string, idx: number) {
-  const r = await query(
-    `SELECT m.status, m.amount, m.cashout_status, m.cashout_rail, m.anchor_tx_id, m.anchor_settlement_hash, e.frozen
-       FROM escrows e JOIN escrow_milestones m ON m.escrow_id = e.id
-      WHERE e.id = $1 AND e.worker_id = $2 AND m.idx = $3`,
-    [escrowId, workerId, idx],
-  );
-  return r.rows[0] as {
-    status: string; amount: string; cashout_status: string; cashout_rail: string;
-    anchor_tx_id: string | null; anchor_settlement_hash: string | null; frozen: boolean;
-  } | undefined;
-}
-
-router.post('/:id/milestones/:idx/ramps/session', async (req: Request, res: Response) => {
-  const workerId = requireWorker(req, res);
-  if (!workerId) return;
-  const { id } = req.params;
-  const idx = Number(req.params.idx);
-  if (!moneygramConfigured()) return res.status(400).json({ error: 'MoneyGram cash-out is not configured' });
-
-  try {
-    const row = await loadWorkerMilestone(id, workerId, idx);
-    if (!row) return res.status(404).json({ error: 'Milestone not found' });
-    if (row.status !== 'claimed') return res.status(409).json({ error: 'Claim the milestone before cashing out' });
-    if (row.frozen) return res.status(403).json({ error: 'This escrow is on a compliance hold', code: 'compliance_blocked' });
-    if (['pending', 'completed'].includes(row.cashout_status)) {
-      return res.status(409).json({ error: `Cash-out is already ${row.cashout_status}` });
-    }
-
-    const pub = await workerPublicKey(workerId);
-    if (!pub) return res.status(400).json({ error: 'Your Stellar account is not set up' });
-    await ensureCleared(workerId, pub);
-
-    const session = await createSession({ customerIdentifier: workerId, walletAddress: pub });
-    await query(
-      `UPDATE escrow_milestones SET cashout_rail = 'moneygram', cashout_status = 'action_required', cashout_error = NULL
-        WHERE escrow_id = $1 AND idx = $2 AND status = 'claimed' AND cashout_status IN ('none', 'failed', 'action_required')`,
-      [id, idx],
-    );
-    res.json({
-      sessionToken: session.sessionToken,
-      widgetUrl: session.widgetUrl,
-      publicKey: moneygramPublicKey(),
-      walletAddress: pub,
-      // The most XLM this cash-out may ever spend: the milestone's own amount.
-      maxXlm: Number(row.amount),
-    });
-  } catch (err) {
-    logger.error('Failed to open MoneyGram session', { id, idx, error: String(err) });
-    sendChainError(res, err, 'Failed to open MoneyGram');
-  }
-});
-
-router.post('/:id/milestones/:idx/ramps/deposit', async (req: Request, res: Response) => {
-  const workerId = requireWorker(req, res);
-  if (!workerId) return;
-  const { id } = req.params;
-  const idx = Number(req.params.idx);
-  if (!moneygramConfigured()) return res.status(400).json({ error: 'MoneyGram cash-out is not configured' });
-
-  const b = (req.body ?? {}) as { address?: unknown; memo?: unknown; amount?: unknown };
-  if (typeof b.address !== 'string' || !b.address || typeof b.memo !== 'string' || !b.memo
-    || !['string', 'number'].includes(typeof b.amount) || !Number(b.amount)) {
-    return res.status(400).json({ error: 'address, memo and amount are required' });
-  }
-  const claim = { address: b.address, memo: b.memo, amount: String(b.amount) };
-
-  try {
-    const row = await loadWorkerMilestone(id, workerId, idx);
-    if (!row) return res.status(404).json({ error: 'Milestone not found' });
-
-    // Idempotent: a repeated request after we already paid returns the same payment.
-    if (row.cashout_rail === 'moneygram' && row.anchor_settlement_hash) {
-      return res.json({ txHash: row.anchor_settlement_hash, alreadyPaid: true });
-    }
-    if (row.status !== 'claimed' || row.cashout_rail !== 'moneygram' || !['action_required', 'failed'].includes(row.cashout_status)) {
-      return res.status(409).json({ error: 'Start the MoneyGram cash-out first' });
-    }
-    if (row.frozen) return res.status(403).json({ error: 'This escrow is on a compliance hold', code: 'compliance_blocked' });
-
-    const pub = await workerPublicKey(workerId);
-    if (!pub) return res.status(400).json({ error: 'Your Stellar account is not set up' });
-    await ensureCleared(workerId, pub);
-
-    // The browser is not trusted: MoneyGram's own record decides what we pay.
-    const record = findClaimedTransaction(await listTransactions(), claim);
-    const verdict = checkDeposit(record, { customerIdentifier: workerId, walletAddress: pub, claim });
-    if (!verdict.ok) return res.status(409).json({ error: verdict.reason, code: 'deposit_rejected' });
-    const tx = verdict.tx;
-
-    // Take the cash-out. The unique index on the MoneyGram transaction id means a
-    // forged or replayed request can never pay one transaction twice.
-    let taken;
-    try {
-      taken = await query(
-        `UPDATE escrow_milestones SET cashout_status = 'pending', anchor_tx_id = $3, anchor_domain = 'moneygram.com', cashout_error = NULL
-          WHERE escrow_id = $1 AND idx = $2 AND status = 'claimed' AND cashout_rail = 'moneygram'
-            AND cashout_status IN ('action_required', 'failed') AND anchor_settlement_hash IS NULL
-          RETURNING amount`,
-        [id, idx, tx.id],
-      );
-    } catch (err) {
-      if ((err as { code?: string }).code === '23505') {
-        return res.status(409).json({ error: 'This MoneyGram transaction was already used', code: 'deposit_rejected' });
-      }
-      throw err;
-    }
-    if (!taken.rows.length) return res.status(409).json({ error: 'Cash-out is already in progress' });
-
-    const stored = (await query(`SELECT stellar_secret_key FROM users WHERE id = $1`, [workerId])).rows[0]?.stellar_secret_key;
-    let hash: string;
-    let spentXlm: string;
-    try {
-      const usdc = getCurrency('USDC');
-      if (!stored || !usdc?.issuer) throw new Error('USDC is not configured for this account');
-      // Strict-receive: MoneyGram gets exactly the USDC it asked for, delivered straight to its
-      // deposit address with its memo. sendMax is the milestone's own XLM, so the network itself
-      // refuses to let this cash-out spend more than the milestone is worth.
-      ({ hash, sourceAmountXlm: spentXlm } = await payExactWithXlm(
-        decryptFromString(stored), tx.depositAddress!, usdc.code, usdc.issuer, claim.amount, 0, undefined,
-        { sendMaxXlm: Number(taken.rows[0].amount).toFixed(7), memo: Memo.id(tx.depositMemo!) },
-      ));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error('MoneyGram deposit payment failed', { id, idx, error: message });
-      await query(
-        `UPDATE escrow_milestones SET cashout_status = 'failed', cashout_error = $3 WHERE escrow_id = $1 AND idx = $2`,
-        [id, idx, message.slice(0, 500)],
-      );
-      return res.status(502).json({ error: message });
-    }
-
-    // Persist the payment the instant it exists; a retry can then never pay again.
-    await query(
-      `UPDATE escrow_milestones SET anchor_settlement_hash = $3, cashout_xlm_spent = $4 WHERE escrow_id = $1 AND idx = $2`,
-      [id, idx, hash, spentXlm],
-    );
-    // Answer now. MoneyGram takes up to a minute to acknowledge a payment, and the gateway cuts a
-    // request off after 30s — waiting here made a successful payment look like a failure to the
-    // browser. The acknowledgement is settled in the background (and by the scheduled sweep).
-    void awaitRampsAcknowledgement(id, idx, tx.id).catch((err) =>
-      logger.warn('MoneyGram acknowledgement check failed', { id, idx, error: String(err) }),
-    );
-    res.json({ txHash: hash, status: 'pending' });
-  } catch (err) {
-    logger.error('Failed to handle MoneyGram deposit', { id, idx, error: String(err) });
-    sendChainError(res, err, 'Failed to handle the MoneyGram deposit');
-  }
-});
-
 // ── POST /escrows/:id/freeze (compliance admin) ───────────────────────────────
 // Compliance hold: while frozen the contract blocks approve, claim and refund
 // for this escrow. Admin-only — same role gate as the KYC flagged list.
@@ -1043,11 +870,18 @@ router.get('/summary', async (req: Request, res: Response) => {
       [scopeId],
     );
     const row = r.rows[0] ?? {};
+    // Wallet cash-outs (MoneyGram) belong to the worker; employers only see milestone payouts.
+    const wallet = role === 'worker'
+      ? Number((await query(
+          `SELECT COALESCE(SUM(xlm_spent), 0) AS spent FROM cashouts WHERE worker_id = $1 AND status IN ('pending', 'completed')`,
+          [userId],
+        )).rows[0]?.spent ?? 0)
+      : 0;
     res.json({
       lockedXlm: Number(row.locked ?? 0),
       claimedXlm: Number(row.claimed ?? 0),
       refundedXlm: Number(row.refunded ?? 0),
-      cashedOutXlm: Number(row.cashed_out ?? 0),
+      cashedOutXlm: Number(row.cashed_out ?? 0) + wallet,
     });
   } catch (err) {
     logger.error('Failed to summarize escrows', { error: String(err) });

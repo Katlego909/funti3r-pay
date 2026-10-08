@@ -12,6 +12,7 @@ import { getAllQuotes } from './rails/router.js';
 import walletLinkingRouter from './routes/wallet-linking.js';
 import schedulesRouter from './routes/schedules.js';
 import escrowsRouter from './routes/escrows.js';
+import cashoutsRouter from './routes/cashouts.js';
 import axios from 'axios';
 import { resolveCompanyContext, resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from './lib/company.js';
 
@@ -26,6 +27,7 @@ app.use(express.json());
 app.use('/wallets', walletLinkingRouter);
 app.use('/schedules', schedulesRouter);
 app.use('/escrows', escrowsRouter);
+app.use('/cashouts', cashoutsRouter);
 
 // ── Health ────────────────────────────────────────────────────────────────────
 

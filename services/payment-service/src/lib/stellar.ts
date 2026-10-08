@@ -62,6 +62,23 @@ export async function getAccountBalance(
   return account.balances;
 }
 
+/** Network fee headroom kept back so a cash-out never leaves the account unable to pay its next fee. */
+const FEE_BUFFER_XLM = 0.5;
+
+/**
+ * XLM the account can actually spend right now: the native balance less the network's
+ * minimum balance (0.5 XLM per base/sub-entry/sponsorship), open DEX offers and a small
+ * fee buffer. Read live from Horizon, not the 20s balance cache — it gates real payments.
+ */
+export async function spendableXlm(publicKey: string): Promise<number> {
+  const account: any = await horizon.loadAccount(publicKey);
+  const native = account.balances.find((b: Horizon.HorizonApi.BalanceLine) => b.asset_type === 'native');
+  if (!native) return 0;
+  const entries = 2 + Number(account.subentry_count ?? 0) + Number(account.num_sponsoring ?? 0) - Number(account.num_sponsored ?? 0);
+  const spendable = Number(native.balance) - Number((native as any).selling_liabilities ?? 0) - entries * 0.5 - FEE_BUFFER_XLM;
+  return Math.max(0, Math.floor(spendable * 1e7) / 1e7);
+}
+
 // ── Classic Stellar payments ──────────────────────────────────────────────────
 
 export async function sendPayment(
