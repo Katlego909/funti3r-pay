@@ -44,7 +44,7 @@ export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] 
       <div className="table-responsive">
         <table className="data-table" style={{ whiteSpace: 'nowrap' }}>
           <thead>
-            <tr><th>Date</th><th>Taken from wallet</th><th>Sent to MoneyGram</th><th>Pickup</th><th>Reference</th><th>Recipient gets</th><th>Fee</th><th>Status</th></tr>
+            <tr><th>Date</th><th>You paid</th><th>MoneyGram received</th><th>Pickup</th><th>Reference</th><th>Recipient collects</th><th>MoneyGram fee</th><th>Status</th></tr>
           </thead>
           <tbody>
             {cashouts.map((c) => {
@@ -52,7 +52,7 @@ export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] 
               return (
                 <tr key={c.id}>
                   <td data-label="Date">{fmtDate(c.createdAt)}</td>
-                  <td data-label="Taken from wallet">
+                  <td data-label="You paid">
                     {c.xlmSpent != null ? (
                       <>
                         <div>{dc.format(c.xlmSpent, 'XLM')}</div>
@@ -60,7 +60,7 @@ export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] 
                       </>
                     ) : NOT_YET}
                   </td>
-                  <td data-label="Sent to MoneyGram">{c.sendUsdc ? `${num(c.sendUsdc)} USDC` : NOT_YET}</td>
+                  <td data-label="MoneyGram received">{c.sendUsdc ? `${num(c.sendUsdc)} USDC` : NOT_YET}</td>
                   <td data-label="Pickup">
                     <div>Cash pickup</div>
                     {c.destinationCountry && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Country {c.destinationCountry}</div>}
@@ -73,10 +73,10 @@ export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] 
                       </span>
                     ) : NOT_YET}
                   </td>
-                  <td data-label="Recipient gets">
+                  <td data-label="Recipient collects">
                     {c.receiveAmount ? `${num(c.receiveAmount)}${c.receiveCurrency ? ` ${c.receiveCurrency}` : ''}` : NOT_YET}
                   </td>
-                  <td data-label="Fee">{c.fee ? `${num(c.fee)} ${c.feeCurrency ?? 'USDC'}` : NOT_YET}</td>
+                  <td data-label="MoneyGram fee">{c.fee ? `${num(c.fee)} ${c.feeCurrency ?? 'USDC'}` : NOT_YET}</td>
                   <td data-label="Status">
                     <StatusBadge variant={variant} title={c.error ?? undefined}>{label}</StatusBadge>
                     {c.settlementHash && (
