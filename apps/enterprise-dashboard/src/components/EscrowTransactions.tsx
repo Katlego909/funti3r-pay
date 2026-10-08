@@ -4,119 +4,110 @@ import CopyButton from './CopyButton.js';
 
 const EXPLORER = 'https://stellar.expert/explorer/testnet';
 
-interface TxEvent {
+interface TxRow {
   key: string;
-  title: string;
-  detail?: string;
+  step: string;
+  /** Which milestone the step belongs to; omitted for escrow-level steps. */
+  milestone?: string;
   at?: string | null;
-  /** On-chain transaction hash, when this step has one. */
+  /** On-chain transaction hash, when the step has one. */
   hash?: string | null;
-  /** Off-chain reference (e.g. the anchor's own transaction id). */
-  reference?: { label: string; value: string };
+  /** Off-chain reference (the anchor's own transaction id). */
+  reference?: string;
+  note?: string;
 }
 
-const fmt = (iso?: string | null) => (iso ? new Date(iso).toLocaleString() : undefined);
+const fmtDate = (iso?: string | null) =>
+  iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 const short = (h: string) => `${h.slice(0, 8)}…${h.slice(-6)}`;
 
-/** Every step of an escrow, in the order it happens, each with its transaction. */
-function buildEvents(escrow: Escrow): TxEvent[] {
-  const events: TxEvent[] = [
-    {
-      key: 'funded',
-      title: 'Escrow funded',
-      detail: `${escrow.totalXlm} XLM locked in the contract · escrow #${escrow.onchainEscrowId}`,
-      at: escrow.createdAt,
-      hash: escrow.createTxHash,
-    },
+/** Every step of an escrow in the order it happens. */
+function buildRows(escrow: Escrow): TxRow[] {
+  const rows: TxRow[] = [
+    { key: 'funded', step: 'Escrow funded', at: escrow.createdAt, hash: escrow.createTxHash },
   ];
 
   for (const m of escrow.milestones) {
-    const name = `Milestone ${m.idx + 1}${m.description ? ` — ${m.description}` : ''} (${m.amountXlm} XLM)`;
+    const milestone = `#${m.idx + 1}${m.description ? ` ${m.description}` : ''} · ${m.amountXlm} XLM`;
 
     if (m.approveTxHash || m.status === 'approved' || m.status === 'claimed') {
-      events.push({ key: `a${m.idx}`, title: `Approved · ${name}`, at: m.approvedAt, hash: m.approveTxHash });
+      rows.push({ key: `a${m.idx}`, step: 'Approved', milestone, at: m.approvedAt, hash: m.approveTxHash });
     }
     if (m.status === 'claimed') {
-      events.push({ key: `c${m.idx}`, title: `Claimed by worker · ${name}`, at: m.claimedAt, hash: m.claimTxHash });
+      rows.push({ key: `c${m.idx}`, step: 'Claimed', milestone, at: m.claimedAt, hash: m.claimTxHash });
     }
-    if (m.cashoutStatus === 'completed' && m.anchorSettlementHash) {
-      events.push({
+    if (m.anchorSettlementHash) {
+      rows.push({
         key: `p${m.idx}`,
-        title: `Paid out via anchor · ${name}`,
-        detail: m.anchorStatus ? `Anchor status: ${m.anchorStatus}` : undefined,
+        step: 'Anchor payout',
+        milestone,
         at: m.cashoutAt,
         hash: m.anchorSettlementHash,
-        reference: m.anchorTxId ? { label: 'Anchor transaction', value: m.anchorTxId } : undefined,
+        note: m.anchorStatus ? `Anchor: ${m.anchorStatus}` : undefined,
       });
-    } else if (m.anchorTxId) {
-      events.push({
-        key: `p${m.idx}`,
-        title: `Anchor cash-out ${m.cashoutStatus === 'failed' ? 'failed' : 'in progress'} · ${name}`,
-        detail: m.cashoutError ?? (m.cashoutStatus === 'action_required' ? 'Waiting for the worker to complete the anchor form' : undefined),
-        reference: { label: 'Anchor transaction', value: m.anchorTxId },
+    }
+    if (m.anchorTxId) {
+      rows.push({
+        key: `r${m.idx}`,
+        step: m.cashoutStatus === 'failed' ? 'Anchor withdrawal (failed)' : 'Anchor withdrawal',
+        milestone,
+        reference: m.anchorTxId,
+        note: m.cashoutError ?? (m.cashoutStatus === 'action_required' ? 'Waiting for the anchor form' : undefined),
       });
     }
     if (m.status === 'refunded') {
-      events.push({ key: `r${m.idx}`, title: `Refunded to employer · ${name}`, hash: m.refundTxHash });
+      rows.push({ key: `f${m.idx}`, step: 'Refunded', milestone, hash: m.refundTxHash });
     }
   }
-  return events;
+  return rows;
 }
 
+/** Transaction history of one escrow — same `data-table` look as Payments. */
 export default function EscrowTransactions({ escrow }: { escrow: Escrow }) {
-  const events = buildEvents(escrow);
+  const rows = buildRows(escrow);
 
   return (
-    <div>
-      {events.map((ev) => (
-        <div key={ev.key} style={{ padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
-          <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{ev.title}</div>
-          {(ev.at || ev.detail) && (
-            <div style={{ fontSize: '0.76rem', color: '#6b7280', marginTop: 2 }}>
-              {[fmt(ev.at), ev.detail].filter(Boolean).join(' · ')}
-            </div>
-          )}
-          {ev.hash && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, fontSize: '0.78rem' }}>
-              <span style={{ color: '#6b7280' }}>Tx</span>
-              <a
-                href={`${EXPLORER}/tx/${ev.hash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={ev.hash}
-                style={{ fontFamily: 'monospace', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-              >
-                {short(ev.hash)} <HiOutlineArrowTopRightOnSquare size={12} />
-              </a>
-              <CopyButton text={ev.hash} title="Copy transaction hash" />
-            </div>
-          )}
-          {ev.reference && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, fontSize: '0.78rem' }}>
-              <span style={{ color: '#6b7280' }}>{ev.reference.label}</span>
-              <span style={{ fontFamily: 'monospace' }} title={ev.reference.value}>{short(ev.reference.value)}</span>
-              <CopyButton text={ev.reference.value} title={`Copy ${ev.reference.label.toLowerCase()} id`} />
-            </div>
-          )}
-          {!ev.hash && !ev.reference && ev.key !== 'funded' && (
-            <div style={{ fontSize: '0.74rem', color: '#9ca3af', marginTop: 4 }}>No transaction hash recorded</div>
-          )}
-        </div>
-      ))}
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 0', fontSize: '0.78rem' }}>
-        <span style={{ color: '#6b7280' }}>Contract</span>
-        <a
-          href={`${EXPLORER}/contract/${escrow.contractAddress}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={escrow.contractAddress}
-          style={{ fontFamily: 'monospace', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-        >
-          {short(escrow.contractAddress)} <HiOutlineArrowTopRightOnSquare size={12} />
-        </a>
-        <CopyButton text={escrow.contractAddress} title="Copy contract address" />
-      </div>
+    <div className="table-responsive">
+      <table className="data-table">
+        <thead>
+          <tr><th>Step</th><th>Date</th><th>Transaction</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key}>
+              <td data-label="Step">
+                <div style={{ fontWeight: 600 }}>{r.step}</div>
+                {r.milestone && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{r.milestone}</div>}
+                {r.note && <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{r.note}</div>}
+              </td>
+              <td data-label="Date" style={{ whiteSpace: 'nowrap' }}>{fmtDate(r.at)}</td>
+              <td data-label="Transaction">
+                {r.hash ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <a
+                      href={`${EXPLORER}/tx/${r.hash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={r.hash}
+                      style={{ fontFamily: 'monospace', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                    >
+                      {short(r.hash)} <HiOutlineArrowTopRightOnSquare size={12} />
+                    </a>
+                    <CopyButton text={r.hash} title="Copy transaction hash" />
+                  </span>
+                ) : r.reference ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.78rem' }} title={r.reference}>{short(r.reference)}</span>
+                    <CopyButton text={r.reference} title="Copy anchor transaction id" />
+                  </span>
+                ) : (
+                  <span style={{ color: '#9ca3af', fontSize: '0.78rem' }}>Not recorded</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -17,7 +17,7 @@ import {
 import { CurrencyIcon } from '../components/CurrencyIcon.js';
 import CopyButton from '../components/CopyButton.js';
 import { StatusBadge } from '../components/StatusBadge.js';
-import EscrowTransactions from '../components/EscrowTransactions.js';
+import EscrowTransactionsDrawer from '../components/EscrowTransactionsDrawer.js';
 import { listEscrows, claimMilestone, cashOutMilestone, type CashoutResult, type Escrow } from '../api/escrows.js';
 
 interface WalletBalance {
@@ -64,7 +64,7 @@ export default function Wallet() {
   // Milestone escrows (worker side)
   const [escrows, setEscrows] = useState<Escrow[]>([]);
   const [claiming, setClaiming] = useState<string | null>(null);
-  const [txOpen, setTxOpen] = useState<string | null>(null);
+  const [txEscrow, setTxEscrow] = useState<Escrow | null>(null);
 
   // Payout method (Stellar wallet vs anchor bank/cash disbursement)
   const [payoutMethod, setPayoutMethodState] = useState<PayoutMethod>('stellar');
@@ -316,16 +316,11 @@ export default function Wallet() {
                     type="button"
                     className="btn-secondary"
                     style={{ marginLeft: 'auto', padding: '4px 12px', fontSize: '0.78rem' }}
-                    onClick={() => setTxOpen(txOpen === e.id ? null : e.id)}
+                    onClick={() => setTxEscrow(e)}
                   >
-                    {txOpen === e.id ? 'Hide transactions' : 'View transactions'}
+                    View transactions
                   </button>
                 </div>
-                {txOpen === e.id && (
-                  <div style={{ marginBottom: '10px' }}>
-                    <EscrowTransactions escrow={e} />
-                  </div>
-                )}
                 <div className="status-list">
                   {e.milestones.map((m) => (
                     <div key={m.idx} className="status-item" style={{ cursor: 'default' }}>
@@ -407,6 +402,8 @@ export default function Wallet() {
             ))}
           </section>
         )}
+
+        <EscrowTransactionsDrawer escrow={txEscrow} onClose={() => setTxEscrow(null)} />
 
         {/* Stellar Account */}
         <section className="section">
