@@ -8,7 +8,7 @@
  * (compliance-service must be running — see CLAUDE.md pnpm --filter command)
  */
 import axios from 'axios';
-import { initPostgres, query } from '@funti3r/database';
+import { initPostgres, query, transaction } from '@funti3r/database';
 
 const BASE_URL = process.env.COMPLIANCE_SERVICE_URL || 'http://localhost:3003';
 
@@ -77,7 +77,11 @@ async function main() {
     console.log('\n=== Result: clean submission cleared, sanctions-list match blocked. ===');
   } finally {
     if (createdUserIds.length > 0) {
-      await query('DELETE FROM users WHERE id = ANY($1::uuid[])', [createdUserIds]);
+      // Users are protected from deletion (migration 024); this script's own throwaway accounts opt in explicitly.
+      await transaction(async (client) => {
+        await client.query(`SET LOCAL funti3r.allow_delete = 'on'`);
+        await client.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [createdUserIds]);
+      });
       console.log(`\nCleaned up ${createdUserIds.length} throwaway test user(s).`);
     }
   }

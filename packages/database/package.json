@@ -15,8 +15,7 @@
   "scripts": {
     "build": "tsc",
     "type-check": "tsc --noEmit",
-    "db:migrate": "node dist/migrations/run.js",
-    "db:migrate:create": "node dist/migrations/create.js",
+    "db:migrate": "node --env-file-if-exists=../../.env.local --import tsx src/migrations/run.ts",
     "test": "node --env-file-if-exists=../../.env.local --import tsx --test src/*.test.ts"
   },
   "dependencies": {

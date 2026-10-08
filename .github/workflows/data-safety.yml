@@ -1,0 +1,55 @@
+name: Data safety
+
+# Two guarantees, checked on every change to the schema or the backup tooling and weekly:
+#   1. The whole migration history applies cleanly to an empty database.
+#   2. A backup of that database restores into another database with every table's row count intact.
+
+on:
+  push:
+    branches: [main, develop, master]
+    paths: ['services/database/**', 'scripts/ops/**', 'packages/database/**', '.github/workflows/data-safety.yml']
+  pull_request:
+    paths: ['services/database/**', 'scripts/ops/**', 'packages/database/**', '.github/workflows/data-safety.yml']
+  schedule:
+    - cron: '0 5 * * 1'
+
+jobs:
+  restore-drill:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: funti3r_dev
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: funti3r_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U funti3r_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: funti3r_dev
+      PGPASSWORD: ci_password
+      PGDATABASE: funti3r_dev
+      DATABASE_URL: postgresql://funti3r_dev:ci_password@localhost:5432/funti3r_dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Apply every migration to an empty database
+        run: pnpm --filter @funti3r/database db:migrate
+      - name: Advisory-lock tests (need a real Postgres)
+        run: pnpm --filter @funti3r/database test
+      - name: Back up, restore into a throwaway database, compare row counts
+        run: sh scripts/ops/restore-drill.sh
