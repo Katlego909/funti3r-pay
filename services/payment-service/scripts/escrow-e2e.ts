@@ -12,6 +12,9 @@
  */
 import { Horizon, Keypair } from '@stellar/stellar-sdk';
 import axios from 'axios';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   approveMilestone,
   claimMilestone,
@@ -21,6 +24,7 @@ import {
   EscrowContractError,
   getEscrow,
   refundEscrow,
+  returnFrozen,
   revokeClearance,
   setClearance,
   setFrozen,
@@ -140,6 +144,16 @@ async function main() {
    tx: ${refundHash}
    ${explorer(refundHash)}`);
 
+  console.log(`
+9) compliance hold upheld: freeze a second escrow, then return its funds to the enterprise…`);
+  const second = await createEscrow(enterprise.secret(), worker.publicKey(), [15, 15], Math.floor(Date.now() / 1000) + 3600);
+  const secondApproveHash = await approveMilestone(enterprise.secret(), second.escrowId, 0);
+  const secondFreezeHash = await setFrozen(second.escrowId, true);
+  const { returnedStroops, hash: returnHash } = await returnFrozen(second.escrowId);
+  console.log(`   returned: ${Number(returnedStroops) / 1e7} XLM
+   tx: ${returnHash}
+   ${explorer(returnHash)}`);
+
   const finalState = await getEscrow(escrowId, enterprise.publicKey());
   console.log('\n── Final state ───────────────────────────────────────────');
   console.log(`   escrow status:  ${finalState.status}`);
@@ -155,6 +169,38 @@ async function main() {
   console.log(`   freeze    : ${freezeHash}`);
   console.log(`   claim     : ${claimHash}`);
   console.log(`   refund    : ${refundHash}`);
+  console.log(`   return    : ${returnHash}`);
+
+  const proofPath = join(dirname(fileURLToPath(import.meta.url)), '../../../apps/enterprise-dashboard/src/data/proof.json');
+  mkdirSync(dirname(proofPath), { recursive: true });
+  writeFileSync(proofPath, JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    network: 'testnet',
+    contract: process.env.ESCROW_CONTRACT_ADDRESS,
+    enterprise: enterprise.publicKey(),
+    worker: worker.publicKey(),
+    compliance: complianceAuthorityPublic(),
+    steps: [
+      { label: 'Compliance clears the worker (screening hash on-chain)', hash: clearHash },
+      { label: 'Enterprise funds the escrow', hash: createHash },
+      { label: 'Enterprise approves milestone 1', hash: approveHash },
+      { label: 'Compliance revokes the worker (simulated sanctions hit)', hash: revokeHash },
+      { label: 'Compliance re-clears the worker', hash: reclearHash },
+      { label: 'Compliance freezes the escrow', hash: freezeHash },
+      { label: 'Compliance lifts the freeze', hash: unfreezeHash },
+      { label: 'Worker claims milestone 1', hash: claimHash },
+      { label: 'Enterprise refunds the unapproved tranche after expiry', hash: refundHash },
+      { label: 'Second escrow: enterprise approves milestone 1', hash: secondApproveHash },
+      { label: 'Second escrow: compliance freezes it', hash: secondFreezeHash },
+      { label: 'Second escrow: compliance returns unclaimed funds to the enterprise', hash: returnHash },
+    ],
+    blocked: [
+      'Create for an uncleared worker rejected by the contract (#11 NotCleared)',
+      'Claim after clearance revoked rejected (#11 NotCleared)',
+      'Claim while the escrow is frozen rejected (#12 EscrowFrozen)',
+    ],
+  }, null, 2));
+  console.log(`   proof data written to ${proofPath}`);
 }
 
 main().then(

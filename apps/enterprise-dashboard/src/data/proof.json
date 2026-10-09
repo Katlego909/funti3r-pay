@@ -1,0 +1,63 @@
+{
+  "generatedAt": "2026-10-09T06:39:56.421Z",
+  "network": "testnet",
+  "contract": "CBMFR6XLDVHLR3DHQJOKOA6VC356K33KZEWREVDGYC7KFGAIQCGP2ARC",
+  "enterprise": "GCCH7G3VV4QRFBMPFLVHLW73WJWDFSXDYJNFX4H5S2PYRGLP6PAAJ5XR",
+  "worker": "GABG4AZAUICDPVKW3WOLJJDBM4I3D5MWYGK3CQHJ7FXWWSQ5MGEQIA6D",
+  "compliance": "GDXBMYYI3MLI2T5J6VUH7EPNO5SAFUPXOVLJB7FQM7STRWYGJSERJWEX",
+  "steps": [
+    {
+      "label": "Compliance clears the worker (screening hash on-chain)",
+      "hash": "9d81cab30c1803a0566823dd92ad087a5f27fc21790f31f49ce3bac26db1bf99"
+    },
+    {
+      "label": "Enterprise funds the escrow",
+      "hash": "6011af7633b84058e977acdde6397eee1877f62afc6aa5c1212e8be18ac423fe"
+    },
+    {
+      "label": "Enterprise approves milestone 1",
+      "hash": "b55ef4e56238484f818c4223d04734b30e6f3c526e44f67943bd8b1dc67b119b"
+    },
+    {
+      "label": "Compliance revokes the worker (simulated sanctions hit)",
+      "hash": "3aab9e06472282d635b8277caefb80225ac8edb7de0317ac42d17398e5048018"
+    },
+    {
+      "label": "Compliance re-clears the worker",
+      "hash": "a976b8f49e6dbc81bd3c67242297ffc0869db4a55047e74c27165b703a3a0316"
+    },
+    {
+      "label": "Compliance freezes the escrow",
+      "hash": "8e8c71851ad4fa0cb3a24eb46b4824c0a36df8a0f39b4c286c3f887a9fd83de9"
+    },
+    {
+      "label": "Compliance lifts the freeze",
+      "hash": "cbd36dee337c33f41b3d8de0b2fe40d2101b9923c4b775e683e4995f2e7e2c2f"
+    },
+    {
+      "label": "Worker claims milestone 1",
+      "hash": "79b2520e0889e9e107be12e31581682564dd707b5dac79d8f5ccd1d54b1fb8e7"
+    },
+    {
+      "label": "Enterprise refunds the unapproved tranche after expiry",
+      "hash": "fc926e00d1f4dac73ab7f858af7a3c2ff08d53ad0f38a9c09c9da3953308c2be"
+    },
+    {
+      "label": "Second escrow: enterprise approves milestone 1",
+      "hash": "d5d915c8703e0d587ec80eb2de2b57085625cafd7b8159b392e852f62f638cc2"
+    },
+    {
+      "label": "Second escrow: compliance freezes it",
+      "hash": "59a62b55f2b96f1baa6f9cb68d87c2ffc0283e3a0ae5913bd2a9f2a5f4e2b699"
+    },
+    {
+      "label": "Second escrow: compliance returns unclaimed funds to the enterprise",
+      "hash": "88bf23f4d2b30ac654f5d3ba45b7b2e47b25256f10f0b193d31ce1eeb85bd6a8"
+    }
+  ],
+  "blocked": [
+    "Create for an uncleared worker rejected by the contract (#11 NotCleared)",
+    "Claim after clearance revoked rejected (#11 NotCleared)",
+    "Claim while the escrow is frozen rejected (#12 EscrowFrozen)"
+  ]
+}

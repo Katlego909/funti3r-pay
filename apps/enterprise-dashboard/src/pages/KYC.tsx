@@ -7,6 +7,8 @@ import { FAQAccordion } from '../components/FAQAccordion';
 
 export default function KYCPage() {
   const [showForm, setShowForm] = useState(false);
+  const [hasSubmission, setHasSubmission] = useState(false);
+  const startLabel = hasSubmission ? 'Resubmit KYC' : 'Start KYC';
 
   return (
     <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto' }}>
@@ -25,7 +27,7 @@ export default function KYCPage() {
       {/* KYC Status */}
       <div style={{ marginBottom: '32px' }}>
         <h3 style={{ marginTop: 0, marginBottom: '20px', fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>Verification Status</h3>
-        <KYCStatus />
+        <KYCStatus onStatusChange={(s) => setHasSubmission(s !== null)} />
       </div>
 
       {/* KYC Form */}
@@ -37,7 +39,7 @@ export default function KYCPage() {
           marginBottom: '20px',
         }}>
           <h3 style={{ margin: 0, marginBottom: '20px', fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>
-            {showForm ? 'Complete Your KYC' : 'Submit KYC Information'}
+            {showForm ? 'Complete Your KYC' : hasSubmission ? 'Update KYC Information' : 'Submit KYC Information'}
           </h3>
           {!showForm && (
             <button
@@ -52,7 +54,7 @@ export default function KYCPage() {
                 fontWeight: '600',
               }}
             >
-              Start KYC
+              {startLabel}
             </button>
           )}
         </div>
@@ -71,9 +73,13 @@ export default function KYCPage() {
             border: '1px solid #e5e7eb',
             textAlign: 'center',
           }}>
-            <h4 style={{ color: '#4b5563', marginTop: 0 }}>Ready to verify your identity?</h4>
+            <h4 style={{ color: '#4b5563', marginTop: 0 }}>
+              {hasSubmission ? 'Need to change your details?' : 'Ready to verify your identity?'}
+            </h4>
             <p style={{ color: '#6b7280', marginBottom: '16px' }}>
-              We need your personal, identity, tax, and bank details to complete compliance requirements.
+              {hasSubmission
+                ? 'Submit your details again if something has changed or your last submission was rejected.'
+                : 'We need your personal, identity, tax, and bank details to complete compliance requirements.'}
             </p>
             <button
               onClick={() => setShowForm(true)}
@@ -88,7 +94,7 @@ export default function KYCPage() {
                 fontSize: '16px',
               }}
             >
-              Start KYC Process
+              {hasSubmission ? 'Resubmit KYC' : 'Start KYC Process'}
             </button>
           </div>
         )}

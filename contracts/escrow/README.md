@@ -28,6 +28,7 @@ a different key from every enterprise and worker) controls who may receive money
 | `set_clearance(worker, expiry, attestation)` | compliance | Clears a worker until `expiry`; `attestation` is the sha256 of the off-chain screening record behind the decision |
 | `revoke_clearance(worker)` | compliance | Immediately removes the clearance (e.g. a new sanctions hit) |
 | `set_frozen(id, bool)` | compliance | Holds one escrow: blocks approve, claim **and** refund until released |
+| `return_frozen(id)` | compliance | Resolves an upheld hold: every tranche the worker has not claimed (pending or approved) goes back to the enterprise. Only works while the escrow is frozen |
 
 `create`, `approve` and `claim` revert unless the worker holds a live clearance
 (`NotCleared`, #11), and revert on a frozen escrow (`EscrowFrozen`, #12). A
@@ -62,6 +63,7 @@ enforcement point and the backend is the bridge.
 | 11 | NotCleared | Worker has no live compliance clearance |
 | 12 | EscrowFrozen | Compliance hold |
 | 13 | InvalidClearance | Clearance expiry not in the future |
+| 14 | NotFrozen | `return_frozen` on an escrow that is not frozen |
 
 ## Build, test, deploy
 
@@ -89,5 +91,5 @@ node --env-file=../../.env.local --import tsx scripts/escrow-e2e.ts   # full gat
 ## Testnet deployment
 
 - Contract: `CBMFR6XLDVHLR3DHQJOKOA6VC356K33KZEWREVDGYC7KFGAIQCGP2ARC`
-- Wasm sha256: `2922e4afc33ab90ae99a69d151a5dcb6909f066981b952913d78926a463b97ec` (13,558 bytes)
+- Wasm sha256: `bb2c611ea053ef5636b5742d8670e6eb283dd7197a32cd234bb48caafa79c219` (14,993 bytes)
 - Explorer: https://stellar.expert/explorer/testnet/contract/CBMFR6XLDVHLR3DHQJOKOA6VC356K33KZEWREVDGYC7KFGAIQCGP2ARC

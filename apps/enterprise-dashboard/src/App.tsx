@@ -38,6 +38,7 @@ import Landing from './pages/Landing.js';
 import Terms from './pages/Terms.js';
 import Privacy from './pages/Privacy.js';
 import Compliance from './pages/Compliance.js';
+import Proof from './pages/Proof.js';
 import HelpCenter from './pages/HelpCenter.js';
 import RecoveryStart from './pages/RecoveryStart.js';
 import RecoveryVerify from './pages/RecoveryVerify.js';
@@ -479,6 +480,7 @@ export default function App() {
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/compliance" element={<Compliance />} />
         <Route path="/help" element={<HelpCenter />} />
+        <Route path="/proof" element={<Proof />} />
         <Route path="/recovery/start" element={<RecoveryStart />} />
         <Route path="/recovery/verify" element={<RecoveryVerify />} />
 

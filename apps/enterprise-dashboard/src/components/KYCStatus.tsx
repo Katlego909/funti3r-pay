@@ -11,7 +11,7 @@ interface KYCStatusData {
   updated_at?: string;
 }
 
-export function KYCStatus() {
+export function KYCStatus({ onStatusChange }: { onStatusChange?: (status: KYCStatusData['status'] | null) => void }) {
   const { user } = useAuthStore();
   const [status, setStatus] = useState<KYCStatusData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,11 +34,13 @@ export function KYCStatus() {
 
       const { data } = await api.get<KYCStatusData>(`/compliance/${user.userId}/status`);
       setStatus(data);
+      onStatusChange?.(data.status);
       setError('');
     } catch (err: any) {
       // 404 simply means no submission yet (when auto-approve is off).
       if (err?.response?.status === 404) {
         setStatus(null);
+        onStatusChange?.(null);
       } else {
         console.error('Failed to fetch KYC status:', err);
         setError(err?.response?.data?.error ?? 'Failed to load KYC status');
