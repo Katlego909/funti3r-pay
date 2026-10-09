@@ -7,6 +7,7 @@ name: Contracts
 on:
   push:
     branches: [main, develop, master]
+    tags: ['v*']
     paths: ['contracts/**', '.github/workflows/contracts.yml']
   pull_request:
     paths: ['contracts/**', '.github/workflows/contracts.yml']
@@ -17,6 +18,8 @@ env:
 jobs:
   escrow:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # publishing a release on a version tag
     defaults:
       run:
         working-directory: contracts
@@ -65,3 +68,13 @@ jobs:
           path: |
             contracts/target/wasm32v1-none/release/funti3r_escrow.wasm
             contracts/funti3r_escrow.wasm.sha256
+
+      # A version tag (v*) publishes a GitHub release carrying the wasm and its sha256.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            contracts/target/wasm32v1-none/release/funti3r_escrow.wasm
+            contracts/funti3r_escrow.wasm.sha256
+          generate_release_notes: true
