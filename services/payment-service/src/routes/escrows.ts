@@ -637,6 +637,25 @@ router.post('/:id/refund', async (req: Request, res: Response) => {
   }
 });
 
+// ── GET /escrows/my-clearance (worker) ────────────────────────────────────────
+// The worker's own on-chain compliance clearance, so the KYC page can show what the contract sees.
+
+router.get('/my-clearance', async (req: Request, res: Response) => {
+  const workerId = requireWorker(req, res);
+  if (!workerId) return;
+  try {
+    const publicKey = await workerPublicKey(workerId);
+    if (!publicKey) return res.json({ cleared: false, expiry: null, attestation: null });
+
+    const clearance = await escrow.getClearance(publicKey);
+    const cleared = !!clearance && clearance.expiry * 1000 > Date.now();
+    res.json({ cleared, expiry: clearance?.expiry ?? null, attestation: clearance?.attestation ?? null });
+  } catch (err) {
+    logger.error('Failed to read on-chain clearance', { workerId, error: String(err) });
+    res.status(502).json({ error: 'Could not read the on-chain clearance' });
+  }
+});
+
 // ── GET /escrows/cashout-options ──────────────────────────────────────────────
 // Whether MoneyGram cash-out is configured on this deployment, so the UI only offers it when real.
 

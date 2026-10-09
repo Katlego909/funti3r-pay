@@ -209,27 +209,41 @@ export async function returnFrozen(escrowId: bigint): Promise<{ returnedStroops:
   return { returnedStroops: returnValue as bigint, hash };
 }
 
-/** Read-only: does the worker hold a live on-chain clearance? */
-export async function isCleared(workerPublic: string): Promise<boolean> {
-  const sourcePublic = complianceAuthorityPublic();
-  const account = await server.getAccount(sourcePublic);
+/** Read-only contract call via simulation: no transaction is submitted and no fee is paid. */
+async function readContract(method: string, args: xdr.ScVal[]): Promise<unknown> {
+  const account = await server.getAccount(complianceAuthorityPublic());
   const tx = new TransactionBuilder(account, {
     fee: BASE_FEE,
     networkPassphrase: NETWORK_PASSPHRASE,
   })
-    .addOperation(
-      new Contract(contractAddress()).call(
-        'is_cleared',
-        nativeToScVal(new Address(workerPublic), { type: 'address' }),
-      ),
-    )
+    .addOperation(new Contract(contractAddress()).call(method, ...args))
     .setTimeout(60)
     .build();
   const sim = await server.simulateTransaction(tx);
   if (!rpc.Api.isSimulationSuccess(sim) || !sim.result?.retval) {
-    throw new Error('is_cleared simulation failed');
+    throw new Error(`${method} simulation failed`);
   }
-  return scValToNative(sim.result.retval) === true;
+  return scValToNative(sim.result.retval);
+}
+
+/** Read-only: does the worker hold a live on-chain clearance? */
+export async function isCleared(workerPublic: string): Promise<boolean> {
+  return (await readContract('is_cleared', [nativeToScVal(new Address(workerPublic), { type: 'address' })])) === true;
+}
+
+export interface OnchainClearance {
+  expiry: number; // unix seconds
+  attestation: string; // hex of the screening-record hash bound to the clearance
+}
+
+/** Read-only: the worker's recorded clearance (live or expired), or null if none was ever set or it was revoked. */
+export async function getClearance(workerPublic: string): Promise<OnchainClearance | null> {
+  const raw = (await readContract('get_clearance', [nativeToScVal(new Address(workerPublic), { type: 'address' })])) as
+    | { expiry: bigint; attestation: Buffer }
+    | null
+    | undefined;
+  if (!raw) return null;
+  return { expiry: Number(raw.expiry), attestation: Buffer.from(raw.attestation).toString('hex') };
 }
 
 export interface OnchainEscrow {

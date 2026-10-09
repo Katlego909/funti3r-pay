@@ -304,6 +304,36 @@ describe('POST /escrows/:id/freeze', () => {
   });
 });
 
+describe('GET /escrows/my-clearance', () => {
+  it('403s a non-worker', async () => {
+    const res = await request(app).get('/escrows/my-clearance').set(enterpriseHeaders);
+    expect(res.status).toBe(403);
+  });
+
+  it('reports a live clearance with its attestation hash', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([
+      { match: /SELECT stellar_public_key FROM users/, handler: () => ({ rows: [{ stellar_public_key: 'GWORKER' }] }) },
+    ]));
+    const expiry = Math.floor(Date.now() / 1000) + 3600;
+    vi.mocked(escrow.getClearance).mockResolvedValue({ expiry, attestation: 'ab'.repeat(32) });
+
+    const res = await request(app).get('/escrows/my-clearance').set(workerHeaders);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ cleared: true, expiry, attestation: 'ab'.repeat(32) });
+  });
+
+  it('reports an expired or missing clearance as not cleared', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([
+      { match: /SELECT stellar_public_key FROM users/, handler: () => ({ rows: [{ stellar_public_key: 'GWORKER' }] }) },
+    ]));
+    vi.mocked(escrow.getClearance).mockResolvedValue({ expiry: 1_000, attestation: 'cd'.repeat(32) });
+    expect((await request(app).get('/escrows/my-clearance').set(workerHeaders)).body.cleared).toBe(false);
+
+    vi.mocked(escrow.getClearance).mockResolvedValue(null);
+    expect((await request(app).get('/escrows/my-clearance').set(workerHeaders)).body).toEqual({ cleared: false, expiry: null, attestation: null });
+  });
+});
+
 describe('POST /escrows/:id/return-frozen', () => {
   const adminHeaders = { 'x-user-id': ADMIN_ID, 'x-user-role': 'admin' };
   const frozenRow = (over: Record<string, unknown> = {}) => ({

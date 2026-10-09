@@ -3,6 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import { HiOutlineShieldCheck } from 'react-icons/hi2';
 import { KYCForm } from '../components/KYCForm';
 import { KYCStatus } from '../components/KYCStatus';
+import { OnchainClearanceCard } from '../components/OnchainClearanceCard';
 import { FAQAccordion } from '../components/FAQAccordion';
 
 export default function KYCPage() {
@@ -28,6 +29,7 @@ export default function KYCPage() {
       <div style={{ marginBottom: '32px' }}>
         <h3 style={{ marginTop: 0, marginBottom: '20px', fontFamily: "'Archivo Black', sans-serif", fontWeight: 900 }}>Verification Status</h3>
         <KYCStatus onStatusChange={(s) => setHasSubmission(s !== null)} />
+        <OnchainClearanceCard />
       </div>
 
       {/* KYC Form */}

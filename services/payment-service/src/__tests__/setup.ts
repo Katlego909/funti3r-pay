@@ -25,6 +25,7 @@ vi.mock('../lib/escrow.js', () => ({
   setFrozen: vi.fn(),
   returnFrozen: vi.fn(),
   isCleared: vi.fn(),
+  getClearance: vi.fn(),
   complianceAuthorityPublic: vi.fn(() => 'GCOMPLIANCEXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'),
   setClearance: vi.fn(),
   revokeClearance: vi.fn(),

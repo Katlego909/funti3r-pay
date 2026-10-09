@@ -46,6 +46,18 @@ export async function listEscrows(): Promise<Escrow[]> {
   return data.escrows;
 }
 
+export interface OnchainClearance {
+  cleared: boolean;
+  expiry: number | null; // unix seconds
+  attestation: string | null; // hex hash of the screening record the contract holds
+}
+
+/** The worker's own compliance clearance as the escrow contract sees it. */
+export async function getMyClearance(): Promise<OnchainClearance> {
+  const { data } = await api.get<OnchainClearance>('/escrows/my-clearance');
+  return data;
+}
+
 export async function createEscrow(payload: {
   workerId: string;
   milestones: Array<{ description?: string; amountXlm: number }>;
