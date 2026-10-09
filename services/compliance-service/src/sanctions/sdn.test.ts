@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildIndex, screenName } from './screen.js';
-import { parseCsvLine, parseSdn } from './sdn.js';
+import { parseBirthYears, parseCsvLine, parseSdn } from './sdn.js';
 import { rescreenClearRecords } from './service.js';
 import { sealDetails } from '../pii.js';
 
@@ -67,4 +67,28 @@ test('re-screening flags a cleared record that a newer list now matches, once, w
   assert.equal(flagged[0][1][0], 'u1');
   const event = writes.find(([sql]) => /INSERT INTO kyc_events/.test(sql))!;
   assert.deepEqual(event[1].slice(0, 4), ['u1', null, 'system', 'rescreened']);
+});
+
+test('parseBirthYears reads only DOB segments, including alternates and approximate dates', () => {
+  assert.deepEqual(parseBirthYears('DOB 15 Mar 1962; alt. DOB 1963; POB Aleppo, Syria; Passport 1999123'), [1962, 1963]);
+  assert.deepEqual(parseBirthYears('DOB circa 1970; nationality Syria; Gender Male'), [1970]);
+  assert.deepEqual(parseBirthYears('Linked To: ACME 2001 TRADING; Registration ID 1988'), []);
+  assert.deepEqual(parseBirthYears(''), []);
+});
+
+test('a namesake with a different year of birth is ruled out; the right year, an off-by-one year or no year still match', () => {
+  const index = buildIndex(parseSdn(SDN, ALT));
+  assert.equal(screenName('Abu Abbas', index, 1990).length, 0, 'born 40 years apart');
+  const exact = screenName('Abu Abbas', index, 1950);
+  assert.equal(exact.length, 1);
+  assert.equal(exact[0].birthYear, 'confirmed');
+  assert.equal(screenName('Abu Abbas', index, 1951).length, 1, 'lists carry circa years');
+  const unknown = screenName('Abu Abbas', index);
+  assert.equal(unknown.length, 1, 'no birth year given: fail closed');
+  assert.equal(unknown[0].birthYear, 'unknown');
+});
+
+test('an entry with no recorded birth year is never ruled out by the applicant\'s', () => {
+  const index = buildIndex(parseSdn(SDN, ALT));
+  assert.equal(screenName('National Bank of Cuba', index, 1990).length, 1);
 });

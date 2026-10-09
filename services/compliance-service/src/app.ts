@@ -1,7 +1,7 @@
 import express from 'express';
 import { createLogger, NotFoundError, requireGatewayIdentity, requestContext, registerHealth } from '@funti3r/shared-utils';
 import { metrics } from './metrics.js';
-import { candidateNamesFromSubmission } from './names.js';
+import { candidateBirthYearFromSubmission, candidateNamesFromSubmission } from './names.js';
 import type { Deps } from './deps.js';
 import { canDecide, kycAccess } from './access.js';
 import { recordKycEvent } from './events.js';
@@ -73,7 +73,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
     }
 
     try {
-      const sanctionsMatches = sanctions.screen(candidateNamesFromSubmission(details));
+      const sanctionsMatches = sanctions.screen(candidateNamesFromSubmission(details), candidateBirthYearFromSubmission(details));
       const sanctionsStatus = sanctionsMatches.length > 0 ? 'flagged' : 'clear';
 
       const decision = await provider.submit({ userId, details, sanctionsFlagged: sanctionsStatus === 'flagged' });

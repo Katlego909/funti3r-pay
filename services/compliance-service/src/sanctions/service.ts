@@ -4,7 +4,7 @@ import { createLogger } from '@funti3r/shared-utils';
 import type { Query } from '../deps.js';
 import { openDetails } from '../pii.js';
 import { recordKycEvent } from '../events.js';
-import { candidateNamesFromSubmission } from '../names.js';
+import { candidateBirthYearFromSubmission, candidateNamesFromSubmission } from '../names.js';
 import type { SanctionsEntry } from './list.js';
 import { buildIndex, screenNames, type SanctionsIndex, type SanctionsMatch } from './screen.js';
 import { parseSdn } from './sdn.js';
@@ -32,7 +32,8 @@ export interface RefreshResult {
 }
 
 export interface SanctionsService {
-  screen(names: string[]): SanctionsMatch[];
+  /** `birthYear` (the applicant's, when known) lets the list rule out a namesake with a different birth year. */
+  screen(names: string[], birthYear?: number): SanctionsMatch[];
   status(): Promise<SanctionsMeta | null>;
   /** Downloads the list, stores it and re-screens every cleared KYC record against it. */
   refresh(): Promise<RefreshResult>;
@@ -49,10 +50,16 @@ export async function storeSanctionsList(query: Query, entries: SanctionsEntry[]
   for (let i = 0; i < entries.length; i += INSERT_CHUNK) {
     const chunk = entries.slice(i, i + INSERT_CHUNK);
     await query(
-      `INSERT INTO sanctions_entries (batch_id, list, name, aliases, program)
-       SELECT $1, 'OFAC-SDN', n, string_to_array(a, E'\\x1f'), p
-         FROM unnest($2::text[], $3::text[], $4::text[]) AS t(n, a, p)`,
-      [batch, chunk.map((e) => e.name), chunk.map((e) => e.aliases.join('\x1f')), chunk.map((e) => e.program)],
+      `INSERT INTO sanctions_entries (batch_id, list, name, aliases, program, birth_years)
+       SELECT $1, 'OFAC-SDN', n, string_to_array(a, E'\\x1f'), p, string_to_array(NULLIF(y, ''), ',')::int[]
+         FROM unnest($2::text[], $3::text[], $4::text[], $5::text[]) AS t(n, a, p, y)`,
+      [
+        batch,
+        chunk.map((e) => e.name),
+        chunk.map((e) => e.aliases.join('\x1f')),
+        chunk.map((e) => e.program),
+        chunk.map((e) => (e.birthYears ?? []).join(',')),
+      ],
     );
   }
   await query(
@@ -66,7 +73,7 @@ export async function storeSanctionsList(query: Query, entries: SanctionsEntry[]
 
 async function loadStoredEntries(query: Query): Promise<SanctionsEntry[]> {
   const r = await query(
-    `SELECT e.name, e.aliases, e.program FROM sanctions_entries e
+    `SELECT e.name, e.aliases, e.program, e.birth_years FROM sanctions_entries e
        JOIN sanctions_list_meta m ON m.batch_id = e.batch_id`,
   );
   return r.rows.map((row) => ({
@@ -74,6 +81,7 @@ async function loadStoredEntries(query: Query): Promise<SanctionsEntry[]> {
     aliases: (row.aliases as string[]) ?? [],
     program: row.program as string,
     list: 'OFAC-SDN' as const,
+    birthYears: (row.birth_years as number[] | null) ?? [],
   }));
 }
 
@@ -82,11 +90,12 @@ async function loadStoredEntries(query: Query): Promise<SanctionsEntry[]> {
  * record to flagged + rejected and writes an audit event; the payment service re-checks the verdict
  * before any money moves and revokes the worker's on-chain clearance then.
  */
-export async function rescreenClearRecords(query: Query, screen: (names: string[]) => SanctionsMatch[]): Promise<{ rescreened: number; newlyFlagged: number }> {
+export async function rescreenClearRecords(query: Query, screen: (names: string[], birthYear?: number) => SanctionsMatch[]): Promise<{ rescreened: number; newlyFlagged: number }> {
   const rows = await query(`SELECT user_id, data FROM kyc_records WHERE sanctions_status = 'clear'`);
   let newlyFlagged = 0;
   for (const row of rows.rows) {
-    const matches = screen(candidateNamesFromSubmission(openDetails(row.data)));
+    const details = openDetails(row.data);
+    const matches = screen(candidateNamesFromSubmission(details), candidateBirthYearFromSubmission(details));
     if (matches.length === 0) continue;
     await query(
       `UPDATE kyc_records SET sanctions_status = 'flagged', status = 'rejected', sanctions_matches = $2,
@@ -118,7 +127,7 @@ export async function createSanctionsService(query: Query): Promise<SanctionsSer
   await reload().catch((err) => logger.warn('Could not load the stored sanctions list; using the built-in one', { error: String(err) }));
 
   const service: SanctionsService = {
-    screen: (names) => screenNames(names, index),
+    screen: (names, birthYear) => screenNames(names, index, birthYear),
 
     async status() {
       const r = await query(`SELECT source, entry_count, fetched_at FROM sanctions_list_meta WHERE id = 1`);

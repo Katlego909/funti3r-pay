@@ -25,6 +25,19 @@ const clean = (v: string | undefined): string => {
   return t === '-0-' ? '' : t;
 };
 
+/**
+ * Years of birth in an SDN remarks field ("DOB 15 Mar 1962; alt. DOB 1963; POB Aleppo, Syria"). Only DOB segments are
+ * read, so a year that appears in an address or a document number is never mistaken for a birth year.
+ */
+export function parseBirthYears(remarks: string): number[] {
+  const years = new Set<number>();
+  for (const segment of remarks.split(';')) {
+    if (!/^\s*(alt\.\s*)?DOB\b/i.test(segment)) continue;
+    for (const m of segment.matchAll(/\b(1[89]\d\d|20[0-2]\d)\b/g)) years.add(Number(m[1]));
+  }
+  return [...years];
+}
+
 /** "ABBAS, Mahmoud" -> "Mahmoud ABBAS": the SDN lists people surname-first, applicants write it the other way. */
 function givenNameFirst(name: string): string | null {
   const i = name.indexOf(',');
@@ -53,7 +66,14 @@ export function parseSdn(sdnCsv: string, altCsv: string): SanctionsEntry[] {
       const flipped = givenNameFirst(name);
       if (flipped) aliases.push(flipped);
     }
-    byNum.set(entNum, { name, aliases, program: clean(f[3]).split(/[;\]\[]+/).filter(Boolean)[0]?.trim() || 'SDN', list: 'OFAC-SDN' });
+    const birthYears = parseBirthYears(clean(f[11]));
+    byNum.set(entNum, {
+      name,
+      aliases,
+      program: clean(f[3]).split(/[;\]\[]+/).filter(Boolean)[0]?.trim() || 'SDN',
+      list: 'OFAC-SDN',
+      ...(birthYears.length ? { birthYears } : {}),
+    });
   }
 
   for (const line of altCsv.split(/\r?\n/)) {

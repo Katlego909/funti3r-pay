@@ -17,6 +17,8 @@ export interface SanctionsEntry {
   aliases: string[];
   program: string;
   list: 'OFAC-SDN' | 'UN-CONSOLIDATED';
+  /** Years of birth the list records for this person (an entry can carry several, exact or approximate). */
+  birthYears?: number[];
 }
 
 export const SANCTIONS_LIST: SanctionsEntry[] = [

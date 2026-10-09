@@ -35,3 +35,17 @@ test('synthetic QA canary matches for demo/e2e evidence', () => {
   assert.equal(matches.length, 1);
   assert.equal(matches[0].program, 'QA-CANARY');
 });
+
+test('an applicant who adds a middle name to a listed name is still caught', () => {
+  const matches = screenName('Viktor Michael Bout');
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].extraNames, 1);
+});
+
+test('a listed name buried in a much longer name is not a match', () => {
+  assert.equal(screenName('Viktor Anna Maria Sofia Bout').length, 0);
+});
+
+test('a middle name never turns a different surname into a match', () => {
+  assert.equal(screenName('Viktor Michael Boutros').length, 0);
+});
