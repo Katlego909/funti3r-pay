@@ -4,7 +4,7 @@ import axios from 'axios';
 import { query } from '@funti3r/database';
 import * as stellar from '../lib/stellar.js';
 import app, { payoutPayloadHash } from '../app.js';
-import { createQueryMock, WORKER_ID, ENTERPRISE_ID, ADMIN_ID, MEMBER_ID, WORKER_ROW, HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT } from './helpers.js';
+import { createQueryMock, WORKER_ID, ENTERPRISE_ID, ADMIN_ID, MEMBER_ID, HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT } from './helpers.js';
 
 const ENTERPRISE_SECRET_HANDLER = {
   match: /^SELECT stellar_secret_key FROM users/,

@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { createLogger, ValidationError, NotFoundError } from '@funti3r/shared-utils';
+import { createLogger } from '@funti3r/shared-utils';
 import { query, transaction } from '@funti3r/database';
 import { WalletProvider, WalletLinkStatus } from '@funti3r/shared-types';
 import { generateChallenge, CHALLENGE_EXPIRY_MS } from '../lib/wallet-kit-integration.js';
 import { verifyWalletSignature } from '../lib/wallet-verification.js';
-import { randomBytes } from 'crypto';
 
 const logger = createLogger('WalletLinking');
 const router: Router = Router();

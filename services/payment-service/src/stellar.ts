@@ -6,7 +6,6 @@ import {
   Asset,
   Horizon,
   Memo,
-  xdr,
 } from '@stellar/stellar-sdk';
 import { createLogger } from '@funti3r/shared-utils';
 

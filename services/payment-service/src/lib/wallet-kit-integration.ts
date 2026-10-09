@@ -1,4 +1,4 @@
-import { Keypair, sign } from '@stellar/stellar-sdk';
+import { Keypair } from '@stellar/stellar-sdk';
 import { randomBytes } from 'crypto';
 import { createLogger } from '@funti3r/shared-utils';
 

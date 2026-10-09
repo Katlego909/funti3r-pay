@@ -241,7 +241,7 @@ app.use('/analytics', proxy(ANALYTICS_URL));
 
 // ── Error Handler ────────────────────────────────────────────────────────────
 
-app.use((err: any, req: any, res: any, next: any) => {
+app.use((err: any, req: any, res: any, _next: any) => {
   logger.error('Unhandled error', { error: String(err), path: req.path });
   if (!res.headersSent) {
     res.status(500).json({ error: 'Internal server error' });

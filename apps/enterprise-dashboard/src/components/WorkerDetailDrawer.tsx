@@ -18,7 +18,6 @@ interface PaymentRow {
   stellar_tx_hash?: string | null; created_at: string;
 }
 
-const fmt = (n: string | number, d = 2) => Number(n).toLocaleString(undefined, { maximumFractionDigits: d });
 const fmtDate = (s?: string | null) => (s ? new Date(s).toLocaleDateString() : '—');
 function kycLabel(s?: string) {
   if (s === 'verified' || s === 'approved') return 'verified';

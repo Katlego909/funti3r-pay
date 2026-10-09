@@ -16,7 +16,7 @@
         "argsIgnorePattern": "^_"
       }
     ],
-    "@typescript-eslint/explicit-function-return-types": [
+    "@typescript-eslint/explicit-function-return-type": [
       "warn",
       {
         "allowExpressions": true,
@@ -29,6 +29,7 @@
         "allow": ["warn", "error"]
       }
     ],
+    "@typescript-eslint/no-explicit-any": "warn",
     "prefer-const": "error",
     "no-var": "error"
   },

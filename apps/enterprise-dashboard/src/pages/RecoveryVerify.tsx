@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { HiOutlineFingerPrint, HiOutlineCheckCircle, HiOutlineExclamationCircle } from 'react-icons/hi2';
+import { HiOutlineCheckCircle, HiOutlineExclamationCircle } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { verifyRecoveryToken, registerPasskey } from '../api/auth.js';
 import { useAuthStore } from '../store/authStore.js';

@@ -344,7 +344,7 @@ describe('POST /payouts/batch — bulk compliance check (N+1 fix)', () => {
     vi.mocked(query).mockImplementation(
       createQueryMock([ENTERPRISE_SECRET_HANDLER, NO_EXISTING_BATCH, BATCH_INSERT_OK, HANDLER_WORKER_FOUND_BULK, HANDLER_INSERT_PAYMENT]),
     );
-    vi.mocked(axios.post).mockImplementation(async (url: string, body: any) => {
+    vi.mocked(axios.post).mockImplementation(async (url: string, _body: any) => {
       if (String(url).includes('/status/bulk')) {
         return {
           data: {

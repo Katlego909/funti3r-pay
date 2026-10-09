@@ -4,7 +4,7 @@ import { Helmet } from 'react-helmet-async';
 import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMark } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
-import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, getXlmPrice, type Payment, type BatchResult } from '../api/payments.js';
+import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, type Payment, type BatchResult } from '../api/payments.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
@@ -35,7 +35,6 @@ export default function Payments() {
   const [amount, setAmount] = useState('');
   const [memo, setMemo] = useState('');
   const [fxRates, setFxRates] = useState<Record<string, number>>({});
-  const [xlmUsd, setXlmUsd] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   // Idempotency key for the in-flight (or about-to-be-sent) payment. A ref, not
   // state: a fast double-click can fire handleSend twice before a `disabled`
@@ -109,7 +108,6 @@ export default function Payments() {
       .then((res) => setWorkers(res.data.users ?? []))
       .catch(() => setWorkers([]));
     getFxRates().then(setFxRates);
-    getXlmPrice().then(setXlmUsd);
   }, []);
 
   const selectedWorker = workers.find((w) => w.id === workerId);

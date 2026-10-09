@@ -2,7 +2,6 @@ import { useState, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { toast } from 'sonner';
-import { HiOutlineFingerPrint } from 'react-icons/hi2';
 import { loginPasskey, devLogin } from '../api/auth.js';
 import { useAuthStore } from '../store/authStore.js';
 

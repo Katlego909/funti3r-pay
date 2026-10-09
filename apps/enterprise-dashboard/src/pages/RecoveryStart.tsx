@@ -1,7 +1,7 @@
 import { useState, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { HiOutlineEnvelope, HiOutlineCheckCircle } from 'react-icons/hi2';
+import { HiOutlineCheckCircle } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { requestRecoveryLink } from '../api/auth.js';
 

@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { verifyToken, AuthenticationError, stampIdentity, getLogContext } from '@funti3r/shared-utils';
+import { verifyToken, stampIdentity, getLogContext } from '@funti3r/shared-utils';
 
 // The only auth endpoints reachable before a JWT exists. Explicit and
 // exhaustive on purpose — unlike a `startsWith('/auth/')` prefix check, this

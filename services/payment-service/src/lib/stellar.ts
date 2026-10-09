@@ -7,7 +7,6 @@ import {
   TransactionBuilder,
   Transaction,
   Networks,
-  BASE_FEE,
   Memo,
 } from '@stellar/stellar-sdk';
 import { createLogger } from '@funti3r/shared-utils';

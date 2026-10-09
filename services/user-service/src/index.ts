@@ -9,7 +9,6 @@ import {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } from '@simplewebauthn/server';
-import { decode as cborDecode } from 'cbor-x';
 import { Keypair } from '@stellar/stellar-sdk';
 import {
   createLogger,
@@ -83,21 +82,6 @@ const CHALLENGE_TTL_SEC = 600; // 10 minutes
 // Access token TTL is controlled by JWT_EXPIRATION env var (default 24h; set to 15m for production)
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-/**
- * Extracts the raw 65-byte uncompressed P-256 public key (04 ‖ x ‖ y) from a
- * COSE-encoded credential public key returned by @simplewebauthn/server.
- */
-function extractP256UncompressedKey(coseKey: Uint8Array): Buffer {
-  const map = cborDecode(Buffer.from(coseKey)) as Map<number, Uint8Array>;
-  const x = map instanceof Map ? map.get(-2) : (map as Record<number, Uint8Array>)[-2];
-  const y = map instanceof Map ? map.get(-3) : (map as Record<number, Uint8Array>)[-3];
-  if (!x || !y || x.length !== 32 || y.length !== 32) {
-    throw new Error('Credential is not a P-256 key');
-  }
-  // Uncompressed SEC1 format: 04 ‖ x ‖ y
-  return Buffer.concat([Buffer.from([0x04]), Buffer.from(x), Buffer.from(y)]);
-}
 
 function hashRefreshToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -346,8 +330,7 @@ function registerAuthRoute(path: string, handler: express.RequestHandler, { bare
  */
 const registerStartHandler = async (req: express.Request, res: express.Response) => {
   try {
-    const { email, role = 'worker', origin } = req.body;
-    const clientOrigin = origin || req.headers.origin || RP_ORIGIN;
+    const { email, role = 'worker' } = req.body;
 
     if (!email) {
       return res.status(400).json({ error: 'Email is required' });
@@ -646,7 +629,7 @@ const loginFinishHandler = async (req: express.Request, res: express.Response) =
     );
     if (userRow.rows.length === 0) throw new NotFoundError('User or credential for this origin');
 
-    const { id: userId, role, credential_id, public_key, counter, transports } =
+    const { id: userId, role, credential_id, public_key, counter } =
       userRow.rows[0];
 
     const session = await getJSON<{ challenge: string }>(`auth:${userId}`);
@@ -1619,7 +1602,7 @@ async function start() {
 }
 
 // Global error handler
-app.use((err: any, req: any, res: any, next: any) => {
+app.use((err: any, req: any, res: any, _next: any) => {
   logger.error('Unhandled error', { error: String(err), path: req.path });
   if (!res.headersSent) {
     res.status(500).json({ error: 'Internal server error' });

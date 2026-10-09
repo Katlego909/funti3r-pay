@@ -57,7 +57,7 @@ router.get('/', async (req: Request, res: Response) => {
     );
 
     const scheduleIds = schedulesRes.rows.map((s) => s.id);
-    let itemsBySchedule: Record<string, Array<{ worker_id: string; amount_usd: string; memo: string | null }>> = {};
+    const itemsBySchedule: Record<string, Array<{ worker_id: string; amount_usd: string; memo: string | null }>> = {};
 
     if (scheduleIds.length > 0) {
       const itemsRes = await query<{ schedule_id: string; worker_id: string; amount_usd: string; memo: string | null }>(

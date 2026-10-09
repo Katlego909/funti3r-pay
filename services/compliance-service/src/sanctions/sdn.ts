@@ -70,7 +70,7 @@ export function parseSdn(sdnCsv: string, altCsv: string): SanctionsEntry[] {
     byNum.set(entNum, {
       name,
       aliases,
-      program: clean(f[3]).split(/[;\]\[]+/).filter(Boolean)[0]?.trim() || 'SDN',
+      program: clean(f[3]).split(/[;\][]+/).filter(Boolean)[0]?.trim() || 'SDN',
       list: 'OFAC-SDN',
       ...(birthYears.length ? { birthYears } : {}),
     });
