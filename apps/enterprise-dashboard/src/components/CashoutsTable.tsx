@@ -3,6 +3,8 @@ import type { WalletCashout } from '../api/escrows.js';
 import { StatusBadge } from './StatusBadge.js';
 import CopyButton from './CopyButton.js';
 import CashoutReceiptDrawer from './CashoutReceiptDrawer.js';
+import ExportButtons from './ExportButtons.js';
+import { exportCashoutsCSV, exportCashoutsPDF } from '../utils/export.js';
 
 const NOT_YET = <span style={{ color: '#9ca3af', fontSize: '0.78rem' }}>Not yet</span>;
 
@@ -25,7 +27,10 @@ export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] 
 
   return (
     <section className="section">
-      <h3>Cash-outs</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+        <h3 style={{ margin: 0 }}>Cash-outs</h3>
+        <ExportButtons onCSV={() => exportCashoutsCSV(cashouts)} onPDF={() => exportCashoutsPDF(cashouts)} />
+      </div>
       <p style={{ fontSize: '0.82rem', color: 'var(--gray-600)', marginTop: '-6px', marginBottom: 16 }}>
         Select a cash-out to see how the amount was worked out.
       </p>

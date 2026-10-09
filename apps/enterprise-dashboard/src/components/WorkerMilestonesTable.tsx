@@ -2,7 +2,9 @@ import { useState } from 'react';
 import type { Escrow } from '../api/escrows.js';
 import { StatusBadge } from './StatusBadge.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
-import { buildMilestoneRows, inTab, type MilestoneTab } from '../lib/workerMilestones.js';
+import { buildMilestoneRows, inTab, type MilestoneRow, type MilestoneTab } from '../lib/workerMilestones.js';
+import ExportButtons from './ExportButtons.js';
+import { exportMilestonesCSV, exportMilestonesPDF, type ExportMilestone } from '../utils/export.js';
 
 export interface SubmitTarget {
   escrowId: string;
@@ -29,6 +31,20 @@ const EMPTY: Record<MilestoneTab, string> = {
 const small = { fontSize: '0.74rem', color: 'var(--gray-600)', marginTop: 4 } as const;
 const btn = { padding: '6px 14px', fontSize: '0.8rem' } as const;
 
+const toExport = ({ escrow: e, milestone: m, state }: MilestoneRow): ExportMilestone => ({
+  escrowId: e.id,
+  title: m.description || `Milestone ${m.idx + 1}`,
+  position: e.milestones.length > 1 ? `${m.idx + 1} of ${e.milestones.length}` : '',
+  amountXlm: m.amountXlm,
+  status: state.label,
+  expires: e.expiresAt,
+  approvedAt: m.approvedAt,
+  claimedAt: m.claimedAt,
+  approveTxHash: m.approveTxHash,
+  claimTxHash: m.claimTxHash,
+  refundTxHash: m.refundTxHash,
+});
+
 /** The employer's most recent "changes requested" note for a milestone. */
 function lastRejection(e: Escrow, idx: number): string | undefined {
   const rejected = (e.reviewEvents ?? []).filter((ev) => ev.idx === idx && ev.kind === 'rejected');
@@ -49,7 +65,15 @@ export default function WorkerMilestonesTable({
 
   return (
     <section className="section">
-      <h3>Escrow Milestones</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+        <h3 style={{ margin: 0 }}>Escrow Milestones</h3>
+        {rows.length > 0 && (
+          <ExportButtons
+            onCSV={() => exportMilestonesCSV(rows.map(toExport), tab !== 'all' ? `-${tab}` : '')}
+            onPDF={() => exportMilestonesPDF(rows.map(toExport), tab !== 'all' ? `-${tab}` : '')}
+          />
+        )}
+      </div>
       <p style={{ fontSize: '0.82rem', color: 'var(--gray-600)', marginTop: '-6px', marginBottom: 0 }}>
         Your employer locked these funds in an on-chain escrow. Approved milestones are yours to claim, and claimed
         money lands in your wallet. Select a row to see its transactions.

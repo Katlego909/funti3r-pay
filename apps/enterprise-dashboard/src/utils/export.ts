@@ -123,6 +123,81 @@ export function exportPaymentsPDF(payments: ExportPayment[], suffix = '') {
   );
 }
 
+// ── Escrow milestones + cash-outs (worker wallet) ─────────────────────────────
+
+export interface ExportMilestone {
+  escrowId: string;
+  title: string;
+  position: string; // "1 of 3"
+  amountXlm: number;
+  status: string;
+  expires: string;
+  approvedAt: string | null;
+  claimedAt: string | null;
+  approveTxHash: string | null;
+  claimTxHash: string | null;
+  refundTxHash: string | null;
+}
+
+const MILESTONE_HEADERS = ['Escrow', 'Milestone', 'Amount (XLM)', 'Status', 'Expires', 'Approved', 'Claimed', 'Approve Tx', 'Claim Tx', 'Refund Tx'];
+const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '');
+const milestoneRow = (m: ExportMilestone) => [
+  m.escrowId,
+  m.position ? `${m.title} (${m.position})` : m.title,
+  m.amountXlm,
+  m.status,
+  new Date(m.expires).toLocaleDateString(),
+  when(m.approvedAt),
+  when(m.claimedAt),
+  m.approveTxHash ?? '',
+  m.claimTxHash ?? '',
+  m.refundTxHash ?? '',
+];
+
+export function exportMilestonesCSV(milestones: ExportMilestone[], suffix = '') {
+  exportCSV(MILESTONE_HEADERS, milestones.map(milestoneRow), `funti3rpay-escrow-milestones${suffix}-${timestamp()}.csv`);
+}
+export function exportMilestonesPDF(milestones: ExportMilestone[], suffix = '') {
+  exportPDF('Escrow Milestones Report', new Date().toLocaleDateString(), MILESTONE_HEADERS, milestones.map(milestoneRow), `funti3rpay-escrow-milestones${suffix}-${timestamp()}.pdf`);
+}
+
+export interface ExportCashout {
+  createdAt: string;
+  completedAt: string | null;
+  status: string;
+  receiveAmount: string | null;
+  receiveCurrency: string | null;
+  destinationCountry: string | null;
+  referenceNumber: string | null;
+  sendUsdc: string | null;
+  fee: string | null;
+  feeCurrency: string | null;
+  xlmSpent: number | null;
+  settlementHash: string | null;
+  sandbox: boolean;
+}
+
+const CASHOUT_HEADERS = ['Date', 'Status', 'Recipient Collects', 'Country', 'Pickup Reference', 'Sent (USDC)', 'Fee', 'XLM Spent', 'Settlement Tx', 'Mode'];
+const cashoutRow = (c: ExportCashout) => [
+  new Date(c.createdAt).toLocaleString(),
+  c.status,
+  c.receiveAmount ? `${c.receiveAmount}${c.receiveCurrency ? ` ${c.receiveCurrency}` : ''}` : '',
+  c.destinationCountry ?? '',
+  c.referenceNumber ?? '',
+  c.sendUsdc ?? '',
+  c.fee ? `${c.fee}${c.feeCurrency ? ` ${c.feeCurrency}` : ''}` : '',
+  c.xlmSpent ?? '',
+  c.settlementHash ?? '',
+  c.sandbox ? 'Sandbox (no cash dispensed)' : 'Live',
+];
+
+export function exportCashoutsCSV(cashouts: ExportCashout[]) {
+  exportCSV(CASHOUT_HEADERS, cashouts.map(cashoutRow), `funti3rpay-cashouts-${timestamp()}.csv`);
+}
+export function exportCashoutsPDF(cashouts: ExportCashout[]) {
+  exportPDF('Cash-out Report', new Date().toLocaleDateString(), CASHOUT_HEADERS, cashouts.map(cashoutRow), `funti3rpay-cashouts-${timestamp()}.pdf`);
+}
+
 // ── Workers helpers ───────────────────────────────────────────────────────────
 
 export interface ExportWorker {
