@@ -27,6 +27,21 @@ const faqs = [
       'Yes. Funds land in the worker’s own Stellar account, which they control. From there they can hold, convert, or move their balance whenever they want.',
   },
   {
+    question: 'How does milestone escrow work?',
+    answer:
+      'You lock the full amount in an on-chain escrow, split into milestones. When a milestone is done, you approve it and the worker claims it straight into their wallet. Anything unapproved can be reclaimed after the escrow expires.',
+  },
+  {
+    question: 'How is compliance enforced?',
+    answer:
+      'Workers complete KYC and are screened against the OFAC sanctions list, and re-screened regularly. The escrow contract itself will not create, approve or pay out an escrow for a worker without a live clearance, and compliance can freeze an escrow at any time.',
+  },
+  {
+    question: 'Can workers cash out?',
+    answer:
+      'Cash pickup through MoneyGram is coming soon. Until then, funds sit in the worker’s own Stellar account and can be held, converted or moved whenever they want.',
+  },
+  {
     question: 'How much does it cost?',
     answer:
       'Settlement runs on Stellar, where network fees are a fraction of a cent per transaction. Platform pricing is transparent and scales with volume — talk to us for enterprise rates.',

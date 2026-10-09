@@ -11,6 +11,7 @@ import {
   HiOutlineFingerPrint,
   HiOutlineCpuChip,
   HiOutlineRocketLaunch,
+  HiOutlineBanknotes,
 } from 'react-icons/hi2';
 import StellarMark from './StellarMark.js';
 
@@ -73,6 +74,21 @@ const FEATURES = [
     icon: <HiOutlineShieldCheck size={26} />,
     title: 'Verifiable & transparent',
     description: 'Every payout is a real on-chain transaction you can verify on the public Stellar ledger.',
+  },
+  {
+    icon: <HiOutlineLockClosed size={26} />,
+    title: 'Milestone escrow',
+    description: 'Lock funds on-chain up front. Each milestone is released only when you approve the work.',
+  },
+  {
+    icon: <HiOutlineCpuChip size={26} />,
+    title: 'Sanctions-screened payouts',
+    description: 'The escrow contract itself refuses to pay anyone who has not passed KYC and sanctions screening.',
+  },
+  {
+    icon: <HiOutlineBanknotes size={26} />,
+    title: 'Cash pickup (coming soon)',
+    description: 'Workers will be able to turn their balance into cash at MoneyGram locations in their own currency.',
   },
 ];
 
@@ -161,7 +177,7 @@ const SECURITY_BADGES = [
   {
     icon: <HiOutlineShieldCheck size={28} />,
     title: 'Compliance built-in',
-    description: 'KYC verification before payouts.',
+    description: 'KYC and sanctions screening before payouts.',
   },
 ];
 
@@ -220,6 +236,9 @@ export function LandingFooter() {
             </li>
             <li>
               <Link to="/help">Help Center</Link>
+            </li>
+            <li>
+              <Link to="/proof">On-chain Proof</Link>
             </li>
             <li>
               <a href="#status">Status Page</a>

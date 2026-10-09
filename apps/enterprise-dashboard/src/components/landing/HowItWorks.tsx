@@ -25,8 +25,8 @@ const ENTERPRISE_STEPS = [
   },
   {
     t: 'Send a payout',
-    d: 'Pay one worker or run a full batch — single click, any amount, any supported currency.',
-    tag: 'single & batch',
+    d: 'Pay one worker, run a full batch, or lock funds in a milestone escrow released as work is approved.',
+    tag: 'batch & escrow',
     icon: <HiOutlineArrowsRightLeft size={13} />,
     c: '#2563eb',
   },
@@ -49,7 +49,7 @@ const WORKER_STEPS = [
   },
   {
     t: 'Complete KYC',
-    d: 'A one-time identity check — required before your first payout can be released.',
+    d: 'A one-time identity and sanctions check — required before your first payout can be released.',
     tag: 'KYC',
     icon: <HiOutlineShieldCheck size={13} />,
     c: '#0d9488',
