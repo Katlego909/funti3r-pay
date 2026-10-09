@@ -175,7 +175,9 @@ export default function Support() {
       {/* FAQ */}
       <section>
         <SectionLabel>Frequently asked</SectionLabel>
-        <FAQAccordion items={FAQS} />
+        <div className="section">
+          <FAQAccordion items={FAQS} />
+        </div>
       </section>
 
     </div>

@@ -199,30 +199,16 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
 
   if (success) {
     return (
-      <div style={{
-        padding: '24px',
-        backgroundColor: '#f0fdf4',
-        borderRadius: '12px',
-        border: '1px solid #86efac',
-        textAlign: 'center',
-      }}>
-        <h3 style={{ color: '#166534', marginTop: 0 }}>✓ KYC Submitted</h3>
-        <p style={{ color: '#4b5563' }}>
+      <div>
+        <p style={{ color: 'var(--gray-600)', fontSize: '0.9rem', marginTop: 0 }}>
           Your KYC information has been submitted. Your verification status will
           update shortly.
         </p>
         <button
+          className="btn-primary"
           onClick={() => {
             setSuccess(false);
             setCurrentStep(1);
-          }}
-          style={{
-            padding: '8px 16px',
-            backgroundColor: '#22c55e',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
           }}
         >
           Close
@@ -266,8 +252,8 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
               width: '40px',
               height: '40px',
               borderRadius: '50%',
-              backgroundColor: currentStep >= step.number ? '#3b82f6' : '#e5e7eb',
-              color: currentStep >= step.number ? 'white' : '#6b7280',
+              backgroundColor: currentStep >= step.number ? 'var(--primary)' : 'var(--gray-200)',
+              color: currentStep >= step.number ? 'white' : 'var(--gray-600)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -284,16 +270,7 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
       </div>
 
       {error && (
-        <div style={{
-          padding: '12px',
-          backgroundColor: '#fee2e2',
-          border: '1px solid #fca5a5',
-          borderRadius: '6px',
-          color: '#991b1b',
-          marginBottom: '16px',
-        }}>
-          {error}
-        </div>
+        <div className="error-banner" style={{ margin: '0 0 16px' }}>{error}</div>
       )}
 
       {/* Step 1: Identity */}
@@ -849,53 +826,26 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
         marginTop: '32px',
       }}>
         <button
+          className="btn-secondary"
           onClick={() => setCurrentStep(Math.max(1, currentStep - 1))}
           disabled={currentStep === 1}
-          style={{
-            padding: '12px 24px',
-            backgroundColor: '#e5e7eb',
-            color: '#374151',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: currentStep === 1 ? 'not-allowed' : 'pointer',
-            fontWeight: 600,
-            opacity: currentStep === 1 ? 0.5 : 1,
-          }}
         >
           Previous
         </button>
 
         {currentStep < 4 ? (
           <button
+            className="btn-primary"
             onClick={() => setCurrentStep(currentStep + 1)}
             disabled={!stepValid}
-            style={{
-              padding: '12px 24px',
-              backgroundColor: '#3b82f6',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: stepValid ? 'pointer' : 'not-allowed',
-              fontWeight: 600,
-              opacity: stepValid ? 1 : 0.5,
-            }}
           >
             Next
           </button>
         ) : (
           <button
+            className="btn-primary"
             onClick={handleSubmit}
             disabled={loading || !stepValid}
-            style={{
-              padding: '12px 24px',
-              backgroundColor: '#22c55e',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: loading || !stepValid ? 'not-allowed' : 'pointer',
-              fontWeight: 600,
-              opacity: loading || !stepValid ? 0.7 : 1,
-            }}
           >
             {loading ? 'Submitting...' : 'Submit KYC'}
           </button>
