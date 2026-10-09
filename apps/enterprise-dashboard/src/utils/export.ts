@@ -40,6 +40,7 @@ export function exportPDF(
   headers: string[],
   rows: unknown[][],
   filename: string,
+  columnStyles?: Record<number, { cellWidth?: 'auto' | 'wrap' | number }>,
 ) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
@@ -66,6 +67,7 @@ export function exportPDF(
     styles: { fontSize: 8.5, cellPadding: 5 },
     headStyles: { fillColor: [245, 245, 245], textColor: [30, 30, 30], fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [250, 250, 250] },
+    columnStyles,
     margin: { left: 32, right: 32 },
   });
 
@@ -141,6 +143,9 @@ export interface ExportMilestone {
 
 const MILESTONE_HEADERS = ['Escrow', 'Milestone', 'Amount (XLM)', 'Status', 'Expires', 'Approved', 'Claimed', 'Approve Tx', 'Claim Tx', 'Refund Tx'];
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '');
+const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '');
+/** A 64-character hash does not fit a page column; the PDF shows its ends, the CSV carries the whole thing. */
+const shortHash = (h: string | null) => (h ? `${h.slice(0, 8)}…${h.slice(-8)}` : '');
 const milestoneRow = (m: ExportMilestone) => [
   m.escrowId,
   m.position ? `${m.title} (${m.position})` : m.title,
@@ -158,7 +163,27 @@ export function exportMilestonesCSV(milestones: ExportMilestone[], suffix = '') 
   exportCSV(MILESTONE_HEADERS, milestones.map(milestoneRow), `funti3rpay-escrow-milestones${suffix}-${timestamp()}.csv`);
 }
 export function exportMilestonesPDF(milestones: ExportMilestone[], suffix = '') {
-  exportPDF('Escrow Milestones Report', new Date().toLocaleDateString(), MILESTONE_HEADERS, milestones.map(milestoneRow), `funti3rpay-escrow-milestones${suffix}-${timestamp()}.pdf`);
+  const rows = milestones.map((m) => [
+    shortHash(m.escrowId),
+    m.position ? `${m.title} (${m.position})` : m.title,
+    m.amountXlm.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+    m.status,
+    day(m.expires),
+    day(m.approvedAt),
+    day(m.claimedAt),
+    shortHash(m.approveTxHash),
+    shortHash(m.claimTxHash),
+    shortHash(m.refundTxHash),
+  ]);
+  // Short columns (amounts, status, dates) take their content's width so a date never breaks across lines.
+  exportPDF(
+    'Escrow Milestones Report',
+    new Date().toLocaleDateString(),
+    MILESTONE_HEADERS,
+    rows,
+    `funti3rpay-escrow-milestones${suffix}-${timestamp()}.pdf`,
+    { 2: { cellWidth: 'wrap' }, 3: { cellWidth: 'wrap' }, 4: { cellWidth: 'wrap' }, 5: { cellWidth: 'wrap' }, 6: { cellWidth: 'wrap' } },
+  );
 }
 
 export interface ExportCashout {
@@ -195,7 +220,19 @@ export function exportCashoutsCSV(cashouts: ExportCashout[]) {
   exportCSV(CASHOUT_HEADERS, cashouts.map(cashoutRow), `funti3rpay-cashouts-${timestamp()}.csv`);
 }
 export function exportCashoutsPDF(cashouts: ExportCashout[]) {
-  exportPDF('Cash-out Report', new Date().toLocaleDateString(), CASHOUT_HEADERS, cashouts.map(cashoutRow), `funti3rpay-cashouts-${timestamp()}.pdf`);
+  const rows = cashouts.map((c) => {
+    const row = cashoutRow(c);
+    row[8] = shortHash(c.settlementHash);
+    return row;
+  });
+  exportPDF(
+    'Cash-out Report',
+    new Date().toLocaleDateString(),
+    CASHOUT_HEADERS,
+    rows,
+    `funti3rpay-cashouts-${timestamp()}.pdf`,
+    { 1: { cellWidth: 'wrap' }, 3: { cellWidth: 'wrap' }, 5: { cellWidth: 'wrap' }, 7: { cellWidth: 'wrap' } },
+  );
 }
 
 // ── Workers helpers ───────────────────────────────────────────────────────────
