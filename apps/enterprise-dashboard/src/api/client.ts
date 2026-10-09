@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { useAuthStore } from '../store/authStore.js';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -35,7 +36,14 @@ api.interceptors.response.use(
         .finally(() => { refreshing = null; });
     }
 
-    const token = await refreshing;
+    let token: string;
+    try {
+      token = await refreshing;
+    } catch {
+      // The session can't be renewed: drop it so ProtectedRoute sends the user to /login.
+      useAuthStore.getState().clearSession();
+      throw err;
+    }
     original.headers.Authorization = `Bearer ${token}`;
     return api(original);
   },
