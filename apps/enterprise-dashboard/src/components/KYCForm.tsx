@@ -1,63 +1,7 @@
 import { useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { api } from '../api/client.js';
-
-const COUNTRY_MAP: Record<string, string> = {
-  'US': 'United States', 'GB': 'United Kingdom', 'CA': 'Canada', 'AU': 'Australia', 'NZ': 'New Zealand',
-  'IE': 'Ireland', 'DE': 'Germany', 'FR': 'France', 'IT': 'Italy', 'ES': 'Spain', 'NL': 'Netherlands',
-  'BE': 'Belgium', 'CH': 'Switzerland', 'AT': 'Austria', 'SE': 'Sweden', 'NO': 'Norway', 'DK': 'Denmark',
-  'FI': 'Finland', 'PL': 'Poland', 'CZ': 'Czech Republic', 'HU': 'Hungary', 'RO': 'Romania', 'GR': 'Greece',
-  'PT': 'Portugal', 'SK': 'Slovakia', 'SI': 'Slovenia', 'HR': 'Croatia', 'BG': 'Bulgaria', 'LT': 'Lithuania',
-  'LV': 'Latvia', 'EE': 'Estonia', 'MT': 'Malta', 'CY': 'Cyprus', 'LU': 'Luxembourg', 'JP': 'Japan',
-  'CN': 'China', 'IN': 'India', 'BR': 'Brazil', 'MX': 'Mexico', 'ZA': 'South Africa', 'NG': 'Nigeria',
-  'KE': 'Kenya', 'UG': 'Uganda', 'EG': 'Egypt', 'GH': 'Ghana', 'SG': 'Singapore', 'MY': 'Malaysia',
-  'TH': 'Thailand', 'VN': 'Vietnam', 'PH': 'Philippines', 'ID': 'Indonesia', 'KR': 'South Korea',
-  'HK': 'Hong Kong', 'TW': 'Taiwan', 'AR': 'Argentina', 'CL': 'Chile', 'CO': 'Colombia', 'PE': 'Peru',
-  'RU': 'Russia', 'AE': 'United Arab Emirates', 'SA': 'Saudi Arabia', 'IL': 'Israel', 'TR': 'Turkey',
-  'PK': 'Pakistan', 'BD': 'Bangladesh', 'LK': 'Sri Lanka', 'TZ': 'Tanzania', 'UZ': 'Uzbekistan',
-  'AZ': 'Azerbaijan', 'UA': 'Ukraine', 'BY': 'Belarus', 'KZ': 'Kazakhstan', 'GE': 'Georgia', 'AM': 'Armenia',
-  'CU': 'Cuba', 'DZ': 'Algeria', 'MA': 'Morocco', 'TN': 'Tunisia', 'MW': 'Malawi', 'ZM': 'Zambia',
-  'ZW': 'Zimbabwe', 'BW': 'Botswana', 'NA': 'Namibia', 'LS': 'Lesotho', 'SZ': 'Eswatini', 'MZ': 'Mozambique',
-  'CD': 'Democratic Republic of Congo', 'AO': 'Angola', 'CM': 'Cameroon', 'CI': 'Côte d\'Ivoire', 'SN': 'Senegal',
-  'BJ': 'Benin', 'TG': 'Togo', 'BF': 'Burkina Faso', 'ML': 'Mali', 'NE': 'Niger', 'TD': 'Chad', 'GA': 'Gabon',
-  'CG': 'Republic of Congo', 'ST': 'São Tomé and Príncipe', 'SC': 'Seychelles', 'MU': 'Mauritius',
-  'TT': 'Trinidad and Tobago', 'JM': 'Jamaica', 'BS': 'Bahamas', 'BZ': 'Belize', 'AG': 'Antigua and Barbuda',
-  'LC': 'Saint Lucia', 'VC': 'Saint Vincent and the Grenadines', 'DM': 'Dominica', 'BB': 'Barbados', 'GD': 'Grenada',
-  'BN': 'Brunei', 'MM': 'Myanmar', 'KH': 'Cambodia', 'LA': 'Laos', 'PS': 'Palestine', 'JO': 'Jordan', 'LB': 'Lebanon',
-  'SY': 'Syria', 'IQ': 'Iraq', 'IR': 'Iran', 'AF': 'Afghanistan', 'NP': 'Nepal', 'BT': 'Bhutan', 'MN': 'Mongolia',
-  'PR': 'Puerto Rico', 'VI': 'US Virgin Islands', 'GU': 'Guam',
-  'BI': 'Burundi', 'CV': 'Cabo Verde', 'CF': 'Central African Republic', 'KM': 'Comoros', 'DJ': 'Djibouti',
-  'GQ': 'Equatorial Guinea', 'ER': 'Eritrea', 'ET': 'Ethiopia', 'GM': 'Gambia', 'GN': 'Guinea',
-  'GW': 'Guinea-Bissau', 'LR': 'Liberia', 'LY': 'Libya', 'MG': 'Madagascar', 'MR': 'Mauritania', 'RW': 'Rwanda',
-  'SL': 'Sierra Leone', 'SO': 'Somalia', 'SS': 'South Sudan', 'SD': 'Sudan',
-};
-
-// This is an African payments product: African countries lead every country list, the rest follow.
-const AFRICAN_COUNTRIES = new Set([
-  'DZ', 'AO', 'BJ', 'BW', 'BF', 'BI', 'CV', 'CM', 'CF', 'TD', 'KM', 'CG', 'CD', 'CI', 'DJ', 'EG', 'GQ', 'ER', 'SZ',
-  'ET', 'GA', 'GM', 'GH', 'GN', 'GW', 'KE', 'LS', 'LR', 'LY', 'MG', 'MW', 'ML', 'MR', 'MU', 'MA', 'MZ', 'NA', 'NE',
-  'NG', 'RW', 'ST', 'SN', 'SC', 'SL', 'SO', 'ZA', 'SS', 'SD', 'TZ', 'TG', 'TN', 'UG', 'ZM', 'ZW',
-]);
-
-const byName = (a: string, b: string) => COUNTRY_MAP[a].localeCompare(COUNTRY_MAP[b]);
-const ALL_CODES = Object.keys(COUNTRY_MAP);
-const AFRICA_OPTIONS = ALL_CODES.filter((c) => AFRICAN_COUNTRIES.has(c)).sort(byName);
-const OTHER_OPTIONS = ALL_CODES.filter((c) => !AFRICAN_COUNTRIES.has(c)).sort(byName);
-
-/** The <option>s of a country select: Africa first, then everywhere else. Values are ISO codes. */
-function CountryOptions({ placeholder }: { placeholder: string }) {
-  return (
-    <>
-      <option value="">{placeholder}</option>
-      <optgroup label="Africa">
-        {AFRICA_OPTIONS.map((code) => <option key={code} value={code}>{COUNTRY_MAP[code]}</option>)}
-      </optgroup>
-      <optgroup label="Rest of the world">
-        {OTHER_OPTIONS.map((code) => <option key={code} value={code}>{COUNTRY_MAP[code]}</option>)}
-      </optgroup>
-    </>
-  );
-}
+import { CountrySelect } from './CountrySelect.js';
 
 interface KYCFormData {
   identity: {
@@ -371,41 +315,21 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
               <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
                 Nationality *
               </label>
-              <select
-                value={formData.identity.nationality}
-                onChange={(e) =>
-                  handleChange('identity', 'nationality', e.target.value)
-                }
-                style={{
-                  width: '100%',
-                  padding: '8px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '6px',
-                  boxSizing: 'border-box',
-                }}
-              >
-                <CountryOptions placeholder="Select Nationality" />
-              </select>
+              <CountrySelect
+              value={formData.identity.nationality}
+              onChange={(code) => handleChange('identity', 'nationality', code)}
+              placeholder="Select Nationality"
+            />
             </div>
             <div>
               <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
                 Country of Residence *
               </label>
-              <select
-                value={formData.identity.countryOfResidence}
-                onChange={(e) =>
-                  handleChange('identity', 'countryOfResidence', e.target.value)
-                }
-                style={{
-                  width: '100%',
-                  padding: '8px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '6px',
-                  boxSizing: 'border-box',
-                }}
-              >
-                <CountryOptions placeholder="Select Country" />
-              </select>
+              <CountrySelect
+              value={formData.identity.countryOfResidence}
+              onChange={(code) => handleChange('identity', 'countryOfResidence', code)}
+              placeholder="Select Country"
+            />
             </div>
           </div>
         </div>
@@ -508,21 +432,11 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
             <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
               Issuing Country *
             </label>
-            <select
+            <CountrySelect
               value={formData.governmentId.country}
-              onChange={(e) =>
-                handleChange('governmentId', 'country', e.target.value)
-              }
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid #d1d5db',
-                borderRadius: '6px',
-                boxSizing: 'border-box',
-              }}
-            >
-              <CountryOptions placeholder="Select Country" />
-            </select>
+              onChange={(code) => handleChange('governmentId', 'country', code)}
+              placeholder="Select Country"
+            />
           </div>
         </div>
       )}
@@ -617,21 +531,11 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
               <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
                 Country *
               </label>
-              <select
-                value={formData.address.country}
-                onChange={(e) =>
-                  handleChange('address', 'country', e.target.value)
-                }
-                style={{
-                  width: '100%',
-                  padding: '8px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '6px',
-                  boxSizing: 'border-box',
-                }}
-              >
-                <CountryOptions placeholder="Select Country" />
-              </select>
+              <CountrySelect
+              value={formData.address.country}
+              onChange={(code) => handleChange('address', 'country', code)}
+              placeholder="Select Country"
+            />
             </div>
           </div>
         </div>
@@ -667,21 +571,11 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
             <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>
               Tax Residency Country *
             </label>
-            <select
+            <CountrySelect
               value={formData.taxInfo.taxResidencyCountry}
-              onChange={(e) =>
-                handleChange('taxInfo', 'taxResidencyCountry', e.target.value)
-              }
-              style={{
-                width: '100%',
-                padding: '8px',
-                border: '1px solid #d1d5db',
-                borderRadius: '6px',
-                boxSizing: 'border-box',
-              }}
-            >
-              <CountryOptions placeholder="Select Country" />
-            </select>
+              onChange={(code) => handleChange('taxInfo', 'taxResidencyCountry', code)}
+              placeholder="Select Country"
+            />
           </div>
 
           <hr style={{ margin: '16px 0' }} />
