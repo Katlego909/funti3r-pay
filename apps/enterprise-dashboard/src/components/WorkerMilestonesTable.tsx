@@ -65,7 +65,7 @@ export default function WorkerMilestonesTable({
 
   return (
     <section className="section">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
         <h3 style={{ margin: 0 }}>Escrow Milestones</h3>
         {rows.length > 0 && (
           <ExportButtons
@@ -74,7 +74,7 @@ export default function WorkerMilestonesTable({
           />
         )}
       </div>
-      <p style={{ fontSize: '0.82rem', color: 'var(--gray-600)', marginTop: '-6px', marginBottom: 0 }}>
+      <p style={{ fontSize: '0.82rem', color: 'var(--gray-600)', marginBottom: 0 }}>
         Your employer locked these funds in an on-chain escrow. Approved milestones are yours to claim, and claimed
         money lands in your wallet. Select a row to see its transactions.
       </p>

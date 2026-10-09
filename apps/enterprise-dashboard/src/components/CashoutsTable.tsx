@@ -27,11 +27,11 @@ export default function CashoutsTable({ cashouts }: { cashouts: WalletCashout[] 
 
   return (
     <section className="section">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
         <h3 style={{ margin: 0 }}>Cash-outs</h3>
         <ExportButtons onCSV={() => exportCashoutsCSV(cashouts)} onPDF={() => exportCashoutsPDF(cashouts)} />
       </div>
-      <p style={{ fontSize: '0.82rem', color: 'var(--gray-600)', marginTop: '-6px', marginBottom: 16 }}>
+      <p style={{ fontSize: '0.82rem', color: 'var(--gray-600)', marginBottom: 16 }}>
         Select a cash-out to see how the amount was worked out.
       </p>
       {cashouts.some((c) => c.sandbox) && (
