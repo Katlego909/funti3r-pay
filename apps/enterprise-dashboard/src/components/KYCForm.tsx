@@ -26,9 +26,38 @@ const COUNTRY_MAP: Record<string, string> = {
   'BN': 'Brunei', 'MM': 'Myanmar', 'KH': 'Cambodia', 'LA': 'Laos', 'PS': 'Palestine', 'JO': 'Jordan', 'LB': 'Lebanon',
   'SY': 'Syria', 'IQ': 'Iraq', 'IR': 'Iran', 'AF': 'Afghanistan', 'NP': 'Nepal', 'BT': 'Bhutan', 'MN': 'Mongolia',
   'PR': 'Puerto Rico', 'VI': 'US Virgin Islands', 'GU': 'Guam',
+  'BI': 'Burundi', 'CV': 'Cabo Verde', 'CF': 'Central African Republic', 'KM': 'Comoros', 'DJ': 'Djibouti',
+  'GQ': 'Equatorial Guinea', 'ER': 'Eritrea', 'ET': 'Ethiopia', 'GM': 'Gambia', 'GN': 'Guinea',
+  'GW': 'Guinea-Bissau', 'LR': 'Liberia', 'LY': 'Libya', 'MG': 'Madagascar', 'MR': 'Mauritania', 'RW': 'Rwanda',
+  'SL': 'Sierra Leone', 'SO': 'Somalia', 'SS': 'South Sudan', 'SD': 'Sudan',
 };
 
-const COUNTRIES = Object.keys(COUNTRY_MAP).sort();
+// This is an African payments product: African countries lead every country list, the rest follow.
+const AFRICAN_COUNTRIES = new Set([
+  'DZ', 'AO', 'BJ', 'BW', 'BF', 'BI', 'CV', 'CM', 'CF', 'TD', 'KM', 'CG', 'CD', 'CI', 'DJ', 'EG', 'GQ', 'ER', 'SZ',
+  'ET', 'GA', 'GM', 'GH', 'GN', 'GW', 'KE', 'LS', 'LR', 'LY', 'MG', 'MW', 'ML', 'MR', 'MU', 'MA', 'MZ', 'NA', 'NE',
+  'NG', 'RW', 'ST', 'SN', 'SC', 'SL', 'SO', 'ZA', 'SS', 'SD', 'TZ', 'TG', 'TN', 'UG', 'ZM', 'ZW',
+]);
+
+const byName = (a: string, b: string) => COUNTRY_MAP[a].localeCompare(COUNTRY_MAP[b]);
+const ALL_CODES = Object.keys(COUNTRY_MAP);
+const AFRICA_OPTIONS = ALL_CODES.filter((c) => AFRICAN_COUNTRIES.has(c)).sort(byName);
+const OTHER_OPTIONS = ALL_CODES.filter((c) => !AFRICAN_COUNTRIES.has(c)).sort(byName);
+
+/** The <option>s of a country select: Africa first, then everywhere else. Values are ISO codes. */
+function CountryOptions({ placeholder }: { placeholder: string }) {
+  return (
+    <>
+      <option value="">{placeholder}</option>
+      <optgroup label="Africa">
+        {AFRICA_OPTIONS.map((code) => <option key={code} value={code}>{COUNTRY_MAP[code]}</option>)}
+      </optgroup>
+      <optgroup label="Rest of the world">
+        {OTHER_OPTIONS.map((code) => <option key={code} value={code}>{COUNTRY_MAP[code]}</option>)}
+      </optgroup>
+    </>
+  );
+}
 
 interface KYCFormData {
   identity: {
@@ -122,26 +151,26 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
       fullName: '',
       legalName: '',
       dateOfBirth: '',
-      nationality: 'US',
-      countryOfResidence: 'US',
+      nationality: '',
+      countryOfResidence: '',
     },
     governmentId: {
       idType: 'passport',
       idNumber: '',
       issueDate: '',
       expiryDate: '',
-      country: 'US',
+      country: '',
     },
     address: {
       streetAddress: '',
       city: '',
       stateProvince: '',
       postalCode: '',
-      country: 'US',
+      country: '',
     },
     taxInfo: {
       taxId: '',
-      taxResidencyCountry: 'US',
+      taxResidencyCountry: '',
     },
     bankAccount: {
       bankName: '',
@@ -355,12 +384,7 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
                   boxSizing: 'border-box',
                 }}
               >
-                <option value="">Select Nationality</option>
-                {COUNTRIES.map((code) => (
-                  <option key={code} value={code}>
-                    {COUNTRY_MAP[code]}
-                  </option>
-                ))}
+                <CountryOptions placeholder="Select Nationality" />
               </select>
             </div>
             <div>
@@ -380,12 +404,7 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
                   boxSizing: 'border-box',
                 }}
               >
-                <option value="">Select Country</option>
-                {COUNTRIES.map((code) => (
-                  <option key={code} value={code}>
-                    {COUNTRY_MAP[code]}
-                  </option>
-                ))}
+                <CountryOptions placeholder="Select Country" />
               </select>
             </div>
           </div>
@@ -502,12 +521,7 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
                 boxSizing: 'border-box',
               }}
             >
-              <option value="">Select Country</option>
-              {COUNTRIES.map((country) => (
-                <option key={country} value={country}>
-                  {country}
-                </option>
-              ))}
+              <CountryOptions placeholder="Select Country" />
             </select>
           </div>
         </div>
@@ -616,12 +630,7 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
                   boxSizing: 'border-box',
                 }}
               >
-                <option value="">Select Country</option>
-                {COUNTRIES.map((code) => (
-                  <option key={code} value={code}>
-                    {COUNTRY_MAP[code]}
-                  </option>
-                ))}
+                <CountryOptions placeholder="Select Country" />
               </select>
             </div>
           </div>
@@ -671,12 +680,7 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
                 boxSizing: 'border-box',
               }}
             >
-              <option value="">Select Country</option>
-              {COUNTRIES.map((country) => (
-                <option key={country} value={country}>
-                  {country}
-                </option>
-              ))}
+              <CountryOptions placeholder="Select Country" />
             </select>
           </div>
 
@@ -806,13 +810,14 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
                 boxSizing: 'border-box',
               }}
             >
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
               <option value="ZAR">ZAR (South Africa)</option>
               <option value="NGN">NGN (Nigeria)</option>
               <option value="KES">KES (Kenya)</option>
+              <option value="GHS">GHS (Ghana)</option>
               <option value="UGX">UGX (Uganda)</option>
+              <option value="USD">USD</option>
+              <option value="EUR">EUR</option>
+              <option value="GBP">GBP</option>
             </select>
           </div>
         </div>
