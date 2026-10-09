@@ -39,9 +39,8 @@ jobs:
       DATABASE_URL: postgresql://funti3r_dev:ci_password@localhost:5432/funti3r_dev
     steps:
       - uses: actions/checkout@v4
+      # The version comes from package.json's packageManager field; naming one here as well makes the action refuse to run.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 22
