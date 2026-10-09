@@ -320,6 +320,64 @@ fn frozen_escrow_blocks_every_movement() {
 }
 
 #[test]
+fn return_frozen_sends_unclaimed_tranches_back() {
+    let s = setup();
+    let id = create_default(&s);
+    s.client.approve(&id, &0);
+    s.client.set_frozen(&id, &true);
+
+    let returned = s.client.return_frozen(&id);
+    assert_eq!(returned, 300);
+    assert_eq!(s.token.balance(&s.enterprise), 1_000);
+    assert_eq!(s.token.balance(&s.client.address), 0);
+    assert_eq!(s.client.get_escrow(&id).status, EscrowStatus::Refunded);
+}
+
+#[test]
+fn return_frozen_keeps_what_the_worker_already_claimed() {
+    let s = setup();
+    let id = create_default(&s);
+    s.client.approve(&id, &0);
+    s.client.claim(&id, &0);
+    s.client.set_frozen(&id, &true);
+
+    assert_eq!(s.client.return_frozen(&id), 200);
+    assert_eq!(s.token.balance(&s.worker), 100);
+    assert_eq!(s.client.get_escrow(&id).status, EscrowStatus::Completed);
+}
+
+#[test]
+fn return_frozen_requires_a_freeze() {
+    let s = setup();
+    let id = create_default(&s);
+    assert_eq!(s.client.try_return_frozen(&id), Err(Ok(Error::NotFrozen)));
+    assert_eq!(s.token.balance(&s.client.address), 300);
+}
+
+#[test]
+fn return_frozen_cannot_run_twice() {
+    let s = setup();
+    let id = create_default(&s);
+    s.client.set_frozen(&id, &true);
+    s.client.return_frozen(&id);
+    assert_eq!(
+        s.client.try_return_frozen(&id),
+        Err(Ok(Error::EscrowNotActive))
+    );
+}
+
+#[test]
+fn return_frozen_requires_compliance_auth() {
+    let s = setup();
+    let id = create_default(&s);
+    s.client.set_frozen(&id, &true);
+
+    s.env.set_auths(&[]);
+    assert!(s.client.try_return_frozen(&id).is_err());
+    assert_eq!(s.token.balance(&s.client.address), 300);
+}
+
+#[test]
 fn freeze_unknown_escrow_rejected() {
     let s = setup();
     assert_eq!(

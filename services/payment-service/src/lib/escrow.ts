@@ -201,6 +201,14 @@ export async function setFrozen(escrowId: bigint, frozen: boolean): Promise<stri
   return hash;
 }
 
+/** Compliance resolves a frozen escrow: every unclaimed tranche returns to the enterprise. */
+export async function returnFrozen(escrowId: bigint): Promise<{ returnedStroops: bigint; hash: string }> {
+  const { hash, returnValue } = await invoke(complianceSecret(), 'return_frozen', [
+    nativeToScVal(escrowId, { type: 'u64' }),
+  ]);
+  return { returnedStroops: returnValue as bigint, hash };
+}
+
 /** Read-only: does the worker hold a live on-chain clearance? */
 export async function isCleared(workerPublic: string): Promise<boolean> {
   const sourcePublic = complianceAuthorityPublic();

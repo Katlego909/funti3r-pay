@@ -304,6 +304,38 @@ describe('POST /escrows/:id/freeze', () => {
   });
 });
 
+describe('POST /escrows/:id/return-frozen', () => {
+  const adminHeaders = { 'x-user-id': ADMIN_ID, 'x-user-role': 'admin' };
+  const frozenRow = (over: Record<string, unknown> = {}) => ({
+    match: /SELECT onchain_escrow_id, status, frozen FROM escrows/,
+    handler: () => ({ rows: [{ onchain_escrow_id: '3', status: 'active', frozen: true, ...over }] }),
+  });
+
+  it('403s anyone who is not a platform admin', async () => {
+    const res = await request(app).post(`/escrows/${ESCROW_ID}/return-frozen`).set(enterpriseHeaders).send({});
+    expect(res.status).toBe(403);
+    expect(escrow.returnFrozen).not.toHaveBeenCalled();
+  });
+
+  it('409s an escrow that is not frozen, without touching the chain', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([frozenRow({ frozen: false })]));
+    const res = await request(app).post(`/escrows/${ESCROW_ID}/return-frozen`).set(adminHeaders).send({});
+    expect(res.status).toBe(409);
+    expect(escrow.returnFrozen).not.toHaveBeenCalled();
+  });
+
+  it('returns the unclaimed tranches on-chain and marks them refunded in the books', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([frozenRow()]));
+    vi.mocked(escrow.returnFrozen).mockResolvedValue({ returnedStroops: 3_000_000_000n, hash: 'tx-return' });
+
+    const res = await request(app).post(`/escrows/${ESCROW_ID}/return-frozen`).set(adminHeaders).send({});
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ returnedXlm: 300, txHash: 'tx-return' });
+    expect(escrow.returnFrozen).toHaveBeenCalledWith(3n);
+    expect(vi.mocked(query).mock.calls.some(([sql]) => /SET status = 'refunded'/.test(String(sql)))).toBe(true);
+  });
+});
+
 // ── refund ────────────────────────────────────────────────────────────────────
 
 describe('POST /escrows/:id/refund', () => {

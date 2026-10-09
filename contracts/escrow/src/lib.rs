@@ -95,6 +95,7 @@ pub enum Error {
     NotCleared = 11,
     EscrowFrozen = 12,
     InvalidClearance = 13,
+    NotFrozen = 14,
 }
 
 // ── Events ───────────────────────────────────────────────────────────────────
@@ -125,6 +126,13 @@ pub struct Claimed {
 
 #[contractevent]
 pub struct Refunded {
+    #[topic]
+    pub id: u64,
+    pub total: i128,
+}
+
+#[contractevent]
+pub struct ReturnedToEnterprise {
     #[topic]
     pub id: u64,
     pub total: i128,
@@ -313,6 +321,49 @@ impl EscrowContract {
         save(&env, id, &escrow);
         FreezeChanged { id, frozen }.publish(&env);
         Ok(())
+    }
+
+    /// Resolves a frozen escrow whose hold was upheld (e.g. a confirmed
+    /// sanctions hit): every tranche the worker has not yet claimed, pending
+    /// or approved, goes back to the enterprise. Only the compliance authority
+    /// can do this, and only while the escrow is frozen, so a worker's
+    /// earned tranche is never taken without an explicit compliance freeze.
+    pub fn return_frozen(env: Env, id: u64) -> Result<i128, Error> {
+        compliance_authority(&env).require_auth();
+        let mut escrow = load(&env, id)?;
+
+        if escrow.status != EscrowStatus::Active {
+            return Err(Error::EscrowNotActive);
+        }
+        if !escrow.frozen {
+            return Err(Error::NotFrozen);
+        }
+
+        let mut total: i128 = 0;
+        for idx in 0..escrow.milestones.len() {
+            match escrow.milestones.get(idx) {
+                Some(MilestoneStatus::Pending) | Some(MilestoneStatus::Approved) => {
+                    total += escrow.amounts.get(idx).ok_or(Error::MilestoneOutOfBounds)?;
+                    escrow.milestones.set(idx, MilestoneStatus::Refunded);
+                }
+                _ => {}
+            }
+        }
+        if total == 0 {
+            return Err(Error::NothingToRefund);
+        }
+
+        finalize_status(&mut escrow);
+        save(&env, id, &escrow);
+
+        token::Client::new(&env, &escrow.token).transfer(
+            &env.current_contract_address(),
+            &escrow.enterprise,
+            &total,
+        );
+
+        ReturnedToEnterprise { id, total }.publish(&env);
+        Ok(total)
     }
 
     pub fn is_cleared(env: Env, worker: Address) -> bool {

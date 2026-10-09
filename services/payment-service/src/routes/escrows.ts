@@ -545,6 +545,40 @@ router.post('/:id/freeze', async (req: Request, res: Response) => {
   }
 });
 
+// ── POST /escrows/:id/return-frozen (compliance admin) ────────────────────────
+// Resolves an upheld hold: only a frozen escrow can be resolved, and every tranche the
+// worker has not yet claimed goes back to the enterprise. Admin-only, like /freeze.
+
+router.post('/:id/return-frozen', async (req: Request, res: Response) => {
+  if (req.headers['x-user-role'] !== 'admin') {
+    return res.status(403).json({ error: 'Admin role required' });
+  }
+  const { id } = req.params;
+
+  try {
+    const r = await query(`SELECT onchain_escrow_id, status, frozen FROM escrows WHERE id = $1`, [id]);
+    const row = r.rows[0];
+    if (!row) return res.status(404).json({ error: 'Escrow not found' });
+    if (row.status !== 'active') return res.status(409).json({ error: 'Escrow is no longer active' });
+    if (!row.frozen) return res.status(409).json({ error: 'Freeze the escrow first — only a frozen escrow can be resolved' });
+
+    const { returnedStroops, hash } = await escrow.returnFrozen(BigInt(row.onchain_escrow_id));
+    await query(
+      `UPDATE escrow_milestones SET status = 'refunded', refund_tx_hash = $2
+        WHERE escrow_id = $1 AND status IN ('pending','approved')`,
+      [id, hash],
+    );
+    await finalizeEscrowStatus(id);
+
+    logger.warn('Frozen escrow returned to the enterprise', { id, hash, by: req.headers['x-user-id'] });
+    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'admin', action: 'escrow.returned_frozen', entityType: 'escrow', entityId: id, detail: { returnedXlm: Number(returnedStroops) / 1e7, txHash: hash } });
+    res.json({ returnedXlm: Number(returnedStroops) / 1e7, txHash: hash });
+  } catch (err) {
+    logger.error('Failed to return frozen escrow', { id, error: String(err) });
+    sendChainError(res, err, 'Failed to return the frozen escrow on-chain');
+  }
+});
+
 // ── POST /escrows/reconcile (admin) ───────────────────────────────────────────
 // Compare every active escrow with the chain and repair the database to match.
 // { "repair": false } is a dry run that only reports the drift.
