@@ -88,10 +88,10 @@ On mainnet, point the registry at real anchors (e.g. Cowrie for NGN) — no code
 
 ```
 services/          - 5 microservices
-apps/             - Unified web dashboard (React) + Worker mobile app (React Native)
+apps/             - The web app (React): one dashboard for both employers and workers
 packages/         - Shared types, utilities, database clients
 contracts/        - Soroban smart contracts (Rust)
-infrastructure/   - Docker, Terraform configurations
+infrastructure/   - Gateway Dockerfile and a Terraform (AWS) starting point
 docs/             - Product requirements and briefs
 ```
 
@@ -102,8 +102,7 @@ docs/             - Product requirements and briefs
 - **Compliance-by-Design** - KYC, real OFAC sanctions screening, and an on-chain compliance gate
 - **Milestone Escrow** - Funds locked in a Soroban contract and released per approved milestone
 - **Local-currency payouts** - African currencies and USD, with MoneyGram cash-out
-- **Worker Mobile App** - Payment tracking and method selection
-- **Enterprise Dashboard** - Payment management and analytics
+- **Web platform** - One responsive web app for employers and workers: payments, escrows, wallet, KYC and analytics
 
 ## What It Does
 
@@ -193,8 +192,7 @@ currency each worker actually wants:
 - **Analytics Service** - Metrics & reporting
 
 **Frontend:**
-- **Enterprise Dashboard** (React + Vite)
-- **Worker Mobile App** (React Native)
+- **Web app** (React + Vite): a single app for both roles, with role-based routing after sign-in
 
 **Data:**
 - PostgreSQL - Transactional data & analytics
@@ -213,7 +211,7 @@ currency each worker actually wants:
 - TypeScript strict mode
 - ESLint for linting
 - Prettier for formatting
-- Jest/Vitest for testing
+- Vitest and the Node test runner for testing; `cargo test` for the contract
 
 ### Before Committing
 ```bash
@@ -239,15 +237,31 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## Technology Stack
 
-- **Runtime**: Node.js 18+ with TypeScript
-- **Backend**: Node.js + TypeScript + Express
-- **Frontend**: React + TypeScript (Enterprise Dashboard)
-- **Mobile**: React Native + TypeScript (Worker App)
-- **Databases**: PostgreSQL 16, Redis 7
-- **Blockchain**: Rust + Soroban (Smart Contracts)
-- **Infrastructure**: AWS + Docker + Kubernetes
-- **CI/CD**: GitHub Actions
-- **Package Manager**: pnpm with Turborepo
+**Web app**
+- React 18 + TypeScript, built with Vite 5
+- React Router, Zustand (state), Recharts (charts), Sonner (notifications), jsPDF (PDF exports)
+- WebAuthn passkeys in the browser (`@simplewebauthn/browser`)
+- Stellar JS SDK 16
+
+**Backend** (microservices behind an API gateway)
+- Node.js 20 (18+ supported) + TypeScript (strict, ESM), Express 4, run with `tsx`
+- zod request validation, helmet, express-rate-limit with a Redis store
+- Passkey authentication (`@simplewebauthn/server`), short-lived JWT access tokens
+- PostgreSQL 16 (`pg`) with SQL migrations applied at service start, Redis 7
+- Stellar JS SDK 16 (Horizon and Soroban RPC), MoneyGram Ramps (sandbox) for cash-out
+
+**Smart contracts**
+- Rust + Soroban SDK 29, built with the Stellar CLI to `wasm32v1-none`
+
+**Infrastructure & operations**
+- Docker Compose (read-only, non-root containers), Caddy 2 reverse proxy with automatic HTTPS
+- Prometheus metrics (`prom-client`), structured JSON logs
+- Terraform (AWS) as a deployment starting point
+- GitHub Actions CI: type-check, lint, build, tests, dependency audit, secret scanning, contract build
+
+**Tooling**
+- pnpm 9 workspaces with Turborepo 2
+- ESLint, Prettier, Vitest, Node test runner, `cargo test`
 
 ## Current Phase
 
