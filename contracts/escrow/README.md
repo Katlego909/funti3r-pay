@@ -91,5 +91,5 @@ node --env-file=../../.env.local --import tsx scripts/escrow-e2e.ts   # full gat
 ## Testnet deployment
 
 - Contract: `CBMFR6XLDVHLR3DHQJOKOA6VC356K33KZEWREVDGYC7KFGAIQCGP2ARC`
-- Wasm sha256: `bb2c611ea053ef5636b5742d8670e6eb283dd7197a32cd234bb48caafa79c219` (14,993 bytes)
+- Wasm sha256: `091872ea559f743bc0b3b21001f68527c76db946e9d2ccddd24822b895f985d5` (14,948 bytes, the CI-built file attached to the release)
 - Explorer: https://stellar.expert/explorer/testnet/contract/CBMFR6XLDVHLR3DHQJOKOA6VC356K33KZEWREVDGYC7KFGAIQCGP2ARC

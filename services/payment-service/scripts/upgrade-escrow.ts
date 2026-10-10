@@ -22,7 +22,9 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
-const WASM_PATH = join(
+// ESCROW_WASM_PATH upgrades to a specific file, e.g. the wasm attached to a GitHub release, so the code on chain is
+// exactly what the release publishes. Without it the locally built wasm is used.
+const WASM_PATH = process.env.ESCROW_WASM_PATH ?? join(
   dirname(fileURLToPath(import.meta.url)),
   '../../../contracts/target/wasm32v1-none/release/funti3r_escrow.wasm',
 );

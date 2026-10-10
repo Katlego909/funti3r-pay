@@ -1,58 +1,58 @@
 {
-  "generatedAt": "2026-10-09T06:39:56.421Z",
+  "generatedAt": "2026-10-10T10:22:05.628Z",
   "network": "testnet",
   "contract": "CBMFR6XLDVHLR3DHQJOKOA6VC356K33KZEWREVDGYC7KFGAIQCGP2ARC",
-  "enterprise": "GCCH7G3VV4QRFBMPFLVHLW73WJWDFSXDYJNFX4H5S2PYRGLP6PAAJ5XR",
-  "worker": "GABG4AZAUICDPVKW3WOLJJDBM4I3D5MWYGK3CQHJ7FXWWSQ5MGEQIA6D",
+  "enterprise": "GD7AL6YNGZC64COYJQQO2UTAS3EIP7AWMCV3HYM6MH5TEZ5IJ32G7ONB",
+  "worker": "GCWQLMMMFUJL27SLOIPQAO3GV66P4SUT5LMLD5B4EZXLIU4NW4TNVGVL",
   "compliance": "GDXBMYYI3MLI2T5J6VUH7EPNO5SAFUPXOVLJB7FQM7STRWYGJSERJWEX",
   "steps": [
     {
       "label": "Compliance clears the worker (screening hash on-chain)",
-      "hash": "9d81cab30c1803a0566823dd92ad087a5f27fc21790f31f49ce3bac26db1bf99"
+      "hash": "8f86bd63c76bad5464029d1468942117e8daf20f689c53109fd85bafb989f3ea"
     },
     {
       "label": "Enterprise funds the escrow",
-      "hash": "6011af7633b84058e977acdde6397eee1877f62afc6aa5c1212e8be18ac423fe"
+      "hash": "79cac99de8bbc16341e9bc991dcc8c20f6e06c31044367f0a29280794d1ffc42"
     },
     {
       "label": "Enterprise approves milestone 1",
-      "hash": "b55ef4e56238484f818c4223d04734b30e6f3c526e44f67943bd8b1dc67b119b"
+      "hash": "7c0bfcbfae39bab34673831b5d49545a5743f9647f8e25531143997f4ebaf069"
     },
     {
       "label": "Compliance revokes the worker (simulated sanctions hit)",
-      "hash": "3aab9e06472282d635b8277caefb80225ac8edb7de0317ac42d17398e5048018"
+      "hash": "09b5d09c6b35d6ef37c63893aa19fdd929c25441ad4a23565c39db01a871c3ff"
     },
     {
       "label": "Compliance re-clears the worker",
-      "hash": "a976b8f49e6dbc81bd3c67242297ffc0869db4a55047e74c27165b703a3a0316"
+      "hash": "9ceb2a3746965bf86d7550e8f8f10e9fab96d46b961b7d7a69d091ad3902967a"
     },
     {
       "label": "Compliance freezes the escrow",
-      "hash": "8e8c71851ad4fa0cb3a24eb46b4824c0a36df8a0f39b4c286c3f887a9fd83de9"
+      "hash": "fb0c093df8307163bfc1020d499d6dd590423a0a09ce9d8363779271a208af44"
     },
     {
       "label": "Compliance lifts the freeze",
-      "hash": "cbd36dee337c33f41b3d8de0b2fe40d2101b9923c4b775e683e4995f2e7e2c2f"
+      "hash": "5a2ba7a5f20063eb00e860535a9f225aeb83e8cb5e55472f52934e0ba168a69e"
     },
     {
       "label": "Worker claims milestone 1",
-      "hash": "79b2520e0889e9e107be12e31581682564dd707b5dac79d8f5ccd1d54b1fb8e7"
+      "hash": "5d579d13acabe266e17ec08872fabc0360b9b25331698c1ae9b5a8d8d0dfbbb9"
     },
     {
       "label": "Enterprise refunds the unapproved tranche after expiry",
-      "hash": "fc926e00d1f4dac73ab7f858af7a3c2ff08d53ad0f38a9c09c9da3953308c2be"
+      "hash": "c05ee15f387e1aa078b342c793e9735c1e53952cb12f80b34ffe3f41abb338da"
     },
     {
       "label": "Second escrow: enterprise approves milestone 1",
-      "hash": "d5d915c8703e0d587ec80eb2de2b57085625cafd7b8159b392e852f62f638cc2"
+      "hash": "af61af214d57e9c51d4abd2f9e108ba9fc26602439010a23a26cff5758d0746f"
     },
     {
       "label": "Second escrow: compliance freezes it",
-      "hash": "59a62b55f2b96f1baa6f9cb68d87c2ffc0283e3a0ae5913bd2a9f2a5f4e2b699"
+      "hash": "a4ba37f4ef53eeec53ee037e059a881ee3ebbf935bf093e269e8650275d2ee6d"
     },
     {
       "label": "Second escrow: compliance returns unclaimed funds to the enterprise",
-      "hash": "88bf23f4d2b30ac654f5d3ba45b7b2e47b25256f10f0b193d31ce1eeb85bd6a8"
+      "hash": "6848b7c0758c186777805d2ba34a67159ce174972f6407a3b6deb335ca5f97af"
     }
   ],
   "blocked": [

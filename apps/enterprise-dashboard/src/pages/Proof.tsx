@@ -5,7 +5,7 @@ import proof from '../data/proof.json';
 
 const EXPLORER = 'https://stellar.expert/explorer/testnet';
 const REPO = 'https://github.com/Katlego909/funti3r-pay';
-const WASM_SHA256 = 'bb2c611ea053ef5636b5742d8670e6eb283dd7197a32cd234bb48caafa79c219';
+const WASM_SHA256 = '091872ea559f743bc0b3b21001f68527c76db946e9d2ccddd24822b895f985d5';
 
 // MoneyGram Ramps sandbox cash-out of 10 USDC (completed 2026-10-08, reference 63361763).
 const MONEYGRAM = {
