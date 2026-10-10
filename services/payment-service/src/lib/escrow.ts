@@ -23,6 +23,7 @@ import {
 import { createHash } from 'node:crypto';
 import { createLogger } from '@funti3r/shared-utils';
 import { withAdvisoryLock } from '@funti3r/database';
+import { forgetBalances } from './balanceCache.js';
 
 const logger = createLogger('EscrowService');
 
@@ -138,6 +139,8 @@ async function invokeUnlocked(
   const returnValue =
     'returnValue' in result && result.returnValue ? scValToNative(result.returnValue) : undefined;
   logger.info('Escrow contract call succeeded', { method, hash: sent.hash });
+  // The signer is the account whose balance moved (it funded, was paid, or was refunded): drop its cached figure.
+  await forgetBalances(signer.publicKey());
   return { hash: sent.hash, returnValue };
 }
 
@@ -206,6 +209,9 @@ export async function returnFrozen(escrowId: bigint): Promise<{ returnedStroops:
   const { hash, returnValue } = await invoke(complianceSecret(), 'return_frozen', [
     nativeToScVal(escrowId, { type: 'u64' }),
   ]);
+  // Compliance signs this call, but the money goes back to the enterprise: its cached balance is stale now.
+  const returned = await getEscrow(escrowId, complianceAuthorityPublic()).catch(() => null);
+  await forgetBalances(returned?.enterprise);
   return { returnedStroops: returnValue as bigint, hash };
 }
 

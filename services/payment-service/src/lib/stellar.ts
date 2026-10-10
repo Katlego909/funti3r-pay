@@ -12,6 +12,7 @@ import {
 import { createLogger } from '@funti3r/shared-utils';
 import { getRedis, getJSON, setJSON, withAdvisoryLock } from '@funti3r/database';
 import axios from 'axios';
+import { accountsTouchedBy, balanceCacheKey, forgetBalances } from './balanceCache.js';
 
 const logger = createLogger('StellarService');
 
@@ -21,6 +22,16 @@ const NETWORK_PASSPHRASE =
   process.env.STELLAR_NETWORK === 'MAINNET' ? Networks.PUBLIC : Networks.TESTNET;
 
 const horizon = new Horizon.Server(HORIZON_URL);
+
+/**
+ * Submits a transaction and clears the cached balances of every account it touched, so the next balance read
+ * (the wallet, the dashboard) shows the result of the user's own action instead of a figure up to 20 seconds old.
+ */
+async function submitAndRefresh(tx: Parameters<Horizon.Server['submitTransaction']>[0]) {
+  const result = await horizon.submitTransaction(tx);
+  await forgetBalances(...accountsTouchedBy(tx));
+  return result;
+}
 
 export interface StellarKeypair {
   publicKey: string;
@@ -52,7 +63,7 @@ const BALANCE_CACHE_TTL_SECONDS = 20;
 export async function getAccountBalance(
   publicKey: string,
 ): Promise<Array<Horizon.HorizonApi.BalanceLine>> {
-  const cacheKey = `stellar:balance:${publicKey}`;
+  const cacheKey = balanceCacheKey(publicKey);
   const cached = await getJSON<Array<Horizon.HorizonApi.BalanceLine>>(cacheKey).catch(() => null);
   if (cached) return cached;
 
@@ -126,7 +137,7 @@ async function sendPaymentUnlocked(
     .build();
 
   tx.sign(sourceKeypair);
-  const result = await horizon.submitTransaction(tx);
+  const result = await submitAndRefresh(tx);
   logger.info('Payment submitted', { hash: result.hash });
   return result.hash;
 }
@@ -200,7 +211,7 @@ async function pathPaymentStrictSendUnlocked(
     .build();
 
   tx.sign(sourceKeypair);
-  const result = await horizon.submitTransaction(tx);
+  const result = await submitAndRefresh(tx);
   logger.info('Path payment submitted', { hash: result.hash });
   return result.hash;
 }
@@ -246,7 +257,7 @@ async function addTrustlineUnlocked(
     .build();
 
   tx.sign(keypair);
-  await horizon.submitTransaction(tx);
+  await submitAndRefresh(tx);
   logger.info('Trustline established', { account: keypair.publicKey(), asset: assetCode });
 }
 
@@ -340,7 +351,7 @@ async function payExactWithXlmUnlocked(
     .build();
 
   tx.sign(sourceKeypair);
-  const result = await horizon.submitTransaction(tx);
+  const result = await submitAndRefresh(tx);
   logger.info('Cross-asset payout submitted', {
     hash: result.hash,
     destAmount,
@@ -476,7 +487,7 @@ export async function submitSignedTransaction(signedXDR: string): Promise<string
   try {
     const tx = TransactionBuilder.fromXDR(signedXDR, NETWORK_PASSPHRASE) as Transaction;
     logger.info('Submitting externally-signed transaction');
-    const result = await horizon.submitTransaction(tx);
+    const result = await submitAndRefresh(tx);
     logger.info('Externally-signed transaction submitted', { hash: result.hash });
     return result.hash;
   } catch (err) {
@@ -517,7 +528,7 @@ export async function bumpPaymentFee(
     newFeeStroopsPerOp,
   });
 
-  const result = await horizon.submitTransaction(feeBump);
+  const result = await submitAndRefresh(feeBump);
   logger.info('Fee-bump transaction submitted', { hash: result.hash });
   return result.hash;
 }
@@ -561,7 +572,7 @@ async function createClaimableBalanceUnlocked(
     .build();
 
   tx.sign(keypair);
-  const result = await horizon.submitTransaction(tx);
+  const result = await submitAndRefresh(tx);
   logger.info('Claimable balance created', {
     claimant: claimantPublic,
     asset: asset.code || 'XLM',
