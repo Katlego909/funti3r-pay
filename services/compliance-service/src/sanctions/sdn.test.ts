@@ -92,3 +92,16 @@ test('an entry with no recorded birth year is never ruled out by the applicant\'
   const index = buildIndex(parseSdn(SDN, ALT));
   assert.equal(screenName('National Bank of Cuba', index, 1990).length, 1);
 });
+
+test('storing a list passes birth years per entry and never stores NULL for entries without one', async () => {
+  const calls: Array<[string, unknown[]]> = [];
+  const query = async (sql: string, params: unknown[] = []) => { calls.push([sql, params]); return { rows: [] }; };
+  const { storeSanctionsList } = await import('./service.js');
+  await storeSanctionsList(query, [
+    { name: 'ABBAS, Abu', aliases: [], program: 'SDGT', list: 'OFAC-SDN', birthYears: [1950, 1951] },
+    { name: 'BANCO NACIONAL DE CUBA', aliases: [], program: 'CUBA', list: 'OFAC-SDN' },
+  ], 'test');
+  const insert = calls.find(([sql]) => /INSERT INTO sanctions_entries/.test(sql))!;
+  assert.match(insert[0], /COALESCE\(string_to_array\(NULLIF\(y, ''\), ','\)::int\[\], '\{\}'\)/, 'an empty list, not NULL');
+  assert.deepEqual(insert[1][4], ['1950,1951', '']);
+});

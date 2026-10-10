@@ -51,7 +51,7 @@ export async function storeSanctionsList(query: Query, entries: SanctionsEntry[]
     const chunk = entries.slice(i, i + INSERT_CHUNK);
     await query(
       `INSERT INTO sanctions_entries (batch_id, list, name, aliases, program, birth_years)
-       SELECT $1, 'OFAC-SDN', n, string_to_array(a, E'\\x1f'), p, string_to_array(NULLIF(y, ''), ',')::int[]
+       SELECT $1, 'OFAC-SDN', n, string_to_array(a, E'\\x1f'), p, COALESCE(string_to_array(NULLIF(y, ''), ',')::int[], '{}')
          FROM unnest($2::text[], $3::text[], $4::text[], $5::text[]) AS t(n, a, p, y)`,
       [
         batch,
