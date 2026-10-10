@@ -280,4 +280,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for team guidelines.
 
 **Status**: Active development  
 **Version**: 0.1.0  
-**Last Updated**: June 2026
+**Last Updated**: October 2026
