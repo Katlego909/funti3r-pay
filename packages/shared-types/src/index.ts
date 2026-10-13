@@ -231,21 +231,6 @@ export enum WalletStatus {
   SUSPENDED = 'suspended',
 }
 
-export enum WalletProvider {
-  FREIGHTER = 'freighter',
-  ALBEDO = 'albedo',
-  RABET = 'rabet',
-  MYSTELLAR = 'mystellar',
-  PLATFORM = 'platform',
-}
-
-export enum WalletLinkStatus {
-  PENDING_VERIFICATION = 'pending_verification',
-  CONNECTED = 'connected',
-  DISCONNECTED = 'disconnected',
-  CONNECTION_ERROR = 'connection_error',
-}
-
 export interface Wallet {
   id: string;
   userId: string;
@@ -253,41 +238,9 @@ export interface Wallet {
   publicKey?: string;
   contractAddress?: string;
   status: WalletStatus;
-  walletProvider?: WalletProvider;
-  isExternal?: boolean;
-  publicKeyVerified?: boolean;
-  verifiedAt?: Date;
   createdAt: Date;
   deployedAt?: Date;
   updatedAt: Date;
-}
-
-export interface ExternalWalletMetadata {
-  id: string;
-  walletId: string;
-  providerConfig?: Record<string, unknown>;
-  connectionStatus: WalletLinkStatus;
-  lastActivityAt?: Date;
-  connectionError?: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface WalletVerificationRequest {
-  userId: string;
-  publicKey: string;
-  walletProvider: WalletProvider;
-}
-
-export interface WalletVerificationResponse {
-  challenge: string;
-  challengeExpiresAt: Date;
-}
-
-export interface WalletVerificationSubmit {
-  challenge: string;
-  signature: string;
-  publicKey: string;
 }
 
 export interface PaymentSigningRequest {

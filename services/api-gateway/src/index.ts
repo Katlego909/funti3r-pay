@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { v4 as uuid } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import { createLogger, assertInternalAuthConfigured, assertJwtConfigured, stripIdentity, requestContext, createMetrics } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, getRedis } from '@funti3r/database';
 import { authMiddleware } from './middleware/auth.js';
@@ -44,7 +44,7 @@ const metrics = createMetrics('api-gateway');
 const PLAIN_REQUEST_ID = /^[A-Za-z0-9-]{8,64}$/;
 app.use((req, _res, next) => {
   const supplied = req.headers['x-request-id'];
-  req.headers['x-request-id'] = typeof supplied === 'string' && PLAIN_REQUEST_ID.test(supplied) ? supplied : uuid();
+  req.headers['x-request-id'] = typeof supplied === 'string' && PLAIN_REQUEST_ID.test(supplied) ? supplied : randomUUID();
   next();
 });
 // Access log + request metrics for every request, including ones the auth or rate limits turn away.

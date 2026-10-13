@@ -10,7 +10,6 @@ import { Asset } from '@stellar/stellar-sdk';
 import { getCurrency, isSupportedCurrency, PAYOUT_CURRENCIES } from './lib/currencies.js';
 import { usdToCurrencyRate, getUsdRates, amountToUsd, getXlmUsd } from './lib/fx.js';
 import { getAllQuotes } from './rails/router.js';
-import walletLinkingRouter from './routes/wallet-linking.js';
 import schedulesRouter from './routes/schedules.js';
 import escrowsRouter from './routes/escrows.js';
 import cashoutsRouter from './routes/cashouts.js';
@@ -28,7 +27,6 @@ app.get('/metrics', metrics.handler);
 
 // ── Routers ───────────────────────────────────────────────────────────────────
 
-app.use('/wallets', walletLinkingRouter);
 app.use('/schedules', schedulesRouter);
 app.use('/escrows', escrowsRouter);
 app.use('/cashouts', cashoutsRouter);

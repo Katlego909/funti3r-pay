@@ -105,6 +105,8 @@ services:
       DATABASE_URL: postgresql://funti3r_dev:${POSTGRES_PASSWORD}@postgres:5432/funti3r_dev
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       USER_SERVICE_PORT: "3001"
+      # The dashboard reaches the gateway through its proxy at /api, so that is where the refresh cookie must be sent.
+      REFRESH_COOKIE_PATH: /api/auth
       PAYMENT_SERVICE_URL: http://payment-service:3002
     depends_on:
       postgres:
