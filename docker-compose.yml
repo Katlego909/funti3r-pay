@@ -100,6 +100,8 @@ services:
     container_name: funti3r-user-service
     env_file: .env.local
     environment:
+      # .env.local is loaded first; this wins, so a stack started from the production file can never run in development mode.
+      NODE_ENV: production
       DATABASE_URL: postgresql://funti3r_dev:${POSTGRES_PASSWORD}@postgres:5432/funti3r_dev
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       USER_SERVICE_PORT: "3001"
@@ -125,6 +127,8 @@ services:
     container_name: funti3r-payment-service
     env_file: .env.local
     environment:
+      # .env.local is loaded first; this wins, so a stack started from the production file can never run in development mode.
+      NODE_ENV: production
       DATABASE_URL: postgresql://funti3r_dev:${POSTGRES_PASSWORD}@postgres:5432/funti3r_dev
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       PAYMENT_SERVICE_PORT: "3002"
@@ -153,6 +157,8 @@ services:
     container_name: funti3r-compliance-service
     env_file: .env.local
     environment:
+      # .env.local is loaded first; this wins, so a stack started from the production file can never run in development mode.
+      NODE_ENV: production
       DATABASE_URL: postgresql://funti3r_dev:${POSTGRES_PASSWORD}@postgres:5432/funti3r_dev
       COMPLIANCE_SERVICE_PORT: "3003"
       # Reviewed approvals by default; only the local override turns testnet auto-approval on.
@@ -176,6 +182,8 @@ services:
     container_name: funti3r-analytics-service
     env_file: .env.local
     environment:
+      # .env.local is loaded first; this wins, so a stack started from the production file can never run in development mode.
+      NODE_ENV: production
       DATABASE_URL: postgresql://funti3r_dev:${POSTGRES_PASSWORD}@postgres:5432/funti3r_dev
       ANALYTICS_SERVICE_PORT: "3004"
     depends_on:
@@ -197,6 +205,8 @@ services:
     container_name: funti3r-api-gateway
     env_file: .env.local
     environment:
+      # .env.local is loaded first; this wins, so a stack started from the production file can never run in development mode.
+      NODE_ENV: production
       DATABASE_URL: postgresql://funti3r_dev:${POSTGRES_PASSWORD}@postgres:5432/funti3r_dev
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       API_PORT: "3000"

@@ -28,6 +28,8 @@ const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v 
  */
 const EFFECTIVE_STATUS = `CASE WHEN status = 'approved' AND expires_at IS NOT NULL AND expires_at < NOW() THEN 'expired' ELSE status END`;
 const DEFAULT_VALIDITY_DAYS = 365;
+const MAX_SCREEN_NAMES = 20;
+const MAX_SCREEN_NAME_LENGTH = 200;
 
 export function createApp({ query, autoApprove, sanctions, validityDays = DEFAULT_VALIDITY_DAYS, provider = createManualProvider({ autoApprove }), inTransaction = (fn) => fn(query) }: Deps): express.Express {
   const app = express();
@@ -150,6 +152,10 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
     const names = (req.body as { names?: unknown })?.names;
     if (!Array.isArray(names) || names.some((n) => typeof n !== 'string')) {
       return res.status(400).json({ error: 'names must be an array of strings' });
+    }
+    // Each name is compared with every listed name, so an unbounded request is a cheap way to burn the CPU.
+    if (names.length > MAX_SCREEN_NAMES || names.some((n: string) => n.length > MAX_SCREEN_NAME_LENGTH)) {
+      return res.status(400).json({ error: `Send at most ${MAX_SCREEN_NAMES} names of up to ${MAX_SCREEN_NAME_LENGTH} characters` });
     }
     res.json({ matches: sanctions.screen(names as string[]) });
   });

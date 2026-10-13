@@ -684,12 +684,13 @@ registerAuthRoute('login/finish', loginFinishHandler);
 /**
  * POST /auth/dev-login  (DEVELOPMENT ONLY)
  * Body: { email }
- * Signs a user in by email with no passkey. Disabled when NODE_ENV=production.
+ * Signs a user in by email with no passkey, i.e. anyone who knows an address can become that user, so it is OFF unless
+ * ENABLE_DEV_LOGIN=true is set explicitly, and it never works when NODE_ENV=production.
  * Exists so local testing doesn't require re-registering a passkey every time
  * (passkeys are device/browser/origin-scoped and wiped on DB resets).
  */
 const devLoginHandler = async (req: express.Request, res: express.Response) => {
-  if (process.env.NODE_ENV === 'production') {
+  if (process.env.NODE_ENV === 'production' || process.env.ENABLE_DEV_LOGIN !== 'true') {
     return res.status(404).json({ error: 'Not found' });
   }
   try {

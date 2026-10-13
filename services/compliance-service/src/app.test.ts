@@ -220,6 +220,8 @@ test('anyone can screen bare names; the platform admin refreshes the list', asyn
   const hit = await (await call('POST', '/screen', worker(WORKER_A), { names: ['Sanctions Test Subject', 'Thandi Nkosi'] })).json() as any;
   assert.equal(hit.matches.length, 1);
   assert.equal((await call('POST', '/screen', worker(WORKER_A), { names: 'nope' })).status, 400);
+  assert.equal((await call('POST', '/screen', worker(WORKER_A), { names: Array(21).fill('A Name') })).status, 400, 'too many names');
+  assert.equal((await call('POST', '/screen', worker(WORKER_A), { names: ['x'.repeat(201)] })).status, 400, 'a name that long is not a name');
 
   assert.equal((await call('POST', '/sanctions/refresh', enterprise(OWNER_A))).status, 403);
   assert.equal((await call('POST', '/sanctions/refresh', admin)).status, 200);

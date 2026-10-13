@@ -234,6 +234,9 @@ app.all('/cashouts*', proxy(PAYMENT_SERVICE));
 app.all('/api/cashouts*', proxy(PAYMENT_SERVICE, { '^/api/cashouts': '/cashouts' }));
 
 // Compliance → compliance-service
+// /screen is for the payment service (screening the employer behind an escrow), not for browsers: left reachable it
+// would let any signed-in user test arbitrary names against the sanctions list.
+app.all(['/compliance/screen', '/api/compliance/screen'], (_req, res) => res.status(404).json({ error: 'Not found' }));
 app.all(['/compliance*', '/api/compliance*'], proxy(COMPLIANCE_URL, { '^/api/compliance': '', '^/compliance': '' }));
 
 // Analytics → analytics-service

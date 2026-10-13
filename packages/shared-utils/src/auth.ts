@@ -11,6 +11,10 @@ function resolveJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
   if (secret) {
     if (secret.length < 32) throw new Error('JWT_SECRET must be at least 32 characters');
+    // .env.example ships a placeholder that is long enough to pass the length check; it is public, so refuse it.
+    if (/change-this|changeme|example|placeholder/i.test(secret) && process.env.NODE_ENV !== 'test') {
+      throw new Error('JWT_SECRET is still the placeholder from .env.example; generate a real secret');
+    }
     return secret;
   }
   if (process.env.NODE_ENV === 'test') return 'test-only-jwt-secret-not-for-any-real-environment';
