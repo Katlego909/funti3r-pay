@@ -106,13 +106,17 @@ async function fundTestnetAccount(publicKey: string): Promise<void> {
   }
 }
 
+// The refresh cookie is only sent to this path, so it must be the path the browser really calls: /auth when it talks to
+// the gateway directly (development), /api/auth behind the dashboard's proxy (REFRESH_COOKIE_PATH in the compose file).
+const REFRESH_COOKIE_PATH = process.env.REFRESH_COOKIE_PATH || '/auth';
+
 function setRefreshCookie(res: express.Response, token: string): void {
   res.cookie('refresh_token', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     maxAge: REFRESH_TOKEN_TTL_SEC * 1000,
-    path: '/auth',
+    path: REFRESH_COOKIE_PATH,
   });
 }
 
@@ -771,7 +775,7 @@ registerAuthRoute('refresh', refreshHandler);
 const logoutHandler = async (req: express.Request, res: express.Response) => {
   const token: string | undefined = req.cookies?.refresh_token;
   if (token) await deleteKey(`refresh:${hashRefreshToken(token)}`);
-  res.clearCookie('refresh_token', { path: '/auth' });
+  res.clearCookie('refresh_token', { path: REFRESH_COOKIE_PATH });
   res.json({ message: 'Logged out' });
 };
 

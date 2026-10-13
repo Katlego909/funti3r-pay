@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore.js';
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+// Development talks to the gateway directly; the built app is served next to a proxy that forwards /api to it.
+const BASE_URL = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? '/api' : 'http://localhost:3000');
 
 export const api = axios.create({
   baseURL: BASE_URL,
@@ -28,7 +29,7 @@ api.interceptors.response.use(
 
     if (!refreshing) {
       refreshing = axios
-        .post<{ accessToken: string }>(`${BASE_URL}/api/auth/refresh`, {}, { withCredentials: true })
+        .post<{ accessToken: string }>(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true })
         .then((r) => {
           sessionStorage.setItem('access_token', r.data.accessToken);
           return r.data.accessToken;
