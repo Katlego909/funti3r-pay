@@ -33,6 +33,15 @@ let events: any[];
 let failAuditWrites = false;
 
 const query = async (sql: string, params: unknown[] = []): Promise<{ rows: any[] }> => {
+  if (/ew\.worker_id = ANY/.test(sql)) {
+    const [requester, ids] = params as [string, string[]];
+    const mine = members.filter((m) => m.user === requester).map((m) => m.company);
+    return { rows: workers.filter((w) => mine.includes(w.company) && ids.includes(w.worker)).map((w) => ({ id: w.worker })) };
+  }
+  if (/FROM kyc_records WHERE user_id = ANY/.test(sql)) {
+    const ids = params[0] as string[];
+    return { rows: ids.filter((id) => records[id]).map((id) => ({ ...records[id] })) };
+  }
   if (/FROM enterprise_members em/.test(sql)) {
     const [requester, target] = params as string[];
     const m = members.find((x) => x.user === requester && workers.some((w) => w.company === x.company && w.worker === target));
@@ -225,6 +234,36 @@ test('anyone can screen bare names; the platform admin refreshes the list', asyn
 
   assert.equal((await call('POST', '/sanctions/refresh', enterprise(OWNER_A))).status, 403);
   assert.equal((await call('POST', '/sanctions/refresh', admin)).status, 200);
+});
+
+test('KYC status is only visible to the person, an admin, their employer, or another service', async () => {
+  fresh();
+  await submit(WORKER_A);
+  const status = (as: { id: string; role: string } | null, id = WORKER_A) => call('GET', `/${id}/status`, as);
+  assert.equal((await status(worker(WORKER_A))).status, 200, 'the worker themself');
+  assert.equal((await status(admin)).status, 200, 'a platform admin');
+  assert.equal((await status(enterprise(OWNER_A))).status, 200, 'the company that employs them');
+  assert.equal((await status(enterprise(MEMBER_A))).status, 200, 'a member of that company');
+  assert.equal((await status(null)).status, 200, 'another service on the internal network (no identity)');
+  assert.equal((await status(worker(WORKER_B))).status, 403, 'an unrelated worker');
+  assert.equal((await status(enterprise(OWNER_B))).status, 403, 'another company');
+  assert.equal((await status(admin, 'not-an-id')).status, 400, 'a malformed id');
+});
+
+test('bulk KYC status returns only the people the caller may see', async () => {
+  fresh();
+  await submit(WORKER_A);
+  await submit(WORKER_B, 'Amara Okafor');
+  const bulk = async (as: { id: string; role: string } | null, userIds: unknown) =>
+    (await (await call('POST', '/status/bulk', as, { userIds })).json()) as any;
+  const both = [WORKER_A, WORKER_B];
+  assert.deepEqual(Object.keys((await bulk(enterprise(OWNER_A), both)).statuses), [WORKER_A], 'company A sees only its worker');
+  assert.deepEqual(Object.keys((await bulk(worker(WORKER_B), both)).statuses), [WORKER_B], 'a worker sees only themself');
+  assert.deepEqual(Object.keys((await bulk(admin, both)).statuses).sort(), both.sort(), 'an admin sees everyone');
+  assert.deepEqual(Object.keys((await bulk(null, both)).statuses).sort(), both.sort(), 'an internal call sees everyone');
+  assert.deepEqual((await bulk(worker(WORKER_A), [WORKER_B, 'not-an-id'])).statuses, {}, 'nothing for ids you may not see');
+  assert.equal((await call('POST', '/status/bulk', admin, { userIds: Array(501).fill(WORKER_A) })).status, 400, 'too many ids');
+  assert.equal((await call('POST', '/status/bulk', admin, { userIds: [42] })).status, 400, 'ids must be strings');
 });
 
 test('the status says what verified rests on: a reviewer, an auto-approval or no submission at all', async () => {

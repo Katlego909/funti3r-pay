@@ -1,9 +1,9 @@
 import express from 'express';
-import { createLogger, NotFoundError, requireGatewayIdentity, requestContext, registerHealth } from '@funti3r/shared-utils';
+import { createLogger, NotFoundError, hasIdentity, requireGatewayIdentity, requestContext, registerHealth } from '@funti3r/shared-utils';
 import { metrics } from './metrics.js';
 import { candidateBirthYearFromSubmission, candidateNamesFromSubmission } from './names.js';
 import type { Deps } from './deps.js';
-import { canDecide, kycAccess } from './access.js';
+import { canDecide, kycAccess, visibleUserIds } from './access.js';
 import { recordKycEvent } from './events.js';
 import { openDetails, sealDetails } from './pii.js';
 import { createManualProvider } from './providers/manual.js';
@@ -28,6 +28,7 @@ const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v 
  */
 const EFFECTIVE_STATUS = `CASE WHEN status = 'approved' AND expires_at IS NOT NULL AND expires_at < NOW() THEN 'expired' ELSE status END`;
 const DEFAULT_VALIDITY_DAYS = 365;
+const MAX_BULK_IDS = 500;
 const MAX_SCREEN_NAMES = 20;
 const MAX_SCREEN_NAME_LENGTH = 200;
 
@@ -51,8 +52,6 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
     // Screening still runs on the built-in list without it, so a missing download is a warning, not an outage.
     sanctionsList: { critical: false, run: async () => { if (!(await sanctions.status())) throw new Error('no downloaded sanctions list is loaded'); } },
   });
-  // Which mode the service runs in matters when reading evidence; it is not a secret.
-  app.get('/health/mode', (_req, res) => { res.json({ autoApprove }); });
 
   // ── Submit KYC ──────────────────────────────────────────────────────────────
   // Stores the whole submission payload, encrypted, in the `data` JSONB column. Auto-approves
@@ -162,8 +161,17 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
 
   // ── Status check ────────────────────────────────────────────────────────────
 
+  // A request with no identity is another service on the internal network (the payment service asking before it moves
+  // money); one that carries an identity must be allowed to see this user's record, like every other KYC route.
   app.get('/:userId/status', async (req, res) => {
+    if (!isUuid(req.params.userId)) return res.status(400).json({ error: 'userId must be a valid id' });
     try {
+      if (hasIdentity(req.headers)) {
+        const access = await kycAccess(
+          query, asString(req.headers['x-user-id']), asString(req.headers['x-user-role']), req.params.userId,
+        );
+        if (!access) return res.status(403).json({ error: 'Not authorized to view this KYC record' });
+      }
       const result = await query(
         `SELECT id, ${EFFECTIVE_STATUS} AS status, verified_at, created_at, updated_at, sanctions_status, sanctions_checked_at,
                 EXISTS (SELECT 1 FROM kyc_events ev WHERE ev.user_id = kyc_records.user_id AND ev.action = 'approved') AS reviewed
@@ -203,12 +211,19 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
   // one call for all worker ids instead of one per worker.
 
   app.post('/status/bulk', async (req, res) => {
-    const { userIds } = req.body as { userIds?: string[] };
-    if (!Array.isArray(userIds) || userIds.length === 0) {
-      return res.status(400).json({ error: 'userIds must be a non-empty array' });
+    const body = req.body as { userIds?: unknown };
+    if (!Array.isArray(body.userIds) || body.userIds.length === 0 || body.userIds.length > MAX_BULK_IDS
+        || body.userIds.some((id) => typeof id !== 'string')) {
+      return res.status(400).json({ error: `userIds must be a non-empty array of at most ${MAX_BULK_IDS} ids` });
     }
 
     try {
+      // Internal callers (no identity) get every id; anyone else gets only the people they may see.
+      const userIds = hasIdentity(req.headers)
+        ? await visibleUserIds(query, asString(req.headers['x-user-id']), asString(req.headers['x-user-role']), body.userIds as string[])
+        : (body.userIds as string[]);
+      if (userIds.length === 0) return res.json({ statuses: {} });
+
       const result = await query(
         `SELECT user_id, ${EFFECTIVE_STATUS} AS status, verified_at, created_at, updated_at, sanctions_status
            FROM kyc_records WHERE user_id = ANY($1::uuid[])`,

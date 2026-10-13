@@ -1,5 +1,7 @@
 import type { Query } from './deps.js';
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** How the requester is allowed to see a user's KYC record. */
 export type KycAccess = 'self' | 'admin' | 'company-admin' | 'company-member';
 
@@ -30,6 +32,30 @@ export async function kycAccess(
   const role = r.rows[0]?.company_role as string | undefined;
   if (!role) return null;
   return role === 'owner' || role === 'admin' ? 'company-admin' : 'company-member';
+}
+
+/**
+ * Of `ids`, the user ids this requester may read KYC status for: all of them for a platform admin, their own id for anyone,
+ * and the active workers of their company for a company member. Ids that are not valid ids are never visible.
+ */
+export async function visibleUserIds(
+  query: Query, requesterId: string | undefined, requesterRole: string | undefined, ids: string[],
+): Promise<string[]> {
+  const valid = ids.filter((id) => UUID.test(id));
+  if (requesterRole === 'admin') return valid;
+  if (!requesterId) return [];
+  const visible = new Set(valid.filter((id) => id === requesterId));
+  if (requesterRole === 'enterprise' && valid.length > 0) {
+    const r = await query(
+      `SELECT DISTINCT ew.worker_id AS id
+         FROM enterprise_members em
+         JOIN enterprise_workers ew ON ew.enterprise_id = em.enterprise_id
+        WHERE em.user_id = $1 AND em.status = 'active' AND ew.status = 'active' AND ew.worker_id = ANY($2::uuid[])`,
+      [requesterId, valid],
+    );
+    for (const row of r.rows) visible.add(row.id as string);
+  }
+  return [...visible];
 }
 
 /** May this access level approve or reject? */
