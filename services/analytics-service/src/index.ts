@@ -2,13 +2,22 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
 import cron from 'node-cron';
-import { createLogger, assertInternalAuthConfigured, requireGatewayIdentity, requestContext, registerHealth, createMetrics } from '@funti3r/shared-utils';
+import { createLogger, assertInternalAuthConfigured, hasIdentity, requireGatewayIdentity, requestContext, registerHealth, createMetrics } from '@funti3r/shared-utils';
 import { initPostgres, runInitialMigrations, query } from '@funti3r/database';
 
 const logger = createLogger('AnalyticsService');
 const app = express();
 app.use(express.json());
 app.use(requireGatewayIdentity());
+// The gateway already admits only platform admins here. A request with no identity at all is another service on the
+// internal network; one that carries an identity must be an admin, so this service is safe even if it is ever exposed
+// by another route.
+app.use((req, res, next) => {
+  if (hasIdentity(req.headers) && req.headers['x-user-role'] !== 'admin') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  next();
+});
 const metrics = createMetrics('analytics-service');
 app.use(requestContext('AnalyticsService', metrics.observeRequest));
 app.get('/metrics', metrics.handler);

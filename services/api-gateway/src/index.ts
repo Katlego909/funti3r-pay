@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { createLogger, assertInternalAuthConfigured, assertJwtConfigured, stripIdentity, requestContext, createMetrics } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, getRedis } from '@funti3r/database';
 import { authMiddleware } from './middleware/auth.js';
+import { requireRole } from './middleware/requireRole.js';
 
 const logger = createLogger('APIGateway');
 const app = express();
@@ -240,7 +241,8 @@ app.all(['/compliance/screen', '/api/compliance/screen'], (_req, res) => res.sta
 app.all(['/compliance*', '/api/compliance*'], proxy(COMPLIANCE_URL, { '^/api/compliance': '', '^/compliance': '' }));
 
 // Analytics → analytics-service
-app.use('/analytics', proxy(ANALYTICS_URL));
+// Event data spans every company and nothing in the product reads it yet, so it is for platform admins only.
+app.use('/analytics', requireRole('admin'), proxy(ANALYTICS_URL));
 
 // ── Error Handler ────────────────────────────────────────────────────────────
 
