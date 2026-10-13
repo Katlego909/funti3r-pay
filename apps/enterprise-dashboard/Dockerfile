@@ -9,11 +9,9 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY packages/ ./packages/
 COPY apps/enterprise-dashboard/ ./apps/enterprise-dashboard/
 
-# --ignore-scripts: the Stellar wallet deps pull in Ledger's native `usb` and
-# `tiny-secp256k1`, which try to compile via node-gyp and fail on alpine. This
-# is a static browser bundle — it uses WebUSB, never the native binaries — so
-# the postinstall compiles are pure cost. esbuild/vite resolve their platform
-# binary from the @esbuild/linux-x64 optional dep, which needs no postinstall.
+# --ignore-scripts: this is a static browser bundle, so no dependency needs an install-time script, and skipping them
+# keeps a compromised package from running code on the build machine. esbuild/vite resolve their platform binary from
+# the @esbuild/linux-x64 optional dep, which needs no postinstall.
 RUN pnpm install --frozen-lockfile --ignore-scripts
 RUN pnpm --filter @funti3r/enterprise-dashboard build
 
@@ -21,5 +19,6 @@ RUN pnpm --filter @funti3r/enterprise-dashboard build
 FROM nginxinc/nginx-unprivileged:alpine
 COPY --from=builder /app/apps/enterprise-dashboard/dist /usr/share/nginx/html
 COPY apps/enterprise-dashboard/nginx.conf /etc/nginx/conf.d/default.conf
+COPY apps/enterprise-dashboard/security-headers.inc /etc/nginx/conf.d/security-headers.inc
 EXPOSE 8080
 CMD ["nginx", "-g", "daemon off;"]
