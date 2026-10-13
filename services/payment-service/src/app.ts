@@ -1,6 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
-import { createLogger, encryptSecret, decryptFromString, ValidationError, NotFoundError, requireGatewayIdentity, requestContext, registerHealth, parseBody } from '@funti3r/shared-utils';
+import { createLogger, decryptFromString, ValidationError, NotFoundError, requireGatewayIdentity, requestContext, registerHealth, parseBody } from '@funti3r/shared-utils';
 import { metrics, payoutsTotal } from './lib/metrics.js';
 import { audit } from './lib/audit.js';
 import { payoutBody, batchPayoutBody } from './lib/schemas.js';
@@ -62,54 +62,6 @@ export async function requireCompliance(workerId: string): Promise<void> {
     throw new Error('Compliance service unavailable');
   }
 }
-
-// ── Enterprise wallet creation ────────────────────────────────────────────────
-
-/**
- * POST /wallets/enterprise
- * Creates a platform-custodial Stellar keypair for an enterprise.
- * The secret key is encrypted with AES-256-GCM before storage.
- */
-app.post('/wallets/enterprise', async (req, res) => {
-  const { userId } = req.body as { userId: string };
-  if (!userId) return res.status(400).json({ error: 'userId is required' });
-
-  try {
-    const existing = await query('SELECT id FROM wallets WHERE user_id = $1', [userId]);
-    if (existing.rows.length > 0) {
-      return res.status(409).json({ error: 'Enterprise wallet already exists' });
-    }
-
-    const { publicKey, secretKey } = stellar.createKeypair();
-    const encrypted = encryptSecret(secretKey);
-
-    await query(
-      `INSERT INTO wallets (user_id, wallet_type, public_key, encrypted_secret, encryption_iv, encryption_tag, encryption_salt, status, updated_at)
-       VALUES ($1, 'enterprise', $2, $3, $4, $5, $6, 'active', NOW())`,
-      [userId, publicKey, encrypted.ciphertext, encrypted.iv, encrypted.tag, encrypted.salt],
-    );
-
-    // Fund on testnet asynchronously (don't block response)
-    setImmediate(async () => {
-      try {
-        await stellar.fundWithFriendbot(publicKey);
-        logger.info('Enterprise wallet funded', { userId, publicKey });
-      } catch (err) {
-        logger.error('Friendbot funding failed (non-blocking)', { userId, publicKey, error: String(err) });
-      }
-    });
-
-    logger.info('Enterprise wallet created', { userId, publicKey });
-    res.status(201).json({ userId, publicKey });
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    logger.error('Enterprise wallet creation failed', { userId, error: errorMsg, stack: err instanceof Error ? err.stack : undefined });
-    res.status(500).json({
-      error: 'Internal server error',
-      detail: process.env.NODE_ENV === 'development' ? errorMsg : undefined,
-    });
-  }
-});
 
 // ── Wallet info ───────────────────────────────────────────────────────────────
 

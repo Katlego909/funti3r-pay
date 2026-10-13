@@ -63,8 +63,6 @@ vi.mock('../lib/stellar.js', () => ({
   spendableXlm: vi.fn(),
   createClaimableBalance: vi.fn(),
   getAccountBalance: vi.fn(),
-  createKeypair: vi.fn(),
-  fundWithFriendbot: vi.fn(),
   submitSignedTransaction: vi.fn(),
   streamEnterprisePayments: vi.fn(),
 }));

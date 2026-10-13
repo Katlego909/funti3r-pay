@@ -11,7 +11,6 @@ import {
 } from '@stellar/stellar-sdk';
 import { createLogger } from '@funti3r/shared-utils';
 import { getRedis, getJSON, setJSON, withAdvisoryLock } from '@funti3r/database';
-import axios from 'axios';
 import { accountsTouchedBy, balanceCacheKey, forgetBalances } from './balanceCache.js';
 
 const logger = createLogger('StellarService');
@@ -31,28 +30,6 @@ async function submitAndRefresh(tx: Parameters<Horizon.Server['submitTransaction
   const result = await horizon.submitTransaction(tx);
   await forgetBalances(...accountsTouchedBy(tx));
   return result;
-}
-
-export interface StellarKeypair {
-  publicKey: string;
-  secretKey: string;
-}
-
-// ── Keypair & funding ─────────────────────────────────────────────────────────
-
-export function createKeypair(): StellarKeypair {
-  const pair = Keypair.random();
-  return { publicKey: pair.publicKey(), secretKey: pair.secret() };
-}
-
-export async function fundWithFriendbot(publicKey: string): Promise<void> {
-  logger.info('Funding account via Friendbot', { publicKey });
-  try {
-    await axios.get(`https://friendbot.stellar.org?addr=${encodeURIComponent(publicKey)}`, { timeout: 10000 });
-    logger.info('Account funded', { publicKey });
-  } catch (err) {
-    logger.warn('Friendbot funding failed (account may be funded manually)', { publicKey, error: String(err) });
-  }
 }
 
 // Short TTL cache-aside on top of Horizon — balances only change on confirmed
