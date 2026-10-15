@@ -53,9 +53,18 @@ export default function Proof() {
             </a>
           </p>
           <p style={{ margin: '0 0 8px', fontSize: '0.9rem' }}>Wasm sha256: <span style={mono}>{WASM_SHA256}</span></p>
-          <p style={{ margin: 0, fontSize: '0.9rem' }}>
-            Source and releases:{' '}
+          <p style={{ margin: '0 0 8px', fontSize: '0.9rem' }}>
+            Source:{' '}
             <a href={REPO} target="_blank" rel="noreferrer" style={link}>{REPO}</a>
+          </p>
+          <p style={{ margin: '0 0 8px', fontSize: '0.9rem' }}>
+            Release:{' '}
+            <a href={`${REPO}/releases/tag/v2.0.0-escrow`} target="_blank" rel="noreferrer" style={link}>v2.0.0-escrow</a>
+            {' '}(the wasm file and its sha256)
+          </p>
+          <p style={{ margin: 0, fontSize: '0.85rem', color: '#6b7280', lineHeight: 1.6 }}>
+            To verify: download the wasm from the release and compare its sha256 with the hash above. The code on this contract
+            on the Stellar testnet has the same hash.
           </p>
         </div>
 
@@ -83,6 +92,10 @@ export default function Proof() {
 
         <div style={card}>
           <h2 style={{ fontSize: '1rem', margin: '0 0 12px', color: '#111827' }}>Anchor cash-out</h2>
+          <p style={{ margin: '0 0 10px', fontSize: '0.88rem', color: '#6b7280', lineHeight: 1.6 }}>
+            The payout path is one chain: an escrow claim pays into the worker's wallet balance, and a cash-out is taken from that
+            balance. The cash-out below was a separate run on the MoneyGram sandbox, so no cash was dispensed.
+          </p>
           <p style={{ margin: '0 0 6px', fontSize: '0.9rem', color: '#374151' }}>{MONEYGRAM.label}</p>
           <TxLink hash={MONEYGRAM.hash} />
         </div>
