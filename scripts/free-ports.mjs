@@ -32,9 +32,32 @@ function pidsOnPort(port) {
   return pids;
 }
 
+// Docker Desktop's own processes hold the host side of published container
+// ports. Killing them takes down the whole engine, not just the container.
+const DOCKER_PROC = /^(com\.docker\.|docker|wslrelay|vpnkit)/i;
+
+function processName(pid) {
+  try {
+    if (isWin) {
+      const out = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, { encoding: 'utf8' });
+      return out.split(',')[0]?.replace(/"/g, '').trim() ?? '';
+    }
+    return execSync(`ps -p ${pid} -o comm=`, { encoding: 'utf8' }).trim().split('/').pop();
+  } catch {
+    return '';
+  }
+}
+
 let freed = 0;
+let skipped = 0;
 for (const port of PORTS) {
   for (const pid of pidsOnPort(port)) {
+    const name = processName(pid);
+    if (DOCKER_PROC.test(name)) {
+      console.log(`free-ports: :${port} is published by Docker (${name}) - skipped; run \`docker compose stop\` to free it`);
+      skipped++;
+      continue;
+    }
     try {
       execSync(isWin ? `taskkill /PID ${pid} /F` : `kill -9 ${pid}`, { stdio: 'ignore' });
       console.log(`free-ports: freed :${port} (killed PID ${pid})`);
@@ -44,4 +67,4 @@ for (const port of PORTS) {
     }
   }
 }
-if (freed === 0) console.log('free-ports: all dev ports already free');
+if (freed === 0 && skipped === 0) console.log('free-ports: all dev ports already free');
