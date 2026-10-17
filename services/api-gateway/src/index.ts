@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import { mountProxyRoutes } from './routes.js';
 import { randomUUID } from 'node:crypto';
@@ -88,7 +88,8 @@ const moneyLimiter = rateLimit({
   skip: (req) => !WRITE_METHODS.has(req.method),
   keyGenerator: (req) => {
     const user = req.headers['x-user-id'];
-    return typeof user === 'string' && user ? `user:${user}` : `ip:${req.ip ?? 'unknown'}`;
+    // ipKeyGenerator collapses an IPv6 address to its /56 so one client cannot dodge the limit by rotating addresses.
+    return typeof user === 'string' && user ? `user:${user}` : `ip:${ipKeyGenerator(req.ip ?? 'unknown')}`;
   },
   // Count in Redis; if Redis is down, serve the request rather than turn a cache outage into a payments outage.
   passOnStoreError: true,
