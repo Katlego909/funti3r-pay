@@ -5,7 +5,7 @@
   "private": true,
   "packageManager": "pnpm@9.0.0",
   "engines": {
-    "node": ">=22.12.0",
+    "node": ">=22.13.0",
     "pnpm": ">=9.0.0"
   },
   "scripts": {
@@ -20,13 +20,13 @@
     "type-check": "turbo run type-check"
   },
   "devDependencies": {
+    "@eslint/js": "^10",
     "@types/node": "^20.10.0",
-    "@typescript-eslint/eslint-plugin": "7",
-    "@typescript-eslint/parser": "7",
-    "eslint": "8",
+    "eslint": "^10.13.0",
     "prettier": "^3.9.10",
     "turbo": "^2.11.9",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "typescript-eslint": "^8"
   },
   "pnpm": {
     "overrides": {

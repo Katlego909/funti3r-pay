@@ -58,7 +58,7 @@ function parseBody(req: express.Request, res: express.Response, next: express.Ne
     if (aborted) return;
     try {
       req.body = data ? JSON.parse(data) : {};
-    } catch (e) {
+    } catch {
       req.body = {};
     }
     next();
@@ -1107,7 +1107,7 @@ app.get('/invites', async (req, res) => {
       [membership.ownerUserId],
     );
     return res.json({ invites: result.rows });
-  } catch (err) {
+  } catch {
     return res.status(500).json({ error: 'Failed to list invites' });
   }
 });
@@ -1157,7 +1157,7 @@ app.get('/invites/:token', async (req, res) => {
       return res.status(410).json({ error: 'Invite has expired or already been used' });
     }
     return res.json({ email: invite.email, enterpriseId: invite.enterprise_id, companyName: invite.company_name });
-  } catch (err) {
+  } catch {
     return res.status(500).json({ error: 'Failed to validate invite' });
   }
 });
@@ -1456,7 +1456,7 @@ app.patch('/notifications/read-all', async (req, res) => {
       [userId],
     );
     res.json({ ok: true });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1474,7 +1474,7 @@ app.patch('/notifications/:id/read', async (req, res) => {
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Notification not found' });
     res.json({ ok: true });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Internal server error' });
   }
 });

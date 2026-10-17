@@ -73,7 +73,7 @@ export default function MoneyGramCashoutModal({ open, onClose, onChanged }: Prop
       onChanged();
       return txHash;
     } catch (err: any) {
-      throw new Error(err?.response?.data?.error ?? 'Could not send the funds to MoneyGram');
+      throw new Error(err?.response?.data?.error ?? 'Could not send the funds to MoneyGram', { cause: err });
     }
   }
 

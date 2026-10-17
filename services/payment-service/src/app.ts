@@ -59,7 +59,7 @@ export async function requireCompliance(workerId: string): Promise<void> {
     if (msg === 'Worker KYC not verified') throw err;
     // Compliance service unreachable — fail safe
     logger.error('Compliance check failed — blocking payout', { workerId, error: msg });
-    throw new Error('Compliance service unavailable');
+    throw new Error('Compliance service unavailable', { cause: err });
   }
 }
 
@@ -375,7 +375,7 @@ async function executePayoutInner(opts: {
         ]);
         const xlmEquivalent = usdValue > 0 && xlmUsd > 0 ? (usdValue / xlmUsd).toFixed(7) : '0';
         if (Number(xlmEquivalent) <= 0) {
-          throw new Error(`Cannot price XLM fallback for ${amountNum} ${asset} — FX rate unavailable`);
+          throw new Error(`Cannot price XLM fallback for ${amountNum} ${asset} — FX rate unavailable`, { cause: pathErr });
         }
         claimableXlm = xlmEquivalent;
 
@@ -970,7 +970,7 @@ app.get('/payouts/recent', async (req, res) => {
       [scopeId, limit],
     );
     res.json({ payments: result.rows });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -995,7 +995,7 @@ app.get('/payouts/fx', async (_req, res) => {
       if (c.kind === 'local' && rates[c.code]) out[c.code] = rates[c.code];
     }
     res.json({ base: 'USD', rates: out });
-  } catch (err) {
+  } catch {
     res.status(502).json({ error: 'Failed to fetch FX rates' });
   }
 });

@@ -82,7 +82,7 @@ async function executeSchedule(
     memo: r.memo ?? undefined,
   }));
 
-  let runStatus: 'success' | 'partial' | 'failed' = 'failed';
+  let runStatus: 'success' | 'partial' | 'failed';
 
   try {
     // Deterministic per-due-run key: stable if this exact run is retried (e.g.
