@@ -25,6 +25,7 @@ import {
 } from '@funti3r/shared-utils';
 import { sendRecoveryEmail } from './lib/email.js';
 import { hasSessionFor } from './lib/sessionAuth.js';
+import { decoyCredentialId } from './lib/loginDecoy.js';
 import { metrics } from './metrics.js';
 import { initPostgres, runInitialMigrations, initRedis, getRedis, query, transaction, setJSON, getJSON, deleteKey } from '@funti3r/database';
 import { UserRole } from '@funti3r/shared-types';
@@ -79,6 +80,7 @@ const RP_NAME = process.env.RP_NAME || 'Funti3r-Pay';
 const RP_ID = process.env.RP_ID || 'localhost';
 const RP_ORIGIN = process.env.RP_ORIGIN || 'http://localhost:3100';
 const REFRESH_TOKEN_TTL_SEC = 60 * 60 * 24 * 7; // 7 days
+const LOGIN_SESSION_EXPIRED = 'Authentication session expired. Please start again.';
 const CHALLENGE_TTL_SEC = 600; // 10 minutes
 // Access token TTL is controlled by JWT_EXPIRATION env var (default 24h; set to 15m for production)
 
@@ -590,7 +592,18 @@ const loginStartHandler = async (req: express.Request, res: express.Response) =>
         WHERE u.email = $1 AND uc.origin = $2`,
       [email, clientOrigin],
     );
-    if (userRow.rows.length === 0) throw new NotFoundError('User or credential for this origin');
+    if (userRow.rows.length === 0) {
+      // Answer exactly as for a real account, naming a credential that cannot exist; the ceremony then fails like a
+      // wrong passkey. Otherwise this endpoint would tell anyone which emails have accounts.
+      const decoyId = decoyCredentialId(email, clientOrigin);
+      const options = await generateAuthenticationOptions({
+        rpID: RP_ID,
+        userVerification: 'required',
+        allowCredentials: [{ id: decoyId, transports: ['internal'] }],
+      });
+      await setJSON(`auth:decoy:${decoyId}`, { challenge: options.challenge }, CHALLENGE_TTL_SEC);
+      return res.json(options);
+    }
 
     const { id: userId, credential_id, transports } = userRow.rows[0];
 
@@ -610,7 +623,6 @@ const loginStartHandler = async (req: express.Request, res: express.Response) =>
     res.json(options);
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
-    if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
     logger.error('login/start failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -641,34 +653,48 @@ const loginFinishHandler = async (req: express.Request, res: express.Response) =
         WHERE u.email = $1 AND uc.origin = $2`,
       [email, clientOrigin],
     );
-    if (userRow.rows.length === 0) throw new NotFoundError('User or credential for this origin');
+    // Every outcome below has to look the same whether or not the account exists (see login/start).
+    if (userRow.rows.length === 0) {
+      const decoySession = await getJSON<{ challenge: string }>(`auth:decoy:${decoyCredentialId(email, clientOrigin)}`);
+      if (!decoySession) return res.status(400).json({ error: LOGIN_SESSION_EXPIRED });
+      throw new AuthenticationError('Passkey verification failed');
+    }
 
     const { id: userId, role, credential_id, public_key, counter } =
       userRow.rows[0];
 
     const session = await getJSON<{ challenge: string }>(`auth:${userId}`);
     if (!session) {
-      return res.status(400).json({ error: 'Authentication session expired. Please start again.' });
+      return res.status(400).json({ error: LOGIN_SESSION_EXPIRED });
     }
-    const verification = await verifyAuthenticationResponse({
-      response: credential as unknown as Parameters<typeof verifyAuthenticationResponse>[0]['response'],
-      expectedChallenge: session.challenge,
-      expectedOrigin: clientOrigin,
-      expectedRPID: RP_ID,
-      requireUserVerification: false,
-      credential: {
-        id: Buffer.from(credential_id, 'base64').toString('base64url'),
-        publicKey: Buffer.from(public_key, 'base64'),
-        counter,
-      },
-    });
+    let verification: Awaited<ReturnType<typeof verifyAuthenticationResponse>>;
+    try {
+      verification = await verifyAuthenticationResponse({
+        response: credential as unknown as Parameters<typeof verifyAuthenticationResponse>[0]['response'],
+        expectedChallenge: session.challenge,
+        expectedOrigin: clientOrigin,
+        expectedRPID: RP_ID,
+        requireUserVerification: false,
+        credential: {
+          id: Buffer.from(credential_id, 'base64').toString('base64url'),
+          publicKey: Buffer.from(public_key, 'base64'),
+          counter,
+        },
+      });
+    } catch (verifyErr) {
+      // The library throws plain Errors for a wrong credential, challenge or origin: all the same "wrong passkey" to
+      // the caller (a 500 here would also tell a real account from a decoy).
+      logger.warn('login/finish: WebAuthn verification threw', { email, error: String(verifyErr) });
+      throw new AuthenticationError('Passkey verification failed');
+    }
 
     if (!verification.verified) throw new AuthenticationError('Passkey verification failed');
 
-    // Update the signature counter (replay-attack prevention)
+    // Update this passkey's signature counter (replay-attack prevention) — only this origin's: the user's passkeys on
+    // other origins keep their own counters.
     await query(
-      'UPDATE user_credentials SET counter = $1 WHERE user_id = $2',
-      [verification.authenticationInfo.newCounter, userId],
+      'UPDATE user_credentials SET counter = $1 WHERE user_id = $2 AND origin = $3',
+      [verification.authenticationInfo.newCounter, userId, clientOrigin],
     );
 
     await deleteKey(`auth:${userId}`);
@@ -687,7 +713,6 @@ const loginFinishHandler = async (req: express.Request, res: express.Response) =
   } catch (err) {
     if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     if (err instanceof AuthenticationError) return res.status(401).json({ error: err.message });
-    if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
     logger.error('login/finish failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
   }

@@ -5,6 +5,14 @@ import { toast } from 'sonner';
 import { loginPasskey, devLogin } from '../api/auth.js';
 import { useAuthStore } from '../store/authStore.js';
 
+// No passkey for this email here, the wrong passkey and a dismissed prompt all get the same message: the server
+// deliberately doesn't say which, as that would tell anyone whether an email has an account.
+function loginErrorMessage(err: unknown): string {
+  const apiError = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+  if (apiError && !/verification failed/i.test(apiError)) return apiError;
+  return "Couldn't sign in with a passkey on this device. Check the email, or use “Get a sign-in link” if this is a new device.";
+}
+
 export default function Login() {
   const navigate = useNavigate();
   const setSession = useAuthStore((s) => s.setSession);
@@ -19,8 +27,7 @@ export default function Login() {
       setSession({ userId: session.userId, email: session.email, role: session.role, companyId: session.companyId ?? undefined }, session.accessToken);
       navigate('/');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Login failed';
-      toast.error(msg.includes('cancelled') ? 'Passkey prompt cancelled.' : msg);
+      toast.error(loginErrorMessage(err));
     } finally {
       setLoading(false);
     }
