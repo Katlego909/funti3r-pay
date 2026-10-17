@@ -5,6 +5,9 @@ export interface Payment {
   enterprise_id: string;
   worker_id: string;
   worker_email?: string;
+  // Who paid: shown to the worker. Only /payouts/recent includes these.
+  enterprise_email?: string;
+  company_name?: string | null;
   amount: number;
   currency: string;
   status: string;

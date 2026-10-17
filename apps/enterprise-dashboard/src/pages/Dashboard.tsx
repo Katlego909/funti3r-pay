@@ -9,7 +9,7 @@ import {
   HiOutlineArrowTopRightOnSquare,
   HiOutlineLockClosed,
 } from 'react-icons/hi2';
-import { exportAnalyticsCSV, exportAnalyticsPDF } from '../utils/export.js';
+import { exportAnalyticsCSV, exportAnalyticsPDF, formatCompanyLabel } from '../utils/export.js';
 import ExportButtons from '../components/ExportButtons.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 import {
@@ -312,7 +312,11 @@ export default function Dashboard() {
                   {recent.map((p) => (
                     <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
                       <td data-label="ID">#{p.id.slice(0, 8)}</td>
-                      <td data-label={isEnterprise ? 'Worker' : 'From'}>{p.worker_email ?? p.worker_id.slice(0, 8)}</td>
+                      <td data-label={isEnterprise ? 'Worker' : 'From'}>
+                        {isEnterprise
+                          ? p.worker_email ?? p.worker_id.slice(0, 8)
+                          : formatCompanyLabel(p.company_name, p.enterprise_email ?? p.enterprise_id.slice(0, 8))}
+                      </td>
                       <td data-label="Amount">{dc.format(p.amount, p.currency)}</td>
                       <td data-label="Rail" style={{ whiteSpace: 'nowrap' }}>{RAIL_LABELS[p.rail ?? 'stellar'] ?? p.rail}</td>
                       <td data-label="Status">

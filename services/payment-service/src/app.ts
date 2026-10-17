@@ -960,10 +960,13 @@ app.get('/payouts/recent', async (req, res) => {
   try {
     const result = await query(
       `SELECT p.id, p.enterprise_id, p.worker_id, u.email AS worker_email,
+              e.email AS enterprise_email, comp.company_name,
               p.amount, p.currency, p.status, 'stellar' AS rail, p.stellar_tx_hash,
               p.created_at, p.updated_at
          FROM payments p
          LEFT JOIN users u ON u.id = p.worker_id
+         LEFT JOIN users e ON e.id = p.enterprise_id
+         LEFT JOIN enterprises comp ON comp.user_id = p.enterprise_id
          WHERE ${scopeColumn} = $1
          ORDER BY p.created_at DESC
          LIMIT $2`,
