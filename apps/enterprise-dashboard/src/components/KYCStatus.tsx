@@ -24,6 +24,10 @@ export function KYCStatus({ onStatusChange }: { onStatusChange?: (status: KYCSta
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Poll quickly only while a review is in flight; otherwise just notice a resubmission now and then. Never poll
+  // from a background tab.
+  const pollMs = status?.status === 'pending' ? 5_000 : 30_000;
+
   useEffect(() => {
     if (!user?.userId) {
       setLoading(false);
@@ -31,9 +35,11 @@ export function KYCStatus({ onStatusChange }: { onStatusChange?: (status: KYCSta
     }
 
     fetchKYCStatus();
-    const interval = setInterval(fetchKYCStatus, 5000);
+    const interval = setInterval(() => {
+      if (!document.hidden) fetchKYCStatus();
+    }, pollMs);
     return () => clearInterval(interval);
-  }, [user?.userId]);
+  }, [user?.userId, pollMs]);
 
   const fetchKYCStatus = async () => {
     try {

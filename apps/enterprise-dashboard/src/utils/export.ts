@@ -1,5 +1,8 @@
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// jsPDF + autotable are ~400 KB, so they load only when someone actually exports a PDF.
+async function loadPdf() {
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+  return { jsPDF, autoTable };
+}
 
 function timestamp() {
   const d = new Date();
@@ -34,7 +37,7 @@ export function exportCSV(headers: string[], rows: unknown[][], filename: string
 
 // ── PDF ───────────────────────────────────────────────────────────────────────
 
-export function exportPDF(
+export async function exportPDF(
   title: string,
   subtitle: string,
   headers: string[],
@@ -42,6 +45,7 @@ export function exportPDF(
   filename: string,
   columnStyles?: Record<number, { cellWidth?: 'auto' | 'wrap' | number }>,
 ) {
+  const { jsPDF, autoTable } = await loadPdf();
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
 
@@ -116,7 +120,7 @@ export function exportPaymentsCSV(payments: ExportPayment[], suffix = '') {
   exportCSV(PAYMENT_HEADERS, payments.map(paymentRow), `funti3rpay-payments${suffix}-${timestamp()}.csv`);
 }
 export function exportPaymentsPDF(payments: ExportPayment[], suffix = '') {
-  exportPDF(
+  return exportPDF(
     'Payment Report',
     new Date().toLocaleDateString(),
     PAYMENT_HEADERS,
@@ -176,7 +180,7 @@ export function exportMilestonesPDF(milestones: ExportMilestone[], suffix = '') 
     shortHash(m.refundTxHash),
   ]);
   // Short columns (amounts, status, dates) take their content's width so a date never breaks across lines.
-  exportPDF(
+  return exportPDF(
     'Escrow Milestones Report',
     new Date().toLocaleDateString(),
     MILESTONE_HEADERS,
@@ -225,7 +229,7 @@ export function exportCashoutsPDF(cashouts: ExportCashout[]) {
     row[8] = shortHash(c.settlementHash);
     return row;
   });
-  exportPDF(
+  return exportPDF(
     'Cash-out Report',
     new Date().toLocaleDateString(),
     CASHOUT_HEADERS,
@@ -265,7 +269,7 @@ export function exportWorkersCSV(workers: ExportWorker[]) {
   exportCSV(WORKER_HEADERS, workers.map(workerRow), `funti3rpay-workers-${timestamp()}.csv`);
 }
 export function exportWorkersPDF(workers: ExportWorker[]) {
-  exportPDF('Worker Report', new Date().toLocaleDateString(), WORKER_HEADERS, workers.map(workerRow), `funti3rpay-workers-${timestamp()}.pdf`);
+  return exportPDF('Worker Report', new Date().toLocaleDateString(), WORKER_HEADERS, workers.map(workerRow), `funti3rpay-workers-${timestamp()}.pdf`);
 }
 
 // ── Payslip ───────────────────────────────────────────────────────────────────
@@ -292,7 +296,8 @@ export interface PayslipData {
   completedAt?: string | null;
 }
 
-export function generatePayslip(p: PayslipData) {
+export async function generatePayslip(p: PayslipData) {
+  const { jsPDF, autoTable } = await loadPdf();
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
   const W = doc.internal.pageSize.getWidth();
   const M = 56;
@@ -428,7 +433,8 @@ export function exportAnalyticsCSV(summary: ExportSummary, recentPayments: Expor
   exportCSV([], all, `funti3rpay-analytics-${timestamp()}.csv`);
 }
 
-export function exportAnalyticsPDF(summary: ExportSummary, recentPayments: ExportPayment[]) {
+export async function exportAnalyticsPDF(summary: ExportSummary, recentPayments: ExportPayment[]) {
+  const { jsPDF, autoTable } = await loadPdf();
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
 

@@ -141,3 +141,6 @@ AppData/
 
 # Local session-log notes for AI-assisted work - not project documentation.
 context/sessions/
+
+# Vite leaves these behind when its dev server is killed
+*.timestamp-*.mjs

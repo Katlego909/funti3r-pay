@@ -17,36 +17,45 @@ import {
   HiOutlineBell,
   HiOutlineLockClosed,
 } from 'react-icons/hi2';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { toast } from 'sonner';
 import { useNotificationStore } from './store/notificationStore.js';
-import Dashboard from './pages/Dashboard.js';
-import Payments from './pages/Payments.js';
-import Schedules from './pages/Schedules.js';
-import Escrows from './pages/Escrows.js';
-import Workers from './pages/Workers.js';
-import Profile from './pages/Profile.js';
-import Settings from './pages/Settings.js';
-import Support from './pages/Support.js';
-import WorkerProfile from './pages/WorkerProfile.js';
-import Wallet from './pages/Wallet.js';
-import KYC from './pages/KYC.js';
-import PaymentHistory from './pages/PaymentHistory.js';
-import Login from './pages/Login.js';
-import Register from './pages/Register.js';
-import Landing from './pages/Landing.js';
-import Terms from './pages/Terms.js';
-import Privacy from './pages/Privacy.js';
-import Compliance from './pages/Compliance.js';
-import Proof from './pages/Proof.js';
-import HelpCenter from './pages/HelpCenter.js';
-import RecoveryStart from './pages/RecoveryStart.js';
-import RecoveryVerify from './pages/RecoveryVerify.js';
 import { useAuthStore } from './store/authStore.js';
 import { logout } from './api/auth.js';
 import GlobalSearch from './components/GlobalSearch.js';
 import { Toaster } from 'sonner';
+// Shared styles (tables, cards, landing/legal layout) that several pages use without importing them themselves. They
+// used to arrive as a side effect of importing Dashboard/Landing/HelpCenter here, so they stay global and in this
+// order — before App.css, as before — now that those pages load on demand.
+import './styles/Dashboard.css';
+import './styles/Landing.css';
+import './styles/HelpCenter.css';
 import './App.css';
+
+// Each page is its own chunk, so a visitor downloads only the screen they open (charts, PDF and the long legal
+// pages stay out of the first load).
+const Dashboard = lazy(() => import('./pages/Dashboard.js'));
+const Payments = lazy(() => import('./pages/Payments.js'));
+const Schedules = lazy(() => import('./pages/Schedules.js'));
+const Escrows = lazy(() => import('./pages/Escrows.js'));
+const Workers = lazy(() => import('./pages/Workers.js'));
+const Profile = lazy(() => import('./pages/Profile.js'));
+const Settings = lazy(() => import('./pages/Settings.js'));
+const Support = lazy(() => import('./pages/Support.js'));
+const WorkerProfile = lazy(() => import('./pages/WorkerProfile.js'));
+const Wallet = lazy(() => import('./pages/Wallet.js'));
+const KYC = lazy(() => import('./pages/KYC.js'));
+const PaymentHistory = lazy(() => import('./pages/PaymentHistory.js'));
+const Login = lazy(() => import('./pages/Login.js'));
+const Register = lazy(() => import('./pages/Register.js'));
+const Landing = lazy(() => import('./pages/Landing.js'));
+const Terms = lazy(() => import('./pages/Terms.js'));
+const Privacy = lazy(() => import('./pages/Privacy.js'));
+const Compliance = lazy(() => import('./pages/Compliance.js'));
+const Proof = lazy(() => import('./pages/Proof.js'));
+const HelpCenter = lazy(() => import('./pages/HelpCenter.js'));
+const RecoveryStart = lazy(() => import('./pages/RecoveryStart.js'));
+const RecoveryVerify = lazy(() => import('./pages/RecoveryVerify.js'));
 
 function hasToken(): boolean {
   const storeToken = useAuthStore.getState().accessToken;
@@ -427,6 +436,7 @@ function AuthedApp({ role }: { role: string }) {
       <div className="content-area">
         <TopBar role={role} onMenuToggle={() => setSidebarOpen((o) => !o)} />
         <main className="main">
+          <Suspense fallback={null}>
           <Routes>
             {isWorker ? (
               <>
@@ -452,6 +462,7 @@ function AuthedApp({ role }: { role: string }) {
             )}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
         </main>
       </div>
     </div>
@@ -474,6 +485,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Toaster position="top-right" richColors closeButton />
+      <Suspense fallback={null}>
       <Routes>
         {/* Always-public pages */}
         <Route path="/terms" element={<Terms />} />
@@ -495,6 +507,7 @@ export default function App() {
           <Route path="/*" element={<AuthedApp role={role} />} />
         )}
       </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }
