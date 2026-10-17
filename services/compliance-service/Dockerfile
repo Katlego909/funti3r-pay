@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
@@ -13,7 +13,7 @@ RUN pnpm --filter @funti3r/shared-utils build
 RUN pnpm --filter @funti3r/database build
 RUN pnpm --filter @funti3r/compliance-service build
 
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
