@@ -16,7 +16,7 @@ export async function registerPasskey(email: string, role = 'enterprise', invite
 
     // 2. Browser prompts user to create passkey
     console.log('[WebAuthn] Auth payload sent to startRegistration:', options);
-    const registrationResponse = await startRegistration(options);
+    const registrationResponse = await startRegistration({ optionsJSON: options });
     console.log('[WebAuthn] Registration response received:', registrationResponse);
     console.log('[WebAuthn] Credential created:', registrationResponse.id);
 
@@ -56,7 +56,7 @@ export async function loginPasskey(email: string) {
 
     // 2. Browser prompts user to sign with passkey
     console.log('[WebAuthn] Auth payload sent to startAuthentication:', options);
-    const authenticationResponse = await startAuthentication(options);
+    const authenticationResponse = await startAuthentication({ optionsJSON: options });
     console.log('[WebAuthn] Authentication response received:', authenticationResponse);
 
     // 3. Verify and receive JWT

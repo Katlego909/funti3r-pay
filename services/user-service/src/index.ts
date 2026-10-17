@@ -424,12 +424,10 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
       return res.status(400).json({ error: 'Passkey verification failed' });
     }
 
-    const { credentialID, credentialPublicKey, counter, aaguid } =
-      verification.registrationInfo;
+    const { credential: registered, aaguid } = verification.registrationInfo;
 
-    // transports come from the client credential response, not registrationInfo in v10
     // For platform authenticators (Windows Hello), transports should be ['internal']
-    const transports = (credential as { transports?: string[] }).transports ?? ['internal'];
+    const transports = registered.transports ?? ['internal'];
 
     // Check if user already exists
     const existingUserRow = await query(
@@ -466,17 +464,15 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     }
 
     // Create credential
-    // Store credentialID as base64 string for consistent retrieval
-    const credentialIDBase64 = Buffer.from(credentialID).toString('base64');
     await query(
       `INSERT INTO user_credentials
          (user_id, credential_id, public_key, counter, transports, aaguid, origin)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         userId,
-        credentialIDBase64,
-        Buffer.from(credentialPublicKey).toString('base64'),
-        counter,
+        Buffer.from(registered.id, 'base64url').toString('base64'),
+        Buffer.from(registered.publicKey).toString('base64'),
+        registered.counter,
         transports,
         aaguid,
         clientOrigin,
@@ -589,7 +585,7 @@ const loginStartHandler = async (req: express.Request, res: express.Response) =>
       userVerification: 'required',
       allowCredentials: [
         {
-          id: credential_id,
+          id: Buffer.from(credential_id, 'base64').toString('base64url'),
           transports: transports ?? ['internal'],
         },
       ],
@@ -646,9 +642,9 @@ const loginFinishHandler = async (req: express.Request, res: express.Response) =
       expectedOrigin: clientOrigin,
       expectedRPID: RP_ID,
       requireUserVerification: false,
-      authenticator: {
-        credentialID: credential_id,
-        credentialPublicKey: Buffer.from(public_key, 'base64'),
+      credential: {
+        id: Buffer.from(credential_id, 'base64').toString('base64url'),
+        publicKey: Buffer.from(public_key, 'base64'),
         counter,
       },
     });

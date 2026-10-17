@@ -14,7 +14,7 @@
   "dependencies": {
     "@funti3r/shared-types": "workspace:*",
     "@funti3r/shared-utils": "workspace:*",
-    "@simplewebauthn/browser": "^10.0.0",
+    "@simplewebauthn/browser": "^14.0.0",
     "@stellar/stellar-sdk": "^16.0.0",
     "axios": "^1.6.0",
     "jspdf": "^4.2.1",
