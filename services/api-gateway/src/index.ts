@@ -3,12 +3,11 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
-import { createProxyMiddleware } from 'http-proxy-middleware';
+import { mountProxyRoutes } from './routes.js';
 import { randomUUID } from 'node:crypto';
 import { createLogger, assertInternalAuthConfigured, assertJwtConfigured, stripIdentity, requestContext, createMetrics } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, getRedis } from '@funti3r/database';
 import { authMiddleware } from './middleware/auth.js';
-import { requireRole } from './middleware/requireRole.js';
 
 const logger = createLogger('APIGateway');
 const app = express();
@@ -182,67 +181,7 @@ app.get('/status', async (_, res) => {
   });
 });
 
-// ── Proxy configuration ───────────────────────────────────────────────────────
-
-function proxy(target: string, pathRewrite?: Record<string, string>) {
-  return createProxyMiddleware({
-    target,
-    changeOrigin: true,
-    pathRewrite,
-    timeout: 30000,
-    on: {
-      error: (err, _req, res) => {
-        logger.error('Proxy error', { target, error: String(err) });
-        if (!('headersSent' in res && res.headersSent)) {
-          (res as express.Response).status(503).json({ error: 'Service temporarily unavailable' });
-        }
-      },
-    },
-  });
-}
-
-// Rebuild path for stripped auth routes
-app.use((req, _res, next) => {
-  if (req.path.match(/^\/(register|login|refresh|logout)\//)) {
-    logger.debug('Rebuilding auth path', { from: req.url, to: '/auth' + req.url });
-    req.url = '/auth' + req.url;
-  }
-  next();
-});
-
-// Auth & Users → user-service
-app.all('/auth*', proxy(USER_SERVICE));
-app.all('/api/auth*', proxy(USER_SERVICE, { '^/api/auth': '/auth' }));
-app.all('/users*', proxy(USER_SERVICE));
-app.all('/api/users*', proxy(USER_SERVICE, { '^/api/users': '/users' }));
-app.all('/invites*', proxy(USER_SERVICE));
-app.all('/api/invites*', proxy(USER_SERVICE, { '^/api/invites': '/invites' }));
-app.all('/company*', proxy(USER_SERVICE));
-app.all('/api/company*', proxy(USER_SERVICE, { '^/api/company': '/company' }));
-app.all('/notifications*', proxy(USER_SERVICE));
-app.all('/api/notifications*', proxy(USER_SERVICE, { '^/api/notifications': '/notifications' }));
-
-// Wallets & Payouts → payment-service
-app.all('/wallets*', proxy(PAYMENT_SERVICE));
-app.all('/api/wallets*', proxy(PAYMENT_SERVICE, { '^/api/wallets': '/wallets' }));
-app.all('/payouts*', proxy(PAYMENT_SERVICE));
-app.all('/api/payouts*', proxy(PAYMENT_SERVICE, { '^/api/payouts': '/payouts' }));
-app.all('/schedules*', proxy(PAYMENT_SERVICE));
-app.all('/api/schedules*', proxy(PAYMENT_SERVICE, { '^/api/schedules': '/schedules' }));
-app.all('/escrows*', proxy(PAYMENT_SERVICE));
-app.all('/api/escrows*', proxy(PAYMENT_SERVICE, { '^/api/escrows': '/escrows' }));
-app.all('/cashouts*', proxy(PAYMENT_SERVICE));
-app.all('/api/cashouts*', proxy(PAYMENT_SERVICE, { '^/api/cashouts': '/cashouts' }));
-
-// Compliance → compliance-service
-// /screen is for the payment service (screening the employer behind an escrow), not for browsers: left reachable it
-// would let any signed-in user test arbitrary names against the sanctions list.
-app.all(['/compliance/screen', '/api/compliance/screen'], (_req, res) => res.status(404).json({ error: 'Not found' }));
-app.all(['/compliance*', '/api/compliance*'], proxy(COMPLIANCE_URL, { '^/api/compliance': '', '^/compliance': '' }));
-
-// Analytics → analytics-service
-// Event data spans every company and nothing in the product reads it yet, so it is for platform admins only.
-app.use('/analytics', requireRole('admin'), proxy(ANALYTICS_URL));
+mountProxyRoutes(app, { user: USER_SERVICE, payment: PAYMENT_SERVICE, compliance: COMPLIANCE_URL, analytics: ANALYTICS_URL });
 
 // ── Error Handler ────────────────────────────────────────────────────────────
 
