@@ -24,6 +24,7 @@ import {
   assertJwtConfigured,
 } from '@funti3r/shared-utils';
 import { sendRecoveryEmail } from './lib/email.js';
+import { hasSessionFor } from './lib/sessionAuth.js';
 import { metrics } from './metrics.js';
 import { initPostgres, runInitialMigrations, initRedis, getRedis, query, transaction, setJSON, getJSON, deleteKey } from '@funti3r/database';
 import { UserRole } from '@funti3r/shared-types';
@@ -436,6 +437,7 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     );
 
     let userId: string;
+    let replacesCredential = false;
     if (existingUserRow.rows.length > 0) {
       // User exists, check if they already have a credential for this origin
       userId = existingUserRow.rows[0].id;
@@ -444,7 +446,13 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
         [userId, clientOrigin],
       );
       if (existingCredentialRow.rows.length > 0) {
-        return res.status(409).json({ error: 'You already have a credential registered for this browser/origin' });
+        // Only someone already signed in as this user (e.g. via a recovery link, on a new or reset device) may
+        // replace the passkey for this origin. This route is public, so without that check anyone who knows an
+        // email could take the account over.
+        if (!hasSessionFor(req, userId)) {
+          return res.status(409).json({ error: 'You already have a credential registered for this browser/origin' });
+        }
+        replacesCredential = true;
       }
     } else {
       // New user, create them with a classic Stellar ed25519 account.
@@ -464,20 +472,26 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     }
 
     // Create credential
-    await query(
-      `INSERT INTO user_credentials
-         (user_id, credential_id, public_key, counter, transports, aaguid, origin)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [
-        userId,
-        Buffer.from(registered.id, 'base64url').toString('base64'),
-        Buffer.from(registered.publicKey).toString('base64'),
-        registered.counter,
-        transports,
-        aaguid,
-        clientOrigin,
-      ],
-    );
+    // Replacing and inserting happen together, so a failure can never leave the user with no passkey at all.
+    await transaction(async (client) => {
+      if (replacesCredential) {
+        await client.query(`DELETE FROM user_credentials WHERE user_id = $1 AND origin = $2`, [userId, clientOrigin]);
+      }
+      await client.query(
+        `INSERT INTO user_credentials
+           (user_id, credential_id, public_key, counter, transports, aaguid, origin)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          userId,
+          Buffer.from(registered.id, 'base64url').toString('base64'),
+          Buffer.from(registered.publicKey).toString('base64'),
+          registered.counter,
+          transports,
+          aaguid,
+          clientOrigin,
+        ],
+      );
+    });
 
     // Note: workers use their classic Stellar account (created above) for payments.
     // No Soroban SmartWallet deployment — that path was removed.
