@@ -22,6 +22,14 @@ export async function runInitialMigrations(migrationsDir?: string) {
   const pool = await getPostgres();
   const client = await pool.connect();
 
+  // A migration that has to skip a change (data in the way) says so with RAISE WARNING; without this nobody would
+  // ever see it. Plain NOTICEs ("index does not exist, skipping") are left out.
+  let currentFile: string | undefined;
+  const onNotice = (msg: { severity?: string; message?: string }) => {
+    if (msg.severity === 'WARNING') logger.warn('Migration warning', { file: currentFile, message: msg.message });
+  };
+  client.on('notice', onNotice);
+
   try {
     await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_KEY]);
 
@@ -48,6 +56,7 @@ export async function runInitialMigrations(migrationsDir?: string) {
         continue;
       }
       const sql = readFileSync(join(migrationsDir, file), 'utf8');
+      currentFile = file;
       logger.info('Applying migration', { file });
 
       // The SQL and its _migrations record must land atomically — otherwise
@@ -65,6 +74,7 @@ export async function runInitialMigrations(migrationsDir?: string) {
       logger.info('Migration applied', { file });
     }
   } finally {
+    client.off('notice', onNotice);
     await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]);
     client.release();
   }
