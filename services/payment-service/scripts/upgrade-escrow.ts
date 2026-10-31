@@ -11,13 +11,13 @@
 import {
   BASE_FEE,
   Keypair,
-  Networks,
   Operation,
   TransactionBuilder,
   hash,
   nativeToScVal,
   rpc,
 } from '@stellar/stellar-sdk';
+import { stellarNetwork } from '@funti3r/shared-utils';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -29,11 +29,12 @@ const WASM_PATH = process.env.ESCROW_WASM_PATH ?? join(
   '../../../contracts/target/wasm32v1-none/release/funti3r_escrow.wasm',
 );
 
-const server = new rpc.Server(process.env.STELLAR_SOROBAN_URL || 'https://soroban-testnet.stellar.org');
+const NETWORK = stellarNetwork();
+const server = new rpc.Server(NETWORK.sorobanUrl);
 
 async function submit(keypair: Keypair, operation: ReturnType<typeof Operation.uploadContractWasm>) {
   const account = await server.getAccount(keypair.publicKey());
-  const tx = new TransactionBuilder(account, { fee: String(Number(BASE_FEE) * 100), networkPassphrase: Networks.TESTNET })
+  const tx = new TransactionBuilder(account, { fee: String(Number(BASE_FEE) * 100), networkPassphrase: NETWORK.passphrase })
     .addOperation(operation)
     .setTimeout(60)
     .build();
@@ -72,7 +73,7 @@ async function main() {
     }),
   );
   console.log(`upgrade tx: ${upgradeTx}`);
-  console.log(`https://stellar.expert/explorer/testnet/contract/${contractAddress}`);
+  console.log(`${NETWORK.explorerUrl}/contract/${contractAddress}`);
 }
 
 main().then(

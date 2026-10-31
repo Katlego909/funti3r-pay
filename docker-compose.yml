@@ -135,9 +135,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       PAYMENT_SERVICE_PORT: "3002"
       COMPLIANCE_SERVICE_URL: http://compliance-service:3003
-      STELLAR_HORIZON_URL: https://horizon-testnet.stellar.org
-      STELLAR_SOROBAN_URL: https://soroban-testnet.stellar.org
-      STELLAR_NETWORK: TESTNET
+      # The Stellar network (STELLAR_NETWORK, STELLAR_HORIZON_URL, STELLAR_SOROBAN_URL) comes from .env.local; the services
+      # refuse to start on MAINNET without explicit endpoints.
     depends_on:
       postgres:
         condition: service_healthy

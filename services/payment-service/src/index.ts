@@ -1,6 +1,6 @@
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { createLogger, assertInternalAuthConfigured } from '@funti3r/shared-utils';
+import { createLogger, assertInternalAuthConfigured, stellarNetwork } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, runInitialMigrations, query } from '@funti3r/database';
 import { PaymentStatus } from '@funti3r/shared-types';
 import * as stellar from './lib/stellar.js';
@@ -52,7 +52,7 @@ async function start() {
   const PORT = parseInt(process.env.PAYMENT_SERVICE_PORT || '3002', 10);
   assertInternalAuthConfigured();
   app.listen(PORT, '0.0.0.0', () => {
-    logger.info(`Payment Service running on port ${PORT}`);
+    logger.info(`Payment Service running on port ${PORT}`, { stellarNetwork: stellarNetwork().name });
   });
 }
 

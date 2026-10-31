@@ -1,5 +1,5 @@
 /**
- * Deploys the funti3r-escrow contract to testnet.
+ * Deploys the funti3r-escrow contract to the network chosen by STELLAR_NETWORK (testnet by default).
  *
  * Prereqs:
  *   1. cd contracts && cargo build --target wasm32v1-none --release -p funti3r-escrow
@@ -18,12 +18,12 @@ import {
   BASE_FEE,
   nativeToScVal,
   Keypair,
-  Networks,
   Operation,
   TransactionBuilder,
   hash,
   rpc,
 } from '@stellar/stellar-sdk';
+import { stellarNetwork } from '@funti3r/shared-utils';
 import { readFileSync } from 'fs';
 import { randomBytes } from 'crypto';
 import { fileURLToPath } from 'url';
@@ -34,7 +34,8 @@ const WASM_PATH = join(
   '../../../contracts/target/wasm32v1-none/release/funti3r_escrow.wasm',
 );
 
-const SOROBAN_URL = process.env.STELLAR_SOROBAN_URL || 'https://soroban-testnet.stellar.org';
+const NETWORK = stellarNetwork();
+const SOROBAN_URL = NETWORK.sorobanUrl;
 const server = new rpc.Server(SOROBAN_URL);
 
 async function pollTransaction(txHash: string): Promise<rpc.Api.GetTransactionResponse> {
@@ -53,7 +54,7 @@ async function buildAndSubmit(
   const account = await server.getAccount(keypair.publicKey());
   const tx = new TransactionBuilder(account, {
     fee: String(Number(BASE_FEE) * 100),
-    networkPassphrase: Networks.TESTNET,
+    networkPassphrase: NETWORK.passphrase,
   })
     .addOperation(operation)
     .setTimeout(60)
@@ -110,7 +111,7 @@ async function main() {
   console.log(`Admin            : ${keypair.publicKey()}`);
   console.log(`Compliance       : ${compliancePublic}`);
   console.log(`Deploy tx        : ${create.txHash}`);
-  console.log(`Explorer         : https://stellar.expert/explorer/testnet/contract/${contractAddress}`);
+  console.log(`Explorer         : ${NETWORK.explorerUrl}/contract/${contractAddress}`);
   console.log('\nAdd to .env.local:');
   console.log(`ESCROW_CONTRACT_ADDRESS=${contractAddress}`);
 }

@@ -4,7 +4,7 @@ import CopyButton from './CopyButton.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import type { DisplayCurrency } from '../lib/displayCurrency.js';
 
-const EXPLORER = 'https://stellar.expert/explorer/testnet';
+import { EXPLORER } from '../lib/explorer.js';
 
 interface TxRow {
   key: string;

@@ -25,6 +25,7 @@ import MoneyGramCashoutModal from '../components/MoneyGramCashoutModal.js';
 import CashoutsTable from '../components/CashoutsTable.js';
 import WorkerMilestonesTable from '../components/WorkerMilestonesTable.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
+import { EXPLORER } from '../lib/explorer.js';
 
 interface WalletBalance {
   asset_type: string;
@@ -246,7 +247,7 @@ export default function Wallet() {
                 copiedLabel={<><HiCheck size={14} /> Copied</>}
               />
               <a
-                href={`https://stellar.expert/explorer/testnet/account/${address}`}
+                href={`${EXPLORER}/account/${address}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 600, textDecoration: 'none' }}

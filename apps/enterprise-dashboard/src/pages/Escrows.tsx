@@ -15,6 +15,7 @@ import { StatusBadge } from '../components/StatusBadge.js';
 import EscrowTransactions from '../components/EscrowTransactions.js';
 import EscrowReviewLog from '../components/EscrowReviewLog.js';
 import RejectWorkModal from '../components/RejectWorkModal.js';
+import { EXPLORER } from '../lib/explorer.js';
 
 interface WorkerOption { id: string; email: string }
 /** Employers enter milestone amounts in USD; the XLM that gets locked is derived from the live price. */
@@ -42,7 +43,7 @@ function milestoneBadge(m: Escrow['milestones'][number]): ['completed' | 'failed
   return MILESTONE_BADGE[m.status];
 }
 
-const txLink = (hash: string) => `https://stellar.expert/explorer/testnet/tx/${hash}`;
+const txLink = (hash: string) => `${EXPLORER}/tx/${hash}`;
 
 function EscrowDetailDrawer({
   escrow, acting, onApprove, onReject, onRefund, onClose,

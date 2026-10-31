@@ -6,6 +6,7 @@ import CopyButton from './CopyButton.js';
 import { StatusBadge } from './StatusBadge.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import './WalletInfo.css';
+import { EXPLORER, IS_MAINNET } from '../lib/explorer.js';
 
 interface WalletData {
   userId: string;
@@ -86,7 +87,7 @@ export default function WalletInfo() {
                 style={{ padding: '2px 4px', flexShrink: 0 }}
               />
               <a
-                href={`https://stellar.expert/explorer/testnet/account/${address}`}
+                href={`${EXPLORER}/account/${address}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 title="View on Stellar Explorer"
@@ -113,7 +114,7 @@ export default function WalletInfo() {
         )}
 
         {/* Testnet funding for enterprise only */}
-        {isEnterprise && address && (
+        {isEnterprise && address && !IS_MAINNET && (
           <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '14px 16px' }}>
             <p style={{ margin: '0 0 4px', fontSize: '0.82rem', fontWeight: 600, color: '#1d4ed8' }}>Fund with Friendbot (Testnet)</p>
             <p style={{ margin: '0 0 10px', fontSize: '0.79rem', color: '#3b82f6' }}>

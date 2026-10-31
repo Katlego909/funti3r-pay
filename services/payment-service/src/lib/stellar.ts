@@ -6,19 +6,15 @@ import {
   Operation,
   TransactionBuilder,
   Transaction,
-  Networks,
   Memo,
 } from '@stellar/stellar-sdk';
-import { createLogger } from '@funti3r/shared-utils';
+import { createLogger, stellarNetwork } from '@funti3r/shared-utils';
 import { getRedis, getJSON, setJSON, withAdvisoryLock } from '@funti3r/database';
 import { accountsTouchedBy, balanceCacheKey, forgetBalances } from './balanceCache.js';
 
 const logger = createLogger('StellarService');
 
-const HORIZON_URL =
-  process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org';
-const NETWORK_PASSPHRASE =
-  process.env.STELLAR_NETWORK === 'MAINNET' ? Networks.PUBLIC : Networks.TESTNET;
+const { horizonUrl: HORIZON_URL, passphrase: NETWORK_PASSPHRASE } = stellarNetwork();
 
 const horizon = new Horizon.Server(HORIZON_URL);
 

@@ -13,7 +13,6 @@ import {
   BASE_FEE,
   Contract,
   Keypair,
-  Networks,
   TransactionBuilder,
   nativeToScVal,
   scValToNative,
@@ -21,15 +20,13 @@ import {
   xdr,
 } from '@stellar/stellar-sdk';
 import { createHash } from 'node:crypto';
-import { createLogger } from '@funti3r/shared-utils';
+import { createLogger, stellarNetwork } from '@funti3r/shared-utils';
 import { withAdvisoryLock } from '@funti3r/database';
 import { forgetBalances } from './balanceCache.js';
 
 const logger = createLogger('EscrowService');
 
-const SOROBAN_URL = process.env.STELLAR_SOROBAN_URL || 'https://soroban-testnet.stellar.org';
-const NETWORK_PASSPHRASE =
-  process.env.STELLAR_NETWORK === 'MAINNET' ? Networks.PUBLIC : Networks.TESTNET;
+const { sorobanUrl: SOROBAN_URL, passphrase: NETWORK_PASSPHRASE } = stellarNetwork();
 
 const server = new rpc.Server(SOROBAN_URL);
 

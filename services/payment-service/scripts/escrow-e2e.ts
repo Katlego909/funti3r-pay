@@ -29,12 +29,14 @@ import {
   setClearance,
   setFrozen,
 } from '../src/lib/escrow.js';
+import { stellarNetwork } from '@funti3r/shared-utils';
 
-const horizon = new Horizon.Server(
-  process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org',
-);
+const NETWORK = stellarNetwork();
+// The run funds throwaway accounts through Friendbot, which exists only on testnet.
+if (NETWORK.isMainnet) throw new Error('escrow-e2e is testnet-only');
+const horizon = new Horizon.Server(NETWORK.horizonUrl);
 
-const explorer = (hash: string) => `https://stellar.expert/explorer/testnet/tx/${hash}`;
+const explorer = (hash: string) => `${NETWORK.explorerUrl}/tx/${hash}`;
 
 async function fund(pub: string) {
   await axios.get(`https://friendbot.stellar.org?addr=${encodeURIComponent(pub)}`, {

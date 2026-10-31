@@ -9,6 +9,7 @@ import SlideOver, { Row } from './SlideOver.js';
 import CopyButton from './CopyButton.js';
 import { StatusBadge } from './StatusBadge.js';
 import { currencyColor } from '../lib/currencyMeta.js';
+import { EXPLORER } from '../lib/explorer.js';
 
 interface PaymentDetail {
   id: string;
@@ -145,7 +146,7 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
             <Row label="To">{p.worker_email ?? p.worker_id.slice(0, 8)}</Row>
             {p.stellar_destination && (
               <Row label="Worker address">
-                <a href={`https://stellar.expert/explorer/testnet/account/${p.stellar_destination}`} target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>
+                <a href={`${EXPLORER}/account/${p.stellar_destination}`} target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>
                   {p.stellar_destination.slice(0, 6)}…{p.stellar_destination.slice(-6)}
                 </a>
               </Row>
@@ -175,7 +176,7 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
             {p.stellar_tx_hash && (
               <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <a
-                  href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`}
+                  href={`${EXPLORER}/tx/${p.stellar_tx_hash}`}
                   target="_blank" rel="noopener noreferrer"
                   className="btn-primary"
                   style={{ gap: '6px', textDecoration: 'none' }}

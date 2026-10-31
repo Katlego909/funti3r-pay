@@ -1,6 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
-import { createLogger, decryptFromString, ValidationError, NotFoundError, requireGatewayIdentity, requestContext, registerHealth, parseBody } from '@funti3r/shared-utils';
+import { createLogger, decryptFromString, ValidationError, NotFoundError, requireGatewayIdentity, requestContext, registerHealth, parseBody, stellarNetwork } from '@funti3r/shared-utils';
 import { metrics, payoutsTotal } from './lib/metrics.js';
 import { audit } from './lib/audit.js';
 import { payoutBody, batchPayoutBody } from './lib/schemas.js';
@@ -40,7 +40,7 @@ registerHealth(app, 'payment-service', {
   redis: { critical: false, run: async () => { await (await getRedis()).ping(); } },
   horizon: {
     critical: false,
-    run: async () => { await axios.get(process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org', { timeout: 2500 }); },
+    run: async () => { await axios.get(stellarNetwork().horizonUrl, { timeout: 2500 }); },
   },
 });
 

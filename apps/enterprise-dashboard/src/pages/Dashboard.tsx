@@ -28,6 +28,7 @@ import InsightsCharts, { RAIL_LABELS } from '../components/InsightsCharts.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
 import { statusClass } from '../lib/status.js';
 import '../styles/Dashboard.css';
+import { EXPLORER } from '../lib/explorer.js';
 
 export default function Dashboard() {
   const user = useAuthStore((s) => s.user);
@@ -326,7 +327,7 @@ export default function Dashboard() {
                       <td>
                         {p.stellar_tx_hash && (
                           <a
-                            href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`}
+                            href={`${EXPLORER}/tx/${p.stellar_tx_hash}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             title="View on Stellar Explorer"

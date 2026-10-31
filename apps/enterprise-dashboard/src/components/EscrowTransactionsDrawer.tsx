@@ -8,6 +8,7 @@ import EscrowTransactions from './EscrowTransactions.js';
 import EscrowReviewLog from './EscrowReviewLog.js';
 import EscrowMoneyTrail from './EscrowMoneyTrail.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
+import { EXPLORER } from '../lib/explorer.js';
 
 const STATUS: Record<Escrow['status'], ['completed' | 'pending', string]> = {
   active: ['completed', 'Active'],
@@ -46,7 +47,7 @@ export default function EscrowTransactionsDrawer({ escrow, onClose }: { escrow: 
           <Row label="On-chain ID">#{current.onchainEscrowId}</Row>
           <Row label="Contract">
             <a
-              href={`https://stellar.expert/explorer/testnet/contract/${current.contractAddress}`}
+              href={`${EXPLORER}/contract/${current.contractAddress}`}
               target="_blank"
               rel="noopener noreferrer"
               style={{ fontFamily: 'monospace', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}

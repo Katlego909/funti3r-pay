@@ -12,6 +12,7 @@ import PageHeader from '../components/PageHeader.js';
 import ExportButtons from '../components/ExportButtons.js';
 import { StatusBadge, KycBadge } from '../components/StatusBadge.js';
 import { exportWorkersCSV, exportWorkersPDF } from '../utils/export.js';
+import { EXPLORER } from '../lib/explorer.js';
 
 interface WorkerRow extends Worker {
   kyc?: KYCStatus;
@@ -265,7 +266,7 @@ export default function Workers() {
                   <td data-label="KYC"><KycBadge status={w.kyc?.status} /></td>
                   <td data-label="Wallet">
                     {w.stellar_public_key
-                      ? <a href={`https://stellar.expert/explorer/testnet/account/${w.stellar_public_key}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                      ? <a href={`${EXPLORER}/account/${w.stellar_public_key}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
                           {w.stellar_public_key.slice(0, 8)}…
                         </a>
                       : <StatusBadge variant="pending">None</StatusBadge>}

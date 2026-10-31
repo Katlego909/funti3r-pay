@@ -6,6 +6,7 @@ import SlideOver, { Row, SectionTitle } from './SlideOver.js';
 import CopyButton from './CopyButton.js';
 import { StatusBadge } from './StatusBadge.js';
 import { CURRENCY_META } from '../lib/currencyMeta.js';
+import { EXPLORER } from '../lib/explorer.js';
 
 interface Profile {
   id: string; email: string; status?: string; country?: string | null;
@@ -100,7 +101,7 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
             <SectionTitle>Stellar account</SectionTitle>
             {wallet?.address ? (
               <Row label="Address">
-                <a href={`https://stellar.expert/explorer/testnet/account/${wallet.address}`} target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>
+                <a href={`${EXPLORER}/account/${wallet.address}`} target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>
                   {wallet.address.slice(0, 6)}…{wallet.address.slice(-6)}
                 </a>
               </Row>
@@ -123,7 +124,7 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
                     <StatusBadge status={p.status} style={{ fontSize: '0.62rem' }} />
                     <span style={{ fontSize: '0.74rem', color: '#6b7280' }}>{fmtDate(p.created_at)}</span>
                     {p.stellar_tx_hash
-                      ? <a href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`} target="_blank" rel="noopener noreferrer"><HiOutlineArrowTopRightOnSquare size={13} /></a>
+                      ? <a href={`${EXPLORER}/tx/${p.stellar_tx_hash}`} target="_blank" rel="noopener noreferrer"><HiOutlineArrowTopRightOnSquare size={13} /></a>
                       : <span style={{ width: 13 }} />}
                   </div>
                 ))}

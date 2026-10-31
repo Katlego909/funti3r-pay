@@ -15,6 +15,7 @@ import CopyButton from '../components/CopyButton.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 import { STATUS_TABS } from '../lib/status.js';
 import { CURRENCY_META } from '../lib/currencyMeta.js';
+import { EXPLORER } from '../lib/explorer.js';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string; stellar_public_key?: string }
 interface BatchRow { workerId: string; amountUsd: string }
@@ -370,7 +371,7 @@ export default function Payments() {
                           <td data-label="Amount">{dc.format(r.amount, r.currency)}</td>
                           <td data-label="Status">
                             {r.status === 'completed'
-                              ? <a href={`https://stellar.expert/explorer/testnet/tx/${r.stellarTxHash}`} target="_blank" rel="noopener noreferrer"><StatusBadge variant="completed">completed</StatusBadge></a>
+                              ? <a href={`${EXPLORER}/tx/${r.stellarTxHash}`} target="_blank" rel="noopener noreferrer"><StatusBadge variant="completed">completed</StatusBadge></a>
                               : <StatusBadge variant="failed" title={r.error}>failed</StatusBadge>}
                           </td>
                         </tr>
@@ -439,7 +440,7 @@ export default function Payments() {
                     <td data-label="Date">{new Date(p.created_at).toLocaleDateString()}</td>
                     <td>
                       {p.stellar_tx_hash && (
-                        <a href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                        <a href={`${EXPLORER}/tx/${p.stellar_tx_hash}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
                           <HiOutlineArrowTopRightOnSquare size={14} />
                         </a>
                       )}

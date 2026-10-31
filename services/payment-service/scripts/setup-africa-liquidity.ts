@@ -19,12 +19,16 @@
  *   node --env-file=../../.env.local --import tsx scripts/setup-africa-liquidity.ts
  */
 import {
-  Keypair, Asset, Operation, TransactionBuilder, Networks, Horizon, BASE_FEE,
+  Keypair, Asset, Operation, TransactionBuilder, Horizon, BASE_FEE,
 } from '@stellar/stellar-sdk';
 import axios from 'axios';
+import { stellarNetwork } from '@funti3r/shared-utils';
 
-const HORIZON_URL = process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org';
-const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK === 'MAINNET' ? Networks.PUBLIC : Networks.TESTNET;
+const NETWORK = stellarNetwork();
+// These are stand-in tokens we issue ourselves. On mainnet local currencies come only from licensed anchors.
+if (NETWORK.isMainnet) throw new Error('setup-africa-liquidity is testnet-only: it issues stand-in local currencies');
+const HORIZON_URL = NETWORK.horizonUrl;
+const NETWORK_PASSPHRASE = NETWORK.passphrase;
 const horizon = new Horizon.Server(HORIZON_URL);
 
 const CURRENCIES = ['NGN', 'KES', 'GHS', 'ZAR', 'UGX'] as const;

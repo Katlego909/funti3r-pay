@@ -6,7 +6,7 @@ import { StatusBadge } from './StatusBadge.js';
 import CopyButton from './CopyButton.js';
 import { buildReceipt } from '../lib/cashoutReceipt.js';
 
-const EXPLORER = 'https://stellar.expert/explorer/testnet';
+import { EXPLORER } from '../lib/explorer.js';
 
 const STATUS: Record<WalletCashout['status'], ['completed' | 'failed' | 'pending', string]> = {
   pending: ['pending', 'In progress'],

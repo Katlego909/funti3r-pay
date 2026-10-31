@@ -22,6 +22,7 @@ import {
   registerHealth,
   assertInternalAuthConfigured,
   assertJwtConfigured,
+  stellarNetwork,
 } from '@funti3r/shared-utils';
 import { sendRecoveryEmail } from './lib/email.js';
 import { hasSessionFor } from './lib/sessionAuth.js';
@@ -96,7 +97,7 @@ function hashRefreshToken(token: string): string {
  * first funding payment). Best-effort: never throws.
  */
 async function fundTestnetAccount(publicKey: string): Promise<void> {
-  if ((process.env.STELLAR_NETWORK || 'TESTNET').toUpperCase() !== 'TESTNET') return;
+  if (stellarNetwork().isMainnet) return;
   try {
     const res = await fetch(`https://friendbot.stellar.org/?addr=${publicKey}`);
     if (res.ok) {

@@ -16,6 +16,7 @@ import ExportButtons from '../components/ExportButtons.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 import { STATUS_TABS } from '../lib/status.js';
 import '../styles/Dashboard.css';
+import { EXPLORER } from '../lib/explorer.js';
 
 export default function PaymentHistory() {
   const dc = useDisplayCurrency();
@@ -160,7 +161,7 @@ export default function PaymentHistory() {
                       <td data-label="Transaction">
                         {p.stellar_tx_hash ? (
                           <a
-                            href={`https://stellar.expert/explorer/testnet/tx/${p.stellar_tx_hash}`}
+                            href={`${EXPLORER}/tx/${p.stellar_tx_hash}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
