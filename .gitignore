@@ -118,6 +118,9 @@ auth-plan.md
 *.md
 *.txt
 !README.md
+# Product docs (not working notes): GitHub's security policy and the contract threat model for auditors
+!SECURITY.md
+!THREAT_MODEL.md
 
 # Local temp/cache files - do not commit
 AppData/
