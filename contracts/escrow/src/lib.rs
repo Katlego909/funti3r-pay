@@ -76,6 +76,16 @@ enum DataKey {
     NextId,
     Escrow(u64),
     Clearance(Address),
+    PendingAdmin,
+}
+
+/// An admin handover waiting to be accepted: `address` may call `accept_admin`
+/// up to and including ledger `live_until_ledger`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingAdmin {
+    pub address: Address,
+    pub live_until_ledger: u32,
 }
 
 #[contracterror]
@@ -96,6 +106,8 @@ pub enum Error {
     EscrowFrozen = 12,
     InvalidClearance = 13,
     NotFrozen = 14,
+    NoPendingAdmin = 15,
+    InvalidLiveUntilLedger = 16,
 }
 
 // ── Events ───────────────────────────────────────────────────────────────────
@@ -150,6 +162,27 @@ pub struct ClearanceSet {
 pub struct ClearanceRevoked {
     #[topic]
     pub worker: Address,
+}
+
+#[contractevent]
+pub struct AdminProposed {
+    #[topic]
+    pub admin: Address,
+    pub new_admin: Address,
+    pub live_until_ledger: u32,
+}
+
+#[contractevent]
+pub struct AdminProposalCancelled {
+    #[topic]
+    pub admin: Address,
+}
+
+#[contractevent]
+pub struct AdminChanged {
+    #[topic]
+    pub old_admin: Address,
+    pub new_admin: Address,
 }
 
 #[contractevent]
@@ -258,6 +291,87 @@ impl EscrowContract {
             .instance()
             .set(&DataKey::Compliance, &new_compliance);
         bump_instance(&env);
+    }
+
+    /// Step one of an admin handover (e.g. to a multisig account): the admin
+    /// names `new_admin`, who must call `accept_admin` by ledger
+    /// `live_until_ledger`. The current admin keeps full control until then; a
+    /// new proposal replaces the old one, and `live_until_ledger = 0` cancels.
+    pub fn propose_admin(env: Env, new_admin: Address, live_until_ledger: u32) -> Result<(), Error> {
+        let current = admin(&env);
+        current.require_auth();
+        let key = DataKey::PendingAdmin;
+
+        if live_until_ledger == 0 {
+            if !env.storage().temporary().has(&key) {
+                return Err(Error::NoPendingAdmin);
+            }
+            env.storage().temporary().remove(&key);
+            AdminProposalCancelled { admin: current }.publish(&env);
+            return Ok(());
+        }
+
+        let now = env.ledger().sequence();
+        if live_until_ledger <= now || live_until_ledger - now > env.storage().max_ttl() {
+            return Err(Error::InvalidLiveUntilLedger);
+        }
+        let ttl = live_until_ledger - now;
+        env.storage().temporary().set(
+            &key,
+            &PendingAdmin {
+                address: new_admin.clone(),
+                live_until_ledger,
+            },
+        );
+        env.storage().temporary().extend_ttl(&key, ttl, ttl);
+        bump_instance(&env);
+
+        AdminProposed {
+            admin: current,
+            new_admin,
+            live_until_ledger,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Step two: the proposed address accepts and becomes the admin. Requiring
+    /// its signature proves the new key (or multisig) works before the old one
+    /// stops counting.
+    pub fn accept_admin(env: Env) -> Result<(), Error> {
+        let key = DataKey::PendingAdmin;
+        let pending: PendingAdmin = env
+            .storage()
+            .temporary()
+            .get(&key)
+            .ok_or(Error::NoPendingAdmin)?;
+        if env.ledger().sequence() > pending.live_until_ledger {
+            return Err(Error::NoPendingAdmin);
+        }
+        pending.address.require_auth();
+
+        let old_admin = admin(&env);
+        env.storage().instance().set(&DataKey::Admin, &pending.address);
+        env.storage().temporary().remove(&key);
+        bump_instance(&env);
+
+        AdminChanged {
+            old_admin,
+            new_admin: pending.address,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    pub fn get_admin(env: Env) -> Address {
+        admin(&env)
+    }
+
+    pub fn get_pending_admin(env: Env) -> Option<PendingAdmin> {
+        env.storage()
+            .temporary()
+            .get::<_, PendingAdmin>(&DataKey::PendingAdmin)
+            .filter(|p| env.ledger().sequence() <= p.live_until_ledger)
     }
 
     /// Swap the contract code (upload the new wasm first, pass its hash).

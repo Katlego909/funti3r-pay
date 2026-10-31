@@ -45,6 +45,14 @@ enforcement point and the backend is the bridge.
 - `__constructor(admin, compliance)` — runs atomically at deploy; no init front-running window.
 - `set_compliance(new)` — admin rotates the compliance authority key.
 - `upgrade(new_wasm_hash)` — admin swaps the code; address and storage survive.
+- `propose_admin(new, live_until_ledger)` / `accept_admin()` — two-step admin handover (e.g. to a
+  multisig account). The admin proposes; the new address must sign `accept_admin` by
+  `live_until_ledger`, which proves the new key works before the old one stops counting. A new
+  proposal replaces the old one; `live_until_ledger = 0` cancels. Same semantics as OpenZeppelin's
+  Stellar `Ownable`, implemented here because `stellar-access` does not yet support soroban-sdk 29.
+- `get_admin()` / `get_pending_admin()` — read the current admin and any live proposal.
+
+See [THREAT_MODEL.md](THREAT_MODEL.md) for roles, trust assumptions and known gaps.
 
 ## Errors
 
@@ -64,6 +72,8 @@ enforcement point and the backend is the bridge.
 | 12 | EscrowFrozen | Compliance hold |
 | 13 | InvalidClearance | Clearance expiry not in the future |
 | 14 | NotFrozen | `return_frozen` on an escrow that is not frozen |
+| 15 | NoPendingAdmin | `accept_admin` (or a cancel) with no live proposal |
+| 16 | InvalidLiveUntilLedger | Proposal ledger not in the future, or beyond the max TTL |
 
 ## Build, test, deploy
 
@@ -71,7 +81,7 @@ Requires Rust ≥ 1.91, the `wasm32v1-none` target, and `stellar-cli` ≥ 25.2.
 
 ```bash
 cd contracts
-cargo test -p funti3r-escrow                       # 26 unit tests
+cargo test -p funti3r-escrow                       # 38 unit tests
 stellar contract build --package funti3r-escrow    # -> target/wasm32v1-none/release/funti3r_escrow.wasm
 sha256sum target/wasm32v1-none/release/funti3r_escrow.wasm
 ```

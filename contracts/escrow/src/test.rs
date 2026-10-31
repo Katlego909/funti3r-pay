@@ -436,6 +436,114 @@ fn set_compliance_requires_admin_and_rotates_authority() {
     assert_eq!(s.env.auths()[0].0, new_compliance);
 }
 
+// ── Two-step admin handover ──────────────────────────────────────────────────
+
+fn ledger_seq(s: &Setup) -> u32 {
+    s.env.ledger().sequence()
+}
+
+#[test]
+fn admin_handover_needs_proposal_and_acceptance() {
+    let s = setup();
+    let multisig = Address::generate(&s.env);
+    let until = ledger_seq(&s) + 1_000;
+
+    s.client.propose_admin(&multisig, &until);
+    assert_eq!(s.env.auths()[0].0, s.admin);
+    // Proposing alone changes nothing.
+    assert_eq!(s.client.get_admin(), s.admin);
+    assert_eq!(
+        s.client.get_pending_admin(),
+        Some(PendingAdmin { address: multisig.clone(), live_until_ledger: until })
+    );
+
+    s.client.accept_admin();
+    assert_eq!(s.env.auths()[0].0, multisig);
+    assert_eq!(s.client.get_admin(), multisig);
+    assert_eq!(s.client.get_pending_admin(), None);
+
+    // The new admin is the one demanded for admin calls.
+    s.client.set_compliance(&Address::generate(&s.env));
+    assert_eq!(s.env.auths()[0].0, multisig);
+}
+
+#[test]
+fn propose_admin_requires_admin_auth() {
+    let s = setup();
+    s.env.set_auths(&[]);
+    assert!(s
+        .client
+        .try_propose_admin(&Address::generate(&s.env), &(ledger_seq(&s) + 10))
+        .is_err());
+}
+
+#[test]
+fn accept_admin_requires_the_proposed_address() {
+    let s = setup();
+    let multisig = Address::generate(&s.env);
+    s.client.propose_admin(&multisig, &(ledger_seq(&s) + 10));
+
+    s.env.set_auths(&[]);
+    assert!(s.client.try_accept_admin().is_err());
+    assert_eq!(s.client.get_admin(), s.admin);
+}
+
+#[test]
+fn accept_admin_without_proposal_rejected() {
+    let s = setup();
+    assert_eq!(s.client.try_accept_admin(), Err(Ok(Error::NoPendingAdmin)));
+}
+
+#[test]
+fn expired_admin_proposal_cannot_be_accepted() {
+    let s = setup();
+    let until = ledger_seq(&s) + 10;
+    s.client.propose_admin(&Address::generate(&s.env), &until);
+
+    s.env.ledger().with_mut(|li| li.sequence_number = until + 1);
+    assert_eq!(s.client.try_accept_admin(), Err(Ok(Error::NoPendingAdmin)));
+    assert_eq!(s.client.get_pending_admin(), None);
+    assert_eq!(s.client.get_admin(), s.admin);
+}
+
+#[test]
+fn admin_proposal_can_be_cancelled_or_replaced() {
+    let s = setup();
+    let first = Address::generate(&s.env);
+    let second = Address::generate(&s.env);
+    let until = ledger_seq(&s) + 10;
+
+    s.client.propose_admin(&first, &until);
+    s.client.propose_admin(&second, &until);
+    assert_eq!(s.client.get_pending_admin().unwrap().address, second);
+
+    s.client.propose_admin(&second, &0);
+    assert_eq!(s.client.get_pending_admin(), None);
+    assert_eq!(s.client.try_accept_admin(), Err(Ok(Error::NoPendingAdmin)));
+    // Cancelling when nothing is pending is an error, not a silent no-op.
+    assert_eq!(
+        s.client.try_propose_admin(&second, &0),
+        Err(Ok(Error::NoPendingAdmin))
+    );
+}
+
+#[test]
+fn admin_proposal_ledger_must_be_in_range() {
+    let s = setup();
+    s.env.ledger().with_mut(|li| li.sequence_number = 100);
+    let who = Address::generate(&s.env);
+    let now = ledger_seq(&s);
+    assert_eq!(
+        s.client.try_propose_admin(&who, &now),
+        Err(Ok(Error::InvalidLiveUntilLedger))
+    );
+    let too_far = now + s.env.storage().max_ttl() + 1;
+    assert_eq!(
+        s.client.try_propose_admin(&who, &too_far),
+        Err(Ok(Error::InvalidLiveUntilLedger))
+    );
+}
+
 // ── Events ───────────────────────────────────────────────────────────────────
 
 #[test]
