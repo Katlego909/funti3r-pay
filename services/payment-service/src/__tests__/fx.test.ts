@@ -16,7 +16,7 @@ const fiatResponse = (ngn: number) => ({ data: { result: 'success', rates: { NGN
 const xlmResponse = (usd: number) => ({ data: { stellar: { usd } } });
 
 beforeEach(() => {
-  vi.useFakeTimers();
+  vi.useFakeTimers({ toFake: ['Date'] }); // only the clock: the retry backoff needs real timers
   vi.setSystemTime(NOW);
   get.mockReset();
   // No Redis in unit tests: reads and writes fail, so fx falls back to its in-process cache.
@@ -45,7 +45,7 @@ describe('fiat rates', () => {
     await fx.getUsdRates();
 
     vi.setSystemTime(NOW + 20 * MIN); // past the 10 min refresh, inside the 30 min max age
-    get.mockRejectedValueOnce(new Error('provider down'));
+    get.mockRejectedValue(new Error('provider down'));
     expect(await fx.usdToCurrencyRate('NGN')).toBe(1500);
   });
 
@@ -55,7 +55,7 @@ describe('fiat rates', () => {
     await fx.getUsdRates();
 
     vi.setSystemTime(NOW + 31 * MIN);
-    get.mockRejectedValueOnce(new Error('provider down'));
+    get.mockRejectedValue(new Error('provider down'));
     await expect(fx.usdToCurrencyRate('NGN')).rejects.toBeInstanceOf(fx.StaleRatesError);
   });
 
@@ -66,13 +66,13 @@ describe('fiat rates', () => {
     await fx.getUsdRates();
 
     vi.setSystemTime(NOW + 16 * MIN);
-    get.mockRejectedValueOnce(new Error('provider down'));
+    get.mockRejectedValue(new Error('provider down'));
     await expect(fx.getUsdRates()).rejects.toBeInstanceOf(fx.StaleRatesError);
   });
 
   it('refuses when no rate was ever fetched', async () => {
     const fx = await loadFx();
-    get.mockRejectedValueOnce(new Error('provider down'));
+    get.mockRejectedValue(new Error('provider down'));
     await expect(fx.amountToUsd('NGN', 100)).rejects.toBeInstanceOf(fx.StaleRatesError);
   });
 
@@ -97,7 +97,7 @@ describe('XLM price', () => {
     expect(await fx.amountToUsd('XLM', 10)).toBe(4);
 
     vi.setSystemTime(NOW + 31 * MIN);
-    get.mockRejectedValueOnce(new Error('provider down'));
+    get.mockRejectedValue(new Error('provider down'));
     await expect(fx.amountToUsd('XLM', 10)).rejects.toBeInstanceOf(fx.StaleRatesError);
   });
 });

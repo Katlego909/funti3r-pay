@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { getJSON, setJSON } from '@funti3r/database';
-import { createLogger } from '@funti3r/shared-utils';
+import { createLogger, retryRead } from '@funti3r/shared-utils';
 
 const logger = createLogger('FX');
 
@@ -79,7 +79,7 @@ async function cachedPrice<T>(key: string, ttlMs: number, what: string, fetch: (
 /** USD→fiat rates, units of each currency per 1 USD. */
 export function getUsdRates(): Promise<Record<string, number>> {
   return cachedPrice(FIAT_KEY, FIAT_TTL_MS, 'Exchange rates', async () => {
-    const { data } = await axios.get('https://open.er-api.com/v6/latest/USD', { timeout: 8000 });
+    const { data } = await retryRead(() => axios.get('https://open.er-api.com/v6/latest/USD', { timeout: 8000 }));
     return data?.result === 'success' && data.rates ? (data.rates as Record<string, number>) : null;
   });
 }
@@ -99,9 +99,9 @@ export async function usdToCurrencyRate(code: string): Promise<number> {
 /** Live XLM→USD price. Never 0: throws StaleRatesError when no recent price is known. */
 export function getXlmUsd(): Promise<number> {
   return cachedPrice(XLM_KEY, XLM_TTL_MS, 'The XLM price', async () => {
-    const { data } = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
+    const { data } = await retryRead(() => axios.get('https://api.coingecko.com/api/v3/simple/price', {
       params: { ids: 'stellar', vs_currencies: 'usd' }, timeout: 8000,
-    });
+    }));
     const usd = Number(data?.stellar?.usd);
     return Number.isFinite(usd) && usd > 0 ? usd : null;
   });

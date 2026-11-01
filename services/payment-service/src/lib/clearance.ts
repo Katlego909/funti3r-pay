@@ -12,7 +12,7 @@
  */
 import axios from 'axios';
 import { query } from '@funti3r/database';
-import { createLogger, forwardedHeaders } from '@funti3r/shared-utils';
+import { createLogger, forwardedHeaders, retryRead } from '@funti3r/shared-utils';
 import {
   attestationHash,
   isCleared,
@@ -45,10 +45,10 @@ interface ComplianceVerdict {
 
 async function fetchVerdict(workerId: string): Promise<ComplianceVerdict> {
   try {
-    const resp = await axios.get<ComplianceVerdict>(
+    const resp = await retryRead(() => axios.get<ComplianceVerdict>(
       `${COMPLIANCE_SERVICE_URL}/${workerId}/status`,
       { timeout: 5000, headers: forwardedHeaders() },
-    );
+    ));
     return resp.data;
   } catch (err) {
     logger.error('Compliance lookup failed — blocking escrow movement', {
@@ -120,7 +120,8 @@ export async function screenEmployer(ownerUserId: string): Promise<void> {
 
   let matches: unknown[];
   try {
-    const resp = await axios.post<{ matches: unknown[] }>(`${COMPLIANCE_SERVICE_URL}/screen`, { names }, { timeout: 5000, headers: forwardedHeaders() });
+    // POST, but a read: screening names changes nothing.
+    const resp = await retryRead(() => axios.post<{ matches: unknown[] }>(`${COMPLIANCE_SERVICE_URL}/screen`, { names }, { timeout: 5000, headers: forwardedHeaders() }));
     matches = resp.data.matches ?? [];
   } catch (err) {
     logger.error('Employer screening failed — blocking escrow funding', { ownerUserId, error: String(err) });
