@@ -29,6 +29,10 @@ use soroban_sdk::{
 const TTL_THRESHOLD: u32 = 17_280;
 const TTL_EXTEND_TO: u32 = 518_400;
 
+/// Upper bound on milestones per escrow (matches the API's limit). Keeps every
+/// per-milestone loop bounded so no escrow can grow too costly to settle.
+const MAX_MILESTONES: u32 = 50;
+
 #[contracttype]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MilestoneStatus {
@@ -108,6 +112,8 @@ pub enum Error {
     NotFrozen = 14,
     NoPendingAdmin = 15,
     InvalidLiveUntilLedger = 16,
+    /// More than MAX_MILESTONES tranches
+    TooManyMilestones = 17,
 }
 
 // ── Events ───────────────────────────────────────────────────────────────────
@@ -156,6 +162,13 @@ pub struct ClearanceSet {
     pub worker: Address,
     pub expiry: u64,
     pub attestation: BytesN<32>,
+}
+
+#[contractevent]
+pub struct ComplianceChanged {
+    #[topic]
+    pub old_compliance: Address,
+    pub new_compliance: Address,
 }
 
 #[contractevent]
@@ -287,10 +300,16 @@ impl EscrowContract {
 
     pub fn set_compliance(env: Env, new_compliance: Address) {
         admin(&env).require_auth();
+        let old_compliance = compliance_authority(&env);
         env.storage()
             .instance()
             .set(&DataKey::Compliance, &new_compliance);
         bump_instance(&env);
+        ComplianceChanged {
+            old_compliance,
+            new_compliance,
+        }
+        .publish(&env);
     }
 
     /// Step one of an admin handover (e.g. to a multisig account): the admin
@@ -315,7 +334,8 @@ impl EscrowContract {
         if live_until_ledger <= now || live_until_ledger - now > env.storage().max_ttl() {
             return Err(Error::InvalidLiveUntilLedger);
         }
-        let ttl = live_until_ledger - now;
+        // live_until_ledger > now was checked above, so this cannot underflow.
+        let ttl = live_until_ledger.saturating_sub(now);
         env.storage().temporary().set(
             &key,
             &PendingAdmin {
@@ -457,7 +477,8 @@ impl EscrowContract {
         for idx in 0..escrow.milestones.len() {
             match escrow.milestones.get(idx) {
                 Some(MilestoneStatus::Pending) | Some(MilestoneStatus::Approved) => {
-                    total += escrow.amounts.get(idx).ok_or(Error::MilestoneOutOfBounds)?;
+                    let amount = escrow.amounts.get(idx).ok_or(Error::MilestoneOutOfBounds)?;
+                    total = total.checked_add(amount).ok_or(Error::InvalidAmount)?;
                     escrow.milestones.set(idx, MilestoneStatus::Refunded);
                 }
                 _ => {}
@@ -506,6 +527,9 @@ impl EscrowContract {
         if amounts.is_empty() {
             return Err(Error::NoMilestones);
         }
+        if amounts.len() > MAX_MILESTONES {
+            return Err(Error::TooManyMilestones);
+        }
         let mut total: i128 = 0;
         for a in amounts.iter() {
             if a <= 0 {
@@ -524,7 +548,8 @@ impl EscrowContract {
         );
 
         let id: u64 = env.storage().instance().get(&DataKey::NextId).unwrap_or(0);
-        env.storage().instance().set(&DataKey::NextId, &(id + 1));
+        let next_id = id.checked_add(1).ok_or(Error::InvalidAmount)?;
+        env.storage().instance().set(&DataKey::NextId, &next_id);
         bump_instance(&env);
 
         let mut milestones = Vec::new(&env);
@@ -633,7 +658,8 @@ impl EscrowContract {
         for idx in 0..escrow.milestones.len() {
             if escrow.milestones.get(idx) == Some(MilestoneStatus::Pending) {
                 // amounts and milestones are created with identical length
-                total += escrow.amounts.get(idx).ok_or(Error::MilestoneOutOfBounds)?;
+                let amount = escrow.amounts.get(idx).ok_or(Error::MilestoneOutOfBounds)?;
+                total = total.checked_add(amount).ok_or(Error::InvalidAmount)?;
                 escrow.milestones.set(idx, MilestoneStatus::Refunded);
             }
         }

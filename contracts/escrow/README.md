@@ -43,7 +43,7 @@ enforcement point and the backend is the bridge.
 ## Administration
 
 - `__constructor(admin, compliance)` — runs atomically at deploy; no init front-running window.
-- `set_compliance(new)` — admin rotates the compliance authority key.
+- `set_compliance(new)` — admin rotates the compliance authority key (emits `ComplianceChanged`).
 - `upgrade(new_wasm_hash)` — admin swaps the code; address and storage survive.
 - `propose_admin(new, live_until_ledger)` / `accept_admin()` — two-step admin handover (e.g. to a
   multisig account). The admin proposes; the new address must sign `accept_admin` by
@@ -74,6 +74,7 @@ See [THREAT_MODEL.md](THREAT_MODEL.md) for roles, trust assumptions and known ga
 | 14 | NotFrozen | `return_frozen` on an escrow that is not frozen |
 | 15 | NoPendingAdmin | `accept_admin` (or a cancel) with no live proposal |
 | 16 | InvalidLiveUntilLedger | Proposal ledger not in the future, or beyond the max TTL |
+| 17 | TooManyMilestones | More than 50 milestones in one escrow |
 
 ## Build, test, deploy
 
@@ -81,7 +82,7 @@ Requires Rust ≥ 1.91, the `wasm32v1-none` target, and `stellar-cli` ≥ 25.2.
 
 ```bash
 cd contracts
-cargo test -p funti3r-escrow                       # 38 unit tests
+cargo test -p funti3r-escrow                       # 40 unit tests
 stellar contract build --package funti3r-escrow    # -> target/wasm32v1-none/release/funti3r_escrow.wasm
 sha256sum target/wasm32v1-none/release/funti3r_escrow.wasm
 ```

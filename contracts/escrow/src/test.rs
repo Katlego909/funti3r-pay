@@ -580,6 +580,45 @@ fn emits_clearance_event() {
         .any(|e| *e == expected.to_xdr(&s.env, &s.client.address)));
 }
 
+#[test]
+fn emits_compliance_changed_event() {
+    let s = setup();
+    let new_compliance = Address::generate(&s.env);
+    s.client.set_compliance(&new_compliance);
+    let expected = ComplianceChanged {
+        old_compliance: s.compliance.clone(),
+        new_compliance,
+    };
+    let events = s.env.events().all();
+    assert!(events
+        .events()
+        .iter()
+        .any(|e| *e == expected.to_xdr(&s.env, &s.client.address)));
+}
+
+// ── Limits ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn milestone_count_is_capped() {
+    let s = setup();
+    let mut at_cap = Vec::new(&s.env);
+    for _ in 0..MAX_MILESTONES {
+        at_cap.push_back(1_i128);
+    }
+    let id = s
+        .client
+        .create(&s.enterprise, &s.worker, &s.token_address, &at_cap, &EXPIRY);
+    assert_eq!(s.client.get_escrow(&id).milestones.len(), MAX_MILESTONES);
+
+    let mut over_cap = at_cap.clone();
+    over_cap.push_back(1_i128);
+    assert_eq!(
+        s.client
+            .try_create(&s.enterprise, &s.worker, &s.token_address, &over_cap, &EXPIRY),
+        Err(Ok(Error::TooManyMilestones))
+    );
+}
+
 // ── Invariant ────────────────────────────────────────────────────────────────
 
 /// Whatever sequence of operations runs, the contract's token balance must
