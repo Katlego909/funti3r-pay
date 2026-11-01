@@ -54,6 +54,7 @@ ordering and timing, every account they hold keys for, and can deploy contracts 
 | T11 | Re-initialization | Roles are set in `__constructor`, which runs once, atomically, at deploy | n/a (platform guarantee) |
 | T12 | Escrow or clearance state archived (TTL) | Escrows and clearances are persistent and extended ~30 days on every write; an archived clearance reads as "not cleared" (fails closed); archived escrows can be restored, not lost | not yet tested |
 | T13 | Front-running / ordering | No price-dependent logic; each call checks state atomically within one invocation | n/a |
+| T15 | An escrow with so many milestones that settling it exceeds resource limits | `create` rejects more than 50 milestones (`TooManyMilestones`), matching the API's limit, so every per-milestone loop is bounded | `milestone_count_is_capped` |
 | T14 | Reentrancy | No classical cross-contract reentrancy on Stellar; state is saved before each outgoing transfer | n/a |
 
 ## Security checklist (Stellar smart-contract guide)
@@ -63,13 +64,35 @@ ordering and timing, every account they hold keys for, and can deploy contracts 
 | All privileged functions require appropriate authorization | Done |
 | Initialization only once (`__constructor`) | Done |
 | External contract calls validated / allowlisted | **Gap**: `create` accepts any `token` address (see G2) |
-| Arithmetic checked; input signs and ranges validated | Done (`checked_add`, `amount > 0`, `overflow-checks = true` in release) |
+| Arithmetic checked; input signs and ranges validated | Done (checked arithmetic on every sum and counter, `amount > 0`, milestone count ≤ 50, `overflow-checks = true` in release) |
 | Storage keys typed and collision-free | Done (`DataKey` enum) |
 | Critical TTLs extended proactively | Done for writes; **gap**: no TTL monitoring yet |
-| Events emitted for auditable state changes | Done (create, approve, claim, refund, return, clearance, freeze, admin handover) |
+| Events emitted for auditable state changes | Done (create, approve, claim, refund, return, clearance, freeze, compliance rotation, admin handover) |
 | Upgrade path gated and tested | Gated by admin; handover tested; **gap**: no upgrade test (G4) |
 | Emergency controls and incident runbook | Per-escrow freeze done; runbook planned |
-| Static analysis (Scout) run | **To do** before the audit |
+| Static analysis (Scout) run | Done, see below |
+
+## Static analysis (Scout 0.3.17, 2026-11-01)
+
+[Scout](https://github.com/CoinFabrik/scout-audit) by CoinFabrik, the analyser the Stellar smart-contract guide
+recommends, run on `funti3r-escrow`.
+
+How it was run: Scout 0.3.17 cannot currently build its analysis driver on any machine, because `dylint_driver` 4.1.2
+checks out rust-clippy's `master` branch, which rust-clippy has renamed to `main`. We ran it against a local mirror of
+rust-clippy with a `master` branch pointing at `main`, redirected for that run only through
+`GIT_CONFIG_KEY_0=url.<mirror>.insteadOf`. Scout itself was not modified.
+
+First run: 4 critical, 5 medium, 11 enhancement. Triage:
+
+| Finding | Where | Verdict | Action |
+|---|---|---|---|
+| Integer overflow (critical, ×4) | `propose_admin` TTL, `return_frozen` and `refund` totals, `create` id counter | Not exploitable (each was bounded by an earlier check or by the sum checked at `create`), but fixed for defence in depth | Checked arithmetic at all four sites; cleared on the re-run |
+| Unbounded loop (medium, ×3) | per-milestone loops in `create`, `return_frozen`, `refund` | Real: nothing capped the milestone count | `MAX_MILESTONES = 50` (error #17, T15). Scout still flags the loops because it cannot see a bound that comes from validated input |
+| `Vec` input not validated (medium) | `create(amounts)` | Each element is checked (> 0, checked sum) and the length is now capped | No further change |
+| Ineffective `extend_ttl` (medium) | `propose_admin` | Intended: the pending-admin entry is extended exactly to its deadline, and only when a proposal is made | No change |
+| Storage change without event (enhancement, ×11) | state-changing functions | One real gap: `set_compliance` emitted nothing. Every other flagged function already publishes an event; Scout does not recognise the `#[contractevent]` `.publish()` pattern | `ComplianceChanged` event added (`emits_compliance_changed_event`) |
+
+Re-run after the fixes: 0 critical. The remaining medium and enhancement items are the false positives above.
 
 ## Known gaps
 
