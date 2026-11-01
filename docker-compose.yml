@@ -261,6 +261,43 @@ services:
     networks:
       - funti3r-network
 
+  # Sends Prometheus alerts by email. Alertmanager does not read environment variables in its config, so the
+  # entrypoint fills deploy/alertmanager.yml's ${...} placeholders from the environment and writes the SMTP password
+  # to a file the config points at. Not published: only Prometheus talks to it.
+  alertmanager:
+    image: prom/alertmanager:v0.34.2
+    container_name: funti3r-alertmanager
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    environment:
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        for v in SMTP_HOST SMTP_USERNAME SMTP_PASSWORD ALERT_EMAIL_FROM ALERT_EMAIL_TO; do
+          eval "[ -n \"\$$$$v\" ]" || { echo "alertmanager: set $$v (see .env.example)" >&2; exit 1; }
+        done
+        umask 077
+        printf '%s' "$$SMTP_PASSWORD" > /tmp/smtp_password
+        sed -e "s|\$${SMTP_HOST}|$$SMTP_HOST|g" -e "s|\$${SMTP_PORT}|$$SMTP_PORT|g" \
+            -e "s|\$${SMTP_USERNAME}|$$SMTP_USERNAME|g" -e "s|\$${ALERT_EMAIL_FROM}|$$ALERT_EMAIL_FROM|g" \
+            -e "s|\$${ALERT_EMAIL_TO}|$$ALERT_EMAIL_TO|g" /etc/alertmanager/alertmanager.tmpl.yml > /tmp/alertmanager.yml
+        unset SMTP_PASSWORD
+        exec /bin/alertmanager --config.file=/tmp/alertmanager.yml --storage.path=/alertmanager
+    volumes:
+      - ./deploy/alertmanager.yml:/etc/alertmanager/alertmanager.tmpl.yml:ro
+      - alertmanager_data:/alertmanager
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - funti3r-network
+
   # ── Edge: the only thing reachable from outside. Terminates TLS (automatic certificates) and forwards to the dashboard,
   # whose nginx serves the app and proxies /api to the gateway.
   caddy:
@@ -290,6 +327,7 @@ volumes:
   caddy_config:
   backup_data:
   prometheus_data:
+  alertmanager_data:
 
 networks:
   funti3r-network:

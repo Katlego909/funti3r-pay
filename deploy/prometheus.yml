@@ -1,7 +1,12 @@
-# Scrape config for the optional monitoring profile: `docker compose --profile monitoring up -d prometheus`.
+# Scrape config for the optional monitoring profile: `docker compose --profile monitoring up -d prometheus alertmanager`.
 # Every target is on the internal network; none is published, so metrics are visible to Prometheus and to no one else.
 global:
   scrape_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
 
 rule_files:
   - /etc/prometheus/alerts.yml

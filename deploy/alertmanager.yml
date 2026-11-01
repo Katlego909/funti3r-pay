@@ -1,0 +1,32 @@
+# Where alerts from deploy/alerts.yml go: one email per group, critical ones repeated hourly until resolved.
+# The ${...} values are filled from the environment when the container starts (see the alertmanager service in
+# docker-compose.yml); the SMTP password is read from a file and never written into this config.
+global:
+  smtp_smarthost: '${SMTP_HOST}:${SMTP_PORT}'
+  smtp_from: '${ALERT_EMAIL_FROM}'
+  smtp_auth_username: '${SMTP_USERNAME}'
+  smtp_auth_password_file: /tmp/smtp_password
+  smtp_require_tls: true
+
+route:
+  receiver: email
+  group_by: [alertname, service]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  routes:
+    - matchers: [severity="critical"]
+      receiver: email
+      repeat_interval: 1h
+
+receivers:
+  - name: email
+    email_configs:
+      - to: '${ALERT_EMAIL_TO}'
+        send_resolved: true
+
+# A service that is down also trips its error-rate and latency alerts; send only the root cause.
+inhibit_rules:
+  - source_matchers: [alertname="ServiceDown"]
+    target_matchers: [severity="warning"]
+    equal: [instance]
