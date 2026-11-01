@@ -29,6 +29,9 @@ const logger = createLogger('EscrowService');
 const { sorobanUrl: SOROBAN_URL, passphrase: NETWORK_PASSPHRASE } = stellarNetwork();
 
 const server = new rpc.Server(SOROBAN_URL);
+// Calls give up after 30s instead of hanging on a slow RPC node. Set on the client because rpc.Server's own
+// `timeout` option is declared but not applied in stellar-sdk 16.
+server.httpClient.defaults.timeout = 30_000;
 
 function contractAddress(): string {
   const addr = process.env.ESCROW_CONTRACT_ADDRESS;

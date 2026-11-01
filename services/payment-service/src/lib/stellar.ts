@@ -17,6 +17,8 @@ const logger = createLogger('StellarService');
 const { horizonUrl: HORIZON_URL, passphrase: NETWORK_PASSPHRASE } = stellarNetwork();
 
 const horizon = new Horizon.Server(HORIZON_URL);
+// Reads give up after 30s instead of hanging on a slow Horizon. Submits keep the SDK's own 60s; streams are unaffected.
+horizon.httpClient.defaults.timeout = 30_000;
 
 /**
  * Submits a transaction and clears the cached balances of every account it touched, so the next balance read
