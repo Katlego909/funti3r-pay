@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import axios from 'axios';
 import { query, tryWithAdvisoryLock } from '@funti3r/database';
-import { createLogger } from '@funti3r/shared-utils';
+import { createLogger, stampIdentity } from '@funti3r/shared-utils';
 import { nextRunDate } from './lib/scheduling.js';
 import { reconcileEscrows } from './lib/escrowReconcile.js';
 import { syncPendingRamps } from './lib/rampsSync.js';
@@ -13,6 +13,20 @@ const logger = createLogger('Scheduler');
 // ── Schedule executor ─────────────────────────────────────────────────────────
 
 const PAYMENT_SERVICE_URL = `http://localhost:${process.env.PAYMENT_SERVICE_PORT ?? 3002}`;
+
+/**
+ * Headers for a scheduled run, acting as the schedule's enterprise. Signed like the gateway's, because the payout
+ * routes reject identity headers without a valid signature.
+ */
+export function scheduleRunHeaders(enterpriseId: string, now = Date.now()): Record<string, string> {
+  const headers: Record<string, string> = {
+    'x-user-id': enterpriseId,
+    'x-user-role': 'enterprise',
+    'content-type': 'application/json',
+  };
+  stampIdentity(headers, now);
+  return headers;
+}
 
 async function runDueSchedules(): Promise<void> {
   // Claim due schedules atomically: update next_run_at first so a concurrent
@@ -93,11 +107,7 @@ async function executeSchedule(
       `${PAYMENT_SERVICE_URL}/payouts/batch`,
       { enterpriseId: enterprise_id, items, idempotencyKey },
       {
-        headers: {
-          'x-user-id': enterprise_id,
-          'x-user-role': 'enterprise',
-          'content-type': 'application/json',
-        },
+        headers: scheduleRunHeaders(enterprise_id),
         timeout: 120_000,
       },
     );
