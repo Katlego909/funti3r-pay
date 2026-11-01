@@ -3,7 +3,7 @@ import { fileURLToPath } from 'url';
 import express from 'express';
 import cron from 'node-cron';
 import { createLogger, assertInternalAuthConfigured, hasIdentity, requireGatewayIdentity, requestContext, registerHealth, createMetrics } from '@funti3r/shared-utils';
-import { initPostgres, runInitialMigrations, query } from '@funti3r/database';
+import { initPostgres, runInitialMigrations, query, withAdvisoryLock } from '@funti3r/database';
 
 const logger = createLogger('AnalyticsService');
 const app = express();
@@ -196,7 +196,16 @@ app.get('/events/timeseries', async (req, res) => {
 // This keeps future partitions provisioned ahead of time; the migration's
 // `events_default` partition is the safety net if this ever falls behind.
 
+/**
+ * Creates the next months' partitions. Runs at boot and monthly on every replica, so it holds a cluster-wide lock:
+ * CREATE TABLE IF NOT EXISTS ... PARTITION OF is not safe concurrently, and two replicas starting together could
+ * otherwise fail one of them with "already exists". The second waits, then finds the partitions already there.
+ */
 async function ensureFuturePartitions(monthsAhead = 3): Promise<void> {
+  await withAdvisoryLock('job:analytics-partitions', () => createFuturePartitions(monthsAhead));
+}
+
+async function createFuturePartitions(monthsAhead: number): Promise<void> {
   const now = new Date();
   for (let i = 0; i < monthsAhead; i++) {
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1));
