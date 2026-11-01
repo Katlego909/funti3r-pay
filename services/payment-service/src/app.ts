@@ -8,7 +8,7 @@ import { query, getRedis } from '@funti3r/database';
 import * as stellar from './lib/stellar.js';
 import { Asset } from '@stellar/stellar-sdk';
 import { getCurrency, isSupportedCurrency, PAYOUT_CURRENCIES } from './lib/currencies.js';
-import { usdToCurrencyRate, getUsdRates, amountToUsd, getXlmUsd } from './lib/fx.js';
+import { usdToCurrencyRate, getUsdRates, amountToUsd, getXlmUsd, StaleRatesError } from './lib/fx.js';
 import { getAllQuotes } from './rails/router.js';
 import schedulesRouter from './routes/schedules.js';
 import escrowsRouter from './routes/escrows.js';
@@ -530,6 +530,7 @@ app.post('/payouts', async (req, res) => {
       if (!isSupportedCurrency(asset)) return res.status(400).json({ error: `Unsupported currency: ${asset}` });
     }
   } catch (err) {
+    if (err instanceof StaleRatesError) return res.status(503).json({ error: err.message });
     return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
 
@@ -929,6 +930,7 @@ app.get('/payouts/summary', async (req, res) => {
       completedVolumeUsd: Math.round(completedVolumeUsd * 100) / 100,
     });
   } catch (err) {
+    if (err instanceof StaleRatesError) return res.status(503).json({ error: err.message });
     logger.error('Summary failed', { error: String(err) });
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -1011,8 +1013,11 @@ app.get('/payouts/fx', async (_req, res) => {
  * the same CoinGecko price.
  */
 app.get('/payouts/xlm-price', async (_req, res) => {
-  const usd = await getXlmUsd();
-  res.json({ usd });
+  try {
+    res.json({ usd: await getXlmUsd() });
+  } catch (err) {
+    res.status(503).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 /**

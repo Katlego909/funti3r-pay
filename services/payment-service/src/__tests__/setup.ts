@@ -10,7 +10,9 @@ process.env.COMPLIANCE_SERVICE_URL = 'http://compliance.test';
 
 vi.mock('@funti3r/database', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@funti3r/database')>();
-  return { ...actual, query: vi.fn() };
+  // No Redis in unit tests: the shared caches (FX prices) fall back to process memory instead of a real server.
+  const noRedis = () => Promise.reject(new Error('Redis is not available in unit tests'));
+  return { ...actual, query: vi.fn(), getJSON: vi.fn(noRedis), setJSON: vi.fn(noRedis) };
 });
 
 vi.mock('axios');
