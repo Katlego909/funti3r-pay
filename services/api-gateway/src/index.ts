@@ -51,21 +51,33 @@ app.use((req, _res, next) => {
 app.use(requestContext('APIGateway', metrics.observeRequest));
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
+// Every limiter counts in Redis, so a limit holds across gateway instances instead of multiplying with them. If Redis
+// is down a request is served rather than refused: a cache outage must not become a full outage.
+
+const redisLimits = (prefix: string) => ({
+  passOnStoreError: true,
+  store: new RedisStore({
+    prefix,
+    sendCommand: async (...args: string[]) => (await getRedis()).sendCommand(args),
+  }),
+});
 
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 1000,
+  limit: 1000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please slow down' },
+  ...redisLimits('rl:global:'),
 });
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  limit: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many auth attempts, please wait' },
+  ...redisLimits('rl:auth:'),
 });
 
 if (process.env.NODE_ENV !== 'development') {
@@ -74,8 +86,7 @@ if (process.env.NODE_ENV !== 'development') {
 }
 
 /**
- * Money-moving and identity-submitting writes get a tight per-user limit (per IP before login), kept in Redis so it
- * holds across gateway instances. It runs in every environment: a stuck client or a stolen session cannot hammer
+ * Money-moving and identity-submitting writes get a tight per-user limit (per IP before login). It runs in every environment: a stuck client or a stolen session cannot hammer
  * payouts, cash-outs or KYC. Reads are not limited here.
  */
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -91,12 +102,7 @@ const moneyLimiter = rateLimit({
     // ipKeyGenerator collapses an IPv6 address to its /56 so one client cannot dodge the limit by rotating addresses.
     return typeof user === 'string' && user ? `user:${user}` : `ip:${ipKeyGenerator(req.ip ?? 'unknown')}`;
   },
-  // Count in Redis; if Redis is down, serve the request rather than turn a cache outage into a payments outage.
-  passOnStoreError: true,
-  store: new RedisStore({
-    prefix: 'rl:money:',
-    sendCommand: async (...args: string[]) => (await getRedis()).sendCommand(args),
-  }),
+  ...redisLimits('rl:money:'),
 });
 
 // A client never gets to say who it is: drop any identity headers it sent (public routes included),
