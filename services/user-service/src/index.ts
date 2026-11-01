@@ -83,7 +83,7 @@ const RP_ORIGIN = process.env.RP_ORIGIN || 'http://localhost:3100';
 const REFRESH_TOKEN_TTL_SEC = 60 * 60 * 24 * 7; // 7 days
 const LOGIN_SESSION_EXPIRED = 'Authentication session expired. Please start again.';
 const CHALLENGE_TTL_SEC = 600; // 10 minutes
-// Access token TTL is controlled by JWT_EXPIRATION env var (default 24h; set to 15m for production)
+// Access token TTL is controlled by JWT_EXPIRATION (default 15m)
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -1,8 +1,6 @@
 import { z } from 'zod';
 
-export const emailSchema = z
-  .string()
-  .email('Invalid email address');
+export const emailSchema = z.email('Invalid email address');
 
 export const passwordSchema = z
   .string()
@@ -10,9 +8,7 @@ export const passwordSchema = z
   .regex(/[A-Z]/, 'Password must contain uppercase letter')
   .regex(/[0-9]/, 'Password must contain number');
 
-export const uuidSchema = z
-  .string()
-  .uuid('Invalid UUID format');
+export const uuidSchema = z.guid('Invalid UUID format');
 
 export const currencySchema = z
   .enum(['USD', 'NGN', 'KES', 'GHS', 'ZAR', 'XLM']);

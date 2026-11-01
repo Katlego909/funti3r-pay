@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** A real UUID: ids go straight into UUID columns, and a malformed one would be a database error (500), not a 400. */
-const id = z.string().uuid('must be a valid id');
+const id = z.guid('must be a valid id');
 /** An amount typed as a number or a numeric string; the routes apply their own range and currency rules. */
 const amountLike = z.union([z.number(), z.string().max(40)]);
 const memo = z.string().max(200);
