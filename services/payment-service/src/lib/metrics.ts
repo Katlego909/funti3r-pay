@@ -15,3 +15,6 @@ export const stuckCashouts = metrics.gauge('cashouts_stuck', 'MoneyGram cash-out
 export const stuckPayments = metrics.gauge('payments_stuck', 'Payments still initiated or processing after more than 10 minutes');
 
 export const jobSeconds = metrics.histogram('scheduler_job_duration_seconds', 'Scheduled job duration in seconds', ['job'], [0.1, 0.5, 1, 5, 15, 60, 300]);
+
+/** Payments the database records as paid that the chain does not back up (lib/paymentReconcile.ts). Should be 0. */
+export const unverifiedPayments = metrics.gauge('payments_unverified_on_chain', 'Recent paid payments not matched by a successful, correctly tagged Stellar transaction');

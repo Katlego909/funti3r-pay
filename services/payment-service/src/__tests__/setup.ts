@@ -61,6 +61,7 @@ vi.mock('../lib/clearance.js', () => ({
 vi.mock('../lib/stellar.js', () => ({
   sendPayment: vi.fn(),
   findTransactionByMemoHash: vi.fn(),
+  lookupTransaction: vi.fn(),
   SubmitOutcomeUnknownError: class SubmitOutcomeUnknownError extends Error {
     constructor(readonly txHash: string, cause?: unknown) { super(`Submission outcome unknown for ${txHash}`, { cause }); }
   },

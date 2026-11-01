@@ -51,6 +51,12 @@ groups:
         annotations:
           summary: "{{ $value }} payment(s) have been initiated or processing for over 10 minutes"
 
+      - alert: PaymentNotOnChain
+        expr: payments_unverified_on_chain > 0
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $value }} payment(s) recorded as paid are not backed by a matching Stellar transaction; check before anything changes"
+
       - alert: ScheduledJobFailing
         expr: increase(scheduler_job_runs_total{outcome="failed"}[30m]) > 0
         labels: { severity: warning }

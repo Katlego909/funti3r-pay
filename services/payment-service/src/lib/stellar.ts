@@ -700,6 +700,22 @@ export async function findTransactionByMemoHash(
   return null;
 }
 
+/**
+ * What Horizon knows about a transaction hash: missing (never landed), or whether it succeeded and the memo it carried.
+ * Throws if Horizon cannot be read, so a caller never mistakes "could not check" for "missing".
+ */
+export async function lookupTransaction(
+  hash: string,
+): Promise<{ found: false } | { found: true; successful: boolean; memoType: string; memo?: string }> {
+  try {
+    const tx = await horizon.transactions().transaction(hash).call();
+    return { found: true, successful: tx.successful, memoType: tx.memo_type, memo: tx.memo };
+  } catch (err: any) {
+    if (err?.response?.status === 404) return { found: false };
+    throw err;
+  }
+}
+
 export const sendPayment = serialized(sendPaymentUnlocked);
 export const pathPaymentStrictSend = serialized(pathPaymentStrictSendUnlocked);
 export const addTrustline = serialized(addTrustlineUnlocked);

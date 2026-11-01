@@ -5,6 +5,7 @@ import { query, tryWithAdvisoryLock } from '@funti3r/database';
 import { createLogger, stampIdentity } from '@funti3r/shared-utils';
 import { nextRunDate } from './lib/scheduling.js';
 import { reconcileEscrows } from './lib/escrowReconcile.js';
+import { verifyRecentPayments } from './lib/paymentReconcile.js';
 import { syncPendingRamps } from './lib/rampsSync.js';
 import { findTransactionByMemoHash } from './lib/stellar.js';
 import { recordAllMissingEscrowPayments } from './lib/escrowAccounting.js';
@@ -329,6 +330,9 @@ export function startScheduler(): void {
         if (r.drift.length || r.unreadable) logger.warn('Escrow reconcile finished with findings', r);
       }));
   cron.schedule('*/5 * * * *', runEscrowReconcile);
+
+  // Every recent payment recorded as paid must match its transaction on chain; mismatches alert, never auto-repair.
+  cron.schedule('*/30 * * * *', singleton('verifyRecentPayments', verifyRecentPayments));
 
   // MoneyGram cash-outs we've paid but MoneyGram hasn't acknowledged yet.
   cron.schedule('* * * * *', singleton('syncPendingRamps', syncPendingRamps));
