@@ -185,3 +185,21 @@ describe('POST /payouts — success and failure mapping', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('POST /payouts — submission without a verdict', () => {
+  it('answers 202 submitted (not a failure the client would retry with a new key)', async () => {
+    vi.mocked(query).mockImplementation(
+      createQueryMock([ENTERPRISE_SECRET_HANDLER, HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT]),
+    );
+    vi.mocked(stellar.sendPayment).mockRejectedValue(new stellar.SubmitOutcomeUnknownError('txhash', new Error('timeout')));
+
+    const res = await request(app)
+      .post('/payouts')
+      .set(enterpriseHeaders)
+      .send({ workerId: WORKER_ID, amount: 5, currency: 'XLM' });
+
+    expect(res.status).toBe(202);
+    expect(res.body.status).toBe('submitted');
+    expect(res.body.paymentId).toBeDefined();
+  });
+});

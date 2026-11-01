@@ -140,6 +140,19 @@ describe('executePayout — legacy path (no idempotency key)', () => {
     expect(stellar.createClaimableBalance).not.toHaveBeenCalled();
   });
 
+  it('a submission Horizon never answered is left submitted (202), not failed', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT]));
+    vi.mocked(stellar.sendPayment).mockRejectedValue(new stellar.SubmitOutcomeUnknownError('txhash', new Error('timeout')));
+
+    const result = await executePayout({ ...baseOpts, amountNum: 5, asset: 'XLM' });
+
+    expect(result.status).toBe('submitted');
+    expect(result.httpStatus).toBe(202);
+    const sql = vi.mocked(query).mock.calls.map(([q]) => String(q));
+    expect(sql.some((q) => q.includes("status = 'submitted'"))).toBe(true);
+    expect(sql.some((q) => q.includes("status = 'failed'"))).toBe(false);
+  });
+
   it('a genuine Stellar submission error marks the payment failed', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT]));
     vi.mocked(stellar.sendPayment).mockRejectedValue(new Error('tx_failed: op_underfunded'));
@@ -232,11 +245,11 @@ describe('executePayout — idempotency state machine', () => {
     expect(stellar.sendPayment).not.toHaveBeenCalled();
   });
 
-  it('an initiated (in-flight) row under the same key returns 409, zero Stellar calls', async () => {
+  it.each(['initiated', 'submitted'])('a %s (in-flight) row under the same key returns 409, zero Stellar calls', async (status) => {
     vi.mocked(query).mockImplementation(
       createQueryMock([{
         match: /idempotency_key = \$2/,
-        handler: () => ({ rows: [{ id: 'existing-payment-id', status: 'initiated', payload_hash: matchingHash }] }),
+        handler: () => ({ rows: [{ id: 'existing-payment-id', status, payload_hash: matchingHash }] }),
       }]),
     );
 

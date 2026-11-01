@@ -4,7 +4,7 @@ import { Helmet } from 'react-helmet-async';
 import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMark } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
-import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, type Payment, type BatchResult } from '../api/payments.js';
+import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, isFinalPayoutError, type Payment, type BatchResult } from '../api/payments.js';
 import { api } from '../api/client.js';
 import { useAuthStore } from '../store/authStore.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
@@ -134,7 +134,11 @@ export default function Payments() {
       const got = result.amount != null
         ? `${Number(result.amount).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${result.currency}`
         : result.currency;
-      toast.success(`Sent $${Number(amount).toFixed(2)} — worker receives ${got}`);
+      if (result.status === 'submitted') {
+        toast.info(`Payment of $${Number(amount).toFixed(2)} sent — waiting for the Stellar network to confirm it`);
+      } else {
+        toast.success(`Sent $${Number(amount).toFixed(2)} — worker receives ${got}`);
+      }
       sendKeyRef.current = null;
       setFormOpen(false);
       setWorkerId('');
@@ -142,7 +146,7 @@ export default function Payments() {
       setMemo('');
       loadPayments();
     } catch (err: any) {
-      sendKeyRef.current = null;
+      if (isFinalPayoutError(err)) sendKeyRef.current = null;
       toast.error(err?.response?.data?.error ?? err?.message ?? 'Payment failed');
     } finally {
       setSubmitting(false);
@@ -173,13 +177,13 @@ export default function Payments() {
       batchKeyRef.current = null;
       setBatchResult(result);
       loadPayments();
-      if (result.failedCount === 0) {
+      if (result.failedCount === 0 && result.submittedCount === 0) {
         toast.success(`Batch complete — ${result.completedCount} payment(s) sent`);
       } else {
-        toast.warning(`Batch partial — ${result.completedCount} sent, ${result.failedCount} failed`);
+        toast.warning(`Batch ${result.status} — ${result.completedCount} sent, ${result.submittedCount} confirming, ${result.failedCount} failed`);
       }
     } catch (err: any) {
-      batchKeyRef.current = null;
+      if (isFinalPayoutError(err)) batchKeyRef.current = null;
       toast.error(err?.response?.data?.error ?? err?.message ?? 'Batch failed');
     } finally {
       setSubmitting(false);
@@ -359,7 +363,8 @@ export default function Payments() {
             ) : (
               <div>
                 <p style={{ fontWeight: 600 }}>
-                  Batch {batchResult.status} — {batchResult.completedCount} sent, {batchResult.failedCount} failed
+                  Batch {batchResult.status} — {batchResult.completedCount} sent
+                  {batchResult.submittedCount > 0 && `, ${batchResult.submittedCount} confirming`}, {batchResult.failedCount} failed
                 </p>
                 <div className="table-responsive" style={{ marginTop: '0.5rem' }}>
                   <table className="data-table">
@@ -372,7 +377,9 @@ export default function Payments() {
                           <td data-label="Status">
                             {r.status === 'completed'
                               ? <a href={`${EXPLORER}/tx/${r.stellarTxHash}`} target="_blank" rel="noopener noreferrer"><StatusBadge variant="completed">completed</StatusBadge></a>
-                              : <StatusBadge variant="failed" title={r.error}>failed</StatusBadge>}
+                              : r.status === 'failed'
+                                ? <StatusBadge variant="failed" title={r.error}>failed</StatusBadge>
+                                : <StatusBadge variant="pending">{r.status === 'submitted' ? 'confirming' : 'pending claim'}</StatusBadge>}
                           </td>
                         </tr>
                       ))}

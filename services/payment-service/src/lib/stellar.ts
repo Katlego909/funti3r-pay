@@ -21,11 +21,31 @@ const horizon = new Horizon.Server(HORIZON_URL);
 horizon.httpClient.defaults.timeout = 30_000;
 
 /**
+ * A submission that got no verdict from Horizon: a timeout, a dropped connection or a 5xx (504 means "submitted, not
+ * yet in a ledger"). The transaction may still land until its time bound passes, so the caller must not treat it as
+ * failed: retrying would build a second transaction and pay twice. Look it up on chain once the time bound is over.
+ */
+export class SubmitOutcomeUnknownError extends Error {
+  constructor(readonly txHash: string, cause: unknown) {
+    super(`Submission outcome unknown for ${txHash}: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+    this.name = 'SubmitOutcomeUnknownError';
+  }
+}
+
+/**
  * Submits a transaction and clears the cached balances of every account it touched, so the next balance read
  * (the wallet, the dashboard) shows the result of the user's own action instead of a figure up to 20 seconds old.
+ * A Horizon answer with result codes (4xx) is a definite failure and is rethrown as is; no answer is not.
  */
 async function submitAndRefresh(tx: Parameters<Horizon.Server['submitTransaction']>[0]) {
-  const result = await horizon.submitTransaction(tx);
+  let result;
+  try {
+    result = await horizon.submitTransaction(tx);
+  } catch (err: any) {
+    const status: number | undefined = err?.response?.status;
+    if (status === undefined || status >= 500) throw new SubmitOutcomeUnknownError(tx.hash().toString('hex'), err);
+    throw err;
+  }
   await forgetBalances(...accountsTouchedBy(tx));
   return result;
 }
@@ -640,6 +660,44 @@ export async function streamEnterprisePayments(
 /** Same function, but runs under the lock of the account named by its first argument (the signing secret). */
 function serialized<A extends [string, ...unknown[]], R>(fn: (...args: A) => Promise<R>) {
   return (...args: A): Promise<R> => accountLock(args[0], () => fn(...args));
+}
+
+/** Pages of 200 a lookup reads before giving up; past this it throws rather than answer "not sent" unchecked. */
+const MEMO_SEARCH_MAX_PAGES = 50;
+
+/**
+ * The successful transaction from `account` carrying `Memo.hash(memoHash)`, searched newest-first back to `since`,
+ * or null. Each payout's transaction is tagged with sha256(paymentId), so this is the chain's answer to "did this
+ * payment happen?", conclusive once every transaction built for it is past its time bound. `claimable` marks the
+ * claimable-balance fallback. Throws if Horizon cannot be read (or the history is too deep to search), so a caller
+ * never mistakes "could not check" for "not sent".
+ */
+export async function findTransactionByMemoHash(
+  account: string,
+  memoHash: Buffer,
+  since: Date,
+): Promise<{ hash: string; claimable: boolean } | null> {
+  const wanted = memoHash.toString('base64');
+  let page;
+  try {
+    page = await horizon.transactions().forAccount(account).order('desc').limit(200).call();
+  } catch (err: any) {
+    if (err?.response?.status === 404) return null; // account never funded: nothing can have been sent
+    throw err;
+  }
+  for (let pages = 1; page.records.length > 0; pages++) {
+    for (const tx of page.records) {
+      if (new Date(tx.created_at) < since) return null;
+      // Horizon lists only successful transactions here unless asked for failed ones.
+      if (tx.memo_type === 'hash' && tx.memo === wanted) {
+        const ops = await horizon.operations().forTransaction(tx.hash).call();
+        return { hash: tx.hash, claimable: ops.records.some((op) => op.type === 'create_claimable_balance') };
+      }
+    }
+    if (pages >= MEMO_SEARCH_MAX_PAGES) throw new Error(`Searched ${pages * 200} transactions of ${account} without reaching ${since.toISOString()}`);
+    page = await page.next();
+  }
+  return null;
 }
 
 export const sendPayment = serialized(sendPaymentUnlocked);

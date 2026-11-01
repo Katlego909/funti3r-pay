@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import cron from 'node-cron';
 import axios from 'axios';
 import { query, tryWithAdvisoryLock } from '@funti3r/database';
@@ -5,7 +6,9 @@ import { createLogger, stampIdentity } from '@funti3r/shared-utils';
 import { nextRunDate } from './lib/scheduling.js';
 import { reconcileEscrows } from './lib/escrowReconcile.js';
 import { syncPendingRamps } from './lib/rampsSync.js';
+import { findTransactionByMemoHash } from './lib/stellar.js';
 import { recordAllMissingEscrowPayments } from './lib/escrowAccounting.js';
+import { notifyPaymentSettled } from './lib/paymentNotifications.js';
 import { jobRunsTotal, jobSeconds, stuckCashouts, stuckPayments } from './lib/metrics.js';
 
 const logger = createLogger('Scheduler');
@@ -112,8 +115,10 @@ async function executeSchedule(
       },
     );
 
+    // 'processing' means some payments are still awaiting their on-chain verdict: money may well have moved, so the
+    // run is not a failure; 'partial' is the closest outcome the schedule records (the watchdog settles each payment).
     runStatus = response.data.status === 'completed' ? 'success'
-      : response.data.status === 'partial' ? 'partial'
+      : response.data.status === 'partial' || response.data.status === 'processing' ? 'partial'
       : 'failed';
 
     logger.info('Schedule run complete', {
@@ -158,28 +163,79 @@ async function updateScheduleAfterRun(
 // mid-request, so a later idempotency-key retry (see index.ts) isn't blocked
 // forever by a row that will never resolve on its own.
 
-const STALE_INITIATED_MINUTES = 5;   // conservative for a single Stellar submission
+// Past every payout transaction's 60s time bound (lib/stellar.ts), with margin: a transaction not on chain by now
+// never will be, so the chain's answer is final.
+const STALE_INITIATED_MINUTES = 5;
 const STALE_BATCH_HEARTBEAT_MINUTES = 3; // batches heartbeat every item; use this, not updated_at
 
-async function reconcileStuckPayments(): Promise<void> {
-  // A single payout stuck in 'initiated' past this window has no other code
-  // path that will ever resolve it — mark failed so a same-key retry can proceed.
-  const stalePayments = await query(
-    `UPDATE payments
-        SET status = 'failed', failure_reason = 'Timed out — reconciled by watchdog', failed_at = NOW(), updated_at = NOW()
-      WHERE status = 'initiated' AND updated_at < NOW() - INTERVAL '${STALE_INITIATED_MINUTES} minutes'
-      RETURNING id`,
-  );
-  if (stalePayments.rows.length > 0) {
-    logger.warn('Reconciled stale initiated payments', { count: stalePayments.rows.length });
+/**
+ * Settles a payout left 'initiated' (the process died mid-request) or 'submitted' (Horizon gave no verdict) from the
+ * chain: its transaction carries Memo.hash(sha256(paymentId)) from the enterprise account. Found → completed (or
+ * pending_claim for the claimable-balance fallback). Absent → failed, and only then may a same-key retry pay again.
+ * A Horizon error leaves the row for the next run; it is never failed without the chain's answer.
+ */
+export async function reconcileStalePayments(): Promise<void> {
+  const stale = await query(
+    `SELECT p.id, p.enterprise_id, p.worker_id, p.amount, p.currency, p.created_at,
+            e.stellar_public_key AS enterprise_public_key, w.email AS worker_email
+       FROM payments p
+       JOIN users e ON e.id = p.enterprise_id
+       LEFT JOIN users w ON w.id = p.worker_id
+      WHERE p.status IN ('initiated', 'submitted') AND p.updated_at < NOW() - INTERVAL '${STALE_INITIATED_MINUTES} minutes'`,
+  ) as { rows: Array<{
+    id: string; enterprise_id: string; worker_id: string; amount: string; currency: string; created_at: Date;
+    enterprise_public_key: string | null; worker_email: string | null;
+  }> };
+
+  for (const p of stale.rows) {
+    let found: Awaited<ReturnType<typeof findTransactionByMemoHash>> = null;
+    if (p.enterprise_public_key) {
+      try {
+        const memoHash = crypto.createHash('sha256').update(p.id).digest();
+        found = await findTransactionByMemoHash(p.enterprise_public_key, memoHash, new Date(p.created_at));
+      } catch (err) {
+        logger.warn('Could not check a stale payment on chain; will retry', { paymentId: p.id, error: String(err) });
+        continue;
+      }
+    }
+
+    if (found) {
+      const status = found.claimable ? 'pending_claim' : 'completed';
+      const upd = await query(
+        `UPDATE payments
+            SET status = $1::text, stellar_tx_hash = $2, failure_reason = NULL, updated_at = NOW(),
+                completed_at = CASE WHEN $1::text = 'completed' THEN NOW() ELSE NULL END
+          WHERE id = $3 AND status IN ('initiated', 'submitted') RETURNING id`,
+        [status, found.hash, p.id],
+      );
+      if (upd.rows.length === 0) continue;
+      logger.warn('Settled stale payment from chain', { paymentId: p.id, status, txHash: found.hash });
+      await notifyPaymentSettled({
+        paymentId: p.id, enterpriseId: p.enterprise_id, workerId: p.worker_id, workerEmail: p.worker_email ?? 'your worker',
+        amount: p.amount, asset: p.currency, status,
+      });
+    } else {
+      await query(
+        `UPDATE payments
+            SET status = 'failed', failure_reason = 'Not on chain after its time bound — safe to retry', failed_at = NOW(), updated_at = NOW()
+          WHERE id = $1 AND status IN ('initiated', 'submitted')`,
+        [p.id],
+      );
+      logger.warn('Stale payment not on chain; marked failed', { paymentId: p.id });
+    }
   }
+}
+
+async function reconcileStuckPayments(): Promise<void> {
+  await reconcileStalePayments();
 
   // Batches use heartbeat_at (bumped once per item in the sequential loop),
   // NOT updated_at — updated_at only changes at batch-start and batch-finish,
   // so a large healthy batch would otherwise look identical to a crashed one.
   const staleBatches = await query(
     `SELECT id, payment_count FROM payment_batches
-      WHERE status = 'processing' AND heartbeat_at < NOW() - INTERVAL '${STALE_BATCH_HEARTBEAT_MINUTES} minutes'`,
+      WHERE status = 'processing' AND heartbeat_at < NOW() - INTERVAL '${STALE_BATCH_HEARTBEAT_MINUTES} minutes'
+        AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.batch_id = payment_batches.id AND p.status IN ('initiated', 'submitted'))`,
   ) as { rows: Array<{ id: string; payment_count: number }> };
 
   if (staleBatches.rows.length > 0) {
@@ -199,7 +255,10 @@ async function reconcileStuckPayments(): Promise<void> {
 
     for (const batch of staleBatches.rows) {
       const batchCounts = countsByBatch.get(batch.id) ?? [];
-      const completed = Number(batchCounts.find((r) => r.status === 'completed')?.count ?? 0);
+      // pending_claim moved the money too (a claimable balance), as the batch route counts it.
+      const completed = batchCounts
+        .filter((r) => r.status === 'completed' || r.status === 'pending_claim')
+        .reduce((n, r) => n + Number(r.count), 0);
       const failedOrMissing = Number(batch.payment_count) - completed;
       const batchStatus = failedOrMissing === 0 ? 'completed' : completed === 0 ? 'failed' : 'partial';
 
@@ -240,7 +299,7 @@ async function refreshStuckGauges(): Promise<void> {
     `SELECT count(*)::int AS n FROM cashouts WHERE status = 'pending' AND created_at < NOW() - INTERVAL '15 minutes'`,
   );
   const payments = await query(
-    `SELECT count(*)::int AS n FROM payments WHERE status IN ('initiated', 'processing') AND created_at < NOW() - INTERVAL '10 minutes'`,
+    `SELECT count(*)::int AS n FROM payments WHERE status IN ('initiated', 'submitted') AND created_at < NOW() - INTERVAL '10 minutes'`,
   );
   stuckCashouts.set(cashouts.rows[0]?.n ?? 0);
   stuckPayments.set(payments.rows[0]?.n ?? 0);

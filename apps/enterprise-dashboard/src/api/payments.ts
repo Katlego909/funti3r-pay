@@ -97,21 +97,34 @@ export async function getFxRates(): Promise<Record<string, number>> {
   }
 }
 
+/**
+ * Whether a failed payout request is over, so the next attempt should get a new idempotency key. Anything without a
+ * clear answer (no response, a gateway 5xx, a 409 "still processing") may still pay: keep the key so a retry is
+ * recognised as the same payment instead of becoming a second one.
+ */
+export function isFinalPayoutError(err: any): boolean {
+  const res = err?.response;
+  if (!res || res.status === 409) return false;
+  return res.status < 500 || res.data?.status === 'failed';
+}
+
 export interface BatchItemResult {
   workerId: string;
   amount: number;
   currency: string;
-  status: 'completed' | 'failed';
+  /** submitted: sent, awaiting its on-chain confirmation; pending_claim: held as a claimable balance. */
+  status: 'completed' | 'pending_claim' | 'submitted' | 'failed';
   stellarTxHash?: string;
   error?: string;
 }
 
 export interface BatchResult {
   batchId: string;
-  status: 'completed' | 'partial' | 'failed';
+  status: 'completed' | 'partial' | 'failed' | 'processing';
   totalRequested: number;
   completedCount: number;
   failedCount: number;
+  submittedCount: number;
   results: BatchItemResult[];
 }
 

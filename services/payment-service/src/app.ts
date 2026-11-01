@@ -6,6 +6,7 @@ import { audit } from './lib/audit.js';
 import { payoutBody, batchPayoutBody } from './lib/schemas.js';
 import { query, getRedis } from '@funti3r/database';
 import * as stellar from './lib/stellar.js';
+import { notifyPaymentSettled } from './lib/paymentNotifications.js';
 import { Asset } from '@stellar/stellar-sdk';
 import { getCurrency, isSupportedCurrency, PAYOUT_CURRENCIES } from './lib/currencies.js';
 import { usdToCurrencyRate, getUsdRates, amountToUsd, getXlmUsd, StaleRatesError } from './lib/fx.js';
@@ -181,7 +182,8 @@ export interface PayoutResult {
   workerId: string;
   amount: number;
   currency: string;
-  status: 'completed' | 'pending_claim' | 'failed';
+  /** 'submitted': sent to Stellar without a verdict; the watchdog settles it from the chain (scheduler.ts). */
+  status: 'completed' | 'pending_claim' | 'submitted' | 'failed';
   stellarTxHash?: string;
   sourceAmountXlm?: string;
   error?: string;
@@ -334,7 +336,7 @@ async function executePayoutInner(opts: {
     let txHash: string;
     let feePaidXlm: string | null = null;
     let claimableXlm: string | null = null;
-    let paymentStatus: PayoutResult['status'] = 'completed';
+    let paymentStatus: 'completed' | 'pending_claim' = 'completed';
 
     if (def.kind === 'native') {
       // Direct native XLM payment.
@@ -405,42 +407,17 @@ async function executePayoutInner(opts: {
     );
     logger.info('Payment settled', { paymentId, txHash, status: paymentStatus, amount: amountNum, currency: asset, workerId });
 
-    // Emit notifications (best-effort — never block the payment result)
-    try {
-      if (paymentStatus === 'completed') {
-        await Promise.all([
-          query(
-            `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
-             VALUES ($1, 'payment_completed', 'Payment sent', $2, 'payment', $3)`,
-            [enterpriseId, `Payment of ${amountNum} ${asset} to ${workerEmail} was settled.`, paymentId],
-          ),
-          query(
-            `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
-             VALUES ($1, 'payment_received', 'Payment received', $2, 'payment', $3)`,
-            [workerId, `You received ${amountNum} ${asset} from your employer.`, paymentId],
-          ),
-        ]);
-      } else {
-        // pending_claim
-        await Promise.all([
-          query(
-            `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
-             VALUES ($1, 'payment_pending_claim', 'Payment pending claim', $2, 'payment', $3)`,
-            [enterpriseId, `Payment to ${workerEmail} is pending — they need to set up a trustline to receive ${asset}.`, paymentId],
-          ),
-          query(
-            `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
-             VALUES ($1, 'payment_pending_claim', 'Payment waiting for you', $2, 'payment', $3)`,
-            [workerId, `A payment of ${claimableXlm} XLM is held for you. Set up your wallet to claim it.`, paymentId],
-          ),
-        ]);
-      }
-    } catch (notifErr) {
-      logger.warn('Failed to emit payment notification', { paymentId, error: String(notifErr) });
-    }
+    await notifyPaymentSettled({ paymentId, enterpriseId, workerId, workerEmail, amount: amountNum, asset, status: paymentStatus, claimableXlm });
 
     return { ...base, paymentId, status: paymentStatus, stellarTxHash: txHash, ...(feePaidXlm ? { sourceAmountXlm: feePaidXlm } : {}) };
   } catch (err: any) {
+    if (err instanceof stellar.SubmitOutcomeUnknownError) {
+      // Not a failure: the transaction may still land, and a 'failed' row would let a same-key retry pay twice.
+      // 'submitted' makes retries answer 409 until the watchdog has read the outcome off the chain.
+      await query(`UPDATE payments SET status = 'submitted', updated_at = NOW() WHERE id = $1`, [paymentId]);
+      logger.warn('Payment submitted without a verdict; awaiting on-chain confirmation', { paymentId, txHash: err.txHash, error: err.message });
+      return { ...base, paymentId, status: 'submitted', httpStatus: 202 };
+    }
     const resultCodes = err?.response?.data?.extras?.result_codes;
     const detail = resultCodes ? JSON.stringify(resultCodes) : (err instanceof Error ? err.message : String(err));
     await query(
@@ -540,9 +517,11 @@ app.post('/payouts', async (req, res) => {
 
   const result = await executePayout({ enterpriseId, sourceSecret: secret!, workerId, amountNum, asset, memo, idempotencyKey });
 
-  if (result.status === 'completed') {
-    return res.status(201).json({
-      paymentId: result.paymentId, status: 'completed', currency: result.currency, amount: result.amount,
+  // pending_claim moved money too (a claimable balance), so it is a success, not an error a client would retry.
+  // submitted (202) is in flight: the client keeps its idempotency key and the payment settles on its own.
+  if (result.status !== 'failed') {
+    return res.status(result.status === 'submitted' ? 202 : 201).json({
+      paymentId: result.paymentId, status: result.status, currency: result.currency, amount: result.amount,
       ...(usdAmount != null ? { usdAmount } : {}),
       stellarTxHash: result.stellarTxHash, ...(result.sourceAmountXlm ? { sourceAmountXlm: result.sourceAmountXlm } : {}),
     });
@@ -715,7 +694,11 @@ app.post('/payouts/batch', async (req, res) => {
 
   const completed = results.filter((r) => r.status === 'completed');
   const failed = results.filter((r) => r.status === 'failed');
-  const batchStatus = failed.length === 0 ? 'completed' : completed.length === 0 ? 'failed' : 'partial';
+  const submitted = results.filter((r) => r.status === 'submitted');
+  // With payments still awaiting their on-chain verdict the batch stays 'processing'; the watchdog finalizes it once
+  // they are settled (scheduler.ts).
+  const batchStatus = submitted.length > 0 ? 'processing'
+    : failed.length === 0 ? 'completed' : completed.length === 0 ? 'failed' : 'partial';
 
   // Sum USD (not raw amounts, which can now be in different currencies per item).
   const completedUsdTotal = normalized.reduce(
@@ -727,13 +710,14 @@ app.post('/payouts/batch', async (req, res) => {
     [batchStatus, completedUsdTotal, batchId],
   );
 
-  logger.info('Batch payout finished', { batchId, status: batchStatus, completed: completed.length, failed: failed.length });
-  return res.status(failed.length === 0 ? 201 : 207).json({
+  logger.info('Batch payout finished', { batchId, status: batchStatus, completed: completed.length, failed: failed.length, submitted: submitted.length });
+  return res.status(failed.length === 0 && submitted.length === 0 ? 201 : 207).json({
     batchId,
     status: batchStatus,
     totalRequested,
     completedCount: completed.length,
     failedCount: failed.length,
+    submittedCount: submitted.length,
     results,
   });
 });
