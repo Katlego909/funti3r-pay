@@ -51,4 +51,9 @@ jobs:
       - name: Advisory-lock tests (need a real Postgres)
         run: pnpm --filter @funti3r/database test
       - name: Back up, restore into a throwaway database, compare row counts
+        # Run pg_dump/pg_restore inside the Postgres service container so the client always matches the server. The
+        # runner's own client follows the runner image (ubuntu-latest moved to 26.04) and writes settings, like
+        # transaction_timeout, that a Postgres 16 server rejects.
+        env:
+          BACKUP_DOCKER_CONTAINER: ${{ job.services.postgres.id }}
         run: sh scripts/ops/restore-drill.sh
