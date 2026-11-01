@@ -5,7 +5,7 @@
  * path the dashboard's KYCForm hits via POST /compliance/submit).
  *
  * Run: node --env-file=../../.env.local --import tsx scripts/sanctions-e2e.ts
- * (compliance-service must be running — see CLAUDE.md pnpm --filter command)
+ * (compliance-service must be running: pnpm --filter @funti3r/compliance-service dev)
  */
 import axios from 'axios';
 import { initPostgres, query, transaction } from '@funti3r/database';

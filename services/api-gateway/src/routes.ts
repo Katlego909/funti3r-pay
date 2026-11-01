@@ -31,7 +31,7 @@ function proxy(target: string, pathRewrite?: Record<string, string>) {
 
 /**
  * Routing uses app.all() + a proxyReq-style http-proxy-middleware so the x-user-* headers set by the auth
- * middleware survive proxying — a plain app.use proxy silently drops them (see CLAUDE.md).
+ * middleware survive proxying — a plain app.use proxy silently drops them.
  */
 export function mountProxyRoutes(app: express.Express, upstreams: Upstreams): void {
   // Rebuild path for stripped auth routes
