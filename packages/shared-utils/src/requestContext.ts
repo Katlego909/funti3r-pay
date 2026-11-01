@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { createLogger, runWithLogContext } from './logger.js';
+import { createLogger, getLogContext, runWithLogContext } from './logger.js';
 
 interface Req { method: string; path: string; originalUrl?: string; headers: Record<string, string | string[] | undefined>; route?: { path?: unknown } }
 interface Res {
@@ -38,4 +38,13 @@ export function requestContext(service: string, onFinish?: (info: { method: stri
       next();
     });
   };
+}
+
+/**
+ * Headers for a call from this service to another one, so the request id follows the work across services and one
+ * request can be traced end to end in the logs. Empty outside a request (e.g. a scheduled job).
+ */
+export function forwardedHeaders(): Record<string, string> {
+  const requestId = getLogContext()?.requestId;
+  return requestId ? { 'x-request-id': requestId } : {};
 }

@@ -2,7 +2,7 @@ import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createLogger, redact, runWithLogContext } from './logger.js';
-import { requestContext } from './requestContext.js';
+import { forwardedHeaders, requestContext } from './requestContext.js';
 
 let lines: string[] = [];
 const original = { log: console.log, warn: console.warn, error: console.error };
@@ -105,4 +105,14 @@ test('probes are not access-logged, and a request without an id gets one', () =>
   res.emit('finish');
   assert.equal(lines.length, 0);
   assert.match(headers['x-request-id'], /^[0-9a-f-]{36}$/);
+});
+
+test('forwardedHeaders carries the current request id to the next service', () => {
+  runWithLogContext({ requestId: 'req-42' }, () => {
+    assert.deepEqual(forwardedHeaders(), { 'x-request-id': 'req-42' });
+  });
+});
+
+test('forwardedHeaders adds nothing outside a request', () => {
+  assert.deepEqual(forwardedHeaders(), {});
 });

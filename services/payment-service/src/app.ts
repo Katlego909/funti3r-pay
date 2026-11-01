@@ -1,6 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
-import { createLogger, decryptFromString, ValidationError, NotFoundError, requireGatewayIdentity, requestContext, registerHealth, parseBody, stellarNetwork } from '@funti3r/shared-utils';
+import { createLogger, forwardedHeaders, decryptFromString, ValidationError, NotFoundError, requireGatewayIdentity, requestContext, registerHealth, parseBody, stellarNetwork } from '@funti3r/shared-utils';
 import { metrics, payoutsTotal } from './lib/metrics.js';
 import { audit } from './lib/audit.js';
 import { payoutBody, batchPayoutBody } from './lib/schemas.js';
@@ -50,6 +50,7 @@ export async function requireCompliance(workerId: string): Promise<void> {
   try {
     const resp = await axios.get(`${COMPLIANCE_SERVICE_URL}/${workerId}/status`, {
       timeout: 5000,
+      headers: forwardedHeaders(),
     });
     if (resp.data.status !== 'verified') {
       throw new Error('Worker KYC not verified');
@@ -659,7 +660,7 @@ app.post('/payouts/batch', async (req, res) => {
     const complianceResp = await axios.post(
       `${COMPLIANCE_SERVICE_URL}/status/bulk`,
       { userIds: workerIds },
-      { timeout: 10000 },
+      { timeout: 10000, headers: forwardedHeaders() },
     );
     const statuses = complianceResp.data?.statuses ?? {};
     for (const id of workerIds) {
