@@ -49,10 +49,14 @@
       "dompurify": ">=3.4.17",
       "brace-expansion@>=2.0.0 <2.1.7": "^2.1.7",
       "handlebars": ">=4.7.10",
-      "qs": ">=6.16.0",
+      "qs": ">=6.16.1",
       "body-parser": ">=2.4.0",
       "fast-xml-parser": ">=5.7.0",
-      "follow-redirects": ">=1.16.2"
+      "follow-redirects": ">=1.16.2",
+      "esbuild@>=0.27.3 <0.28.1": "^0.28.1",
+      "postcss@<8.5.23": "^8.5.23",
+      "nanoid@<3.3.18": "^3.3.18",
+      "source-map-js@<1.2.2": "^1.2.2"
     }
   }
 }
