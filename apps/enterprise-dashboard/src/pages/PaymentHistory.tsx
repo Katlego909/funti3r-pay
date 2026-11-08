@@ -17,6 +17,7 @@ import { StatusBadge } from '../components/StatusBadge.js';
 import { STATUS_TABS } from '../lib/status.js';
 import '../styles/Dashboard.css';
 import { EXPLORER } from '../lib/explorer.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 export default function PaymentHistory() {
   const dc = useDisplayCurrency();
@@ -52,7 +53,7 @@ export default function PaymentHistory() {
       ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
     })
       .then(({ payments: p, total: t }) => { setPayments(p); setTotal(t); setError(''); })
-      .catch((err: any) => setError(err?.response?.data?.error ?? 'Failed to load payment history'))
+      .catch((err: any) => setError(apiErrorMessage(err, 'Failed to load payment history')))
       .finally(() => setLoading(false));
   }, [user, offset, statusFilter]);
 

@@ -1,5 +1,8 @@
 import { vi } from 'vitest';
 
+// vi.mock factories are hoisted above imports; this makes the real AppError reachable from them.
+const { AppError } = await vi.hoisted(() => import('@funti3r/shared-utils'));
+
 // Env vars read at module load time by src/lib/currencies.ts — must be set
 // before any test file's first import of app.ts. Fake but well-formed-looking
 // Stellar public keys; never used for a real network call (Stellar I/O itself
@@ -39,13 +42,11 @@ vi.mock('../lib/escrow.js', () => ({
   getEscrow: vi.fn(),
   nativeTokenAddress: vi.fn(),
   xlmToStroops: vi.fn(),
-  // The routes classify failures with instanceof, so the class must be real.
-  EscrowContractError: class EscrowContractError extends Error {
-    constructor(public readonly code: number, public readonly method: string) {
-      super(`contract error #${code}`);
-    }
-    get isComplianceBlock() {
-      return this.code === 11 || this.code === 12;
+  // The error handler maps failures by their AppError status, so the class must be real.
+  EscrowContractError: class EscrowContractError extends AppError {
+    constructor(public readonly contractCode: number, public readonly method: string) {
+      const block = contractCode === 11 || contractCode === 12;
+      super(block ? 403 : 409, `contract error #${contractCode}`, block ? 'compliance_blocked' : 'contract_rejected', { contractCode });
     }
   },
 }));
@@ -55,13 +56,21 @@ vi.mock('../lib/escrow.js', () => ({
 vi.mock('../lib/clearance.js', () => ({
   ensureCleared: vi.fn().mockResolvedValue({ cleared: true }),
   screenEmployer: vi.fn().mockResolvedValue(undefined),
-  ComplianceBlockedError: class ComplianceBlockedError extends Error {},
+  ComplianceBlockedError: class ComplianceBlockedError extends AppError {
+    constructor(message: string) { super(403, message, 'compliance_blocked'); }
+  },
 }));
 
 vi.mock('../lib/stellar.js', () => ({
   sendPayment: vi.fn(),
   findTransactionByMemoHash: vi.fn(),
   lookupTransaction: vi.fn(),
+  HorizonRejectedError: class HorizonRejectedError extends AppError {
+    constructor(readonly resultCodes: { transaction?: string; operations?: string[] }, cause: unknown) {
+      super(502, 'The Stellar network rejected the transaction', resultCodes.operations?.[0] ?? 'horizon_rejected');
+      this.cause = cause;
+    }
+  },
   SubmitOutcomeUnknownError: class SubmitOutcomeUnknownError extends Error {
     constructor(readonly txHash: string, cause?: unknown) { super(`Submission outcome unknown for ${txHash}`, { cause }); }
   },
@@ -70,6 +79,5 @@ vi.mock('../lib/stellar.js', () => ({
   spendableXlm: vi.fn(),
   createClaimableBalance: vi.fn(),
   getAccountBalance: vi.fn(),
-  submitSignedTransaction: vi.fn(),
   streamEnterprisePayments: vi.fn(),
 }));

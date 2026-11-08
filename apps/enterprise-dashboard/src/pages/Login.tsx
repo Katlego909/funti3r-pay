@@ -4,11 +4,12 @@ import { Helmet } from 'react-helmet-async';
 import { toast } from 'sonner';
 import { loginPasskey, devLogin } from '../api/auth.js';
 import { useAuthStore } from '../store/authStore.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 // No passkey for this email here, the wrong passkey and a dismissed prompt all get the same message: the server
 // deliberately doesn't say which, as that would tell anyone whether an email has an account.
 function loginErrorMessage(err: unknown): string {
-  const apiError = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+  const apiError = apiErrorMessage(err, '');
   if (apiError && !/verification failed/i.test(apiError)) return apiError;
   return "Couldn't sign in with a passkey on this device. Check the email, or use “Get a sign-in link” if this is a new device.";
 }
@@ -39,7 +40,7 @@ export default function Login() {
       await devLogin(email);
       navigate('/');
     } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? 'Dev login failed');
+      toast.error(apiErrorMessage(err, 'Dev login failed'));
     } finally {
       setLoading(false);
     }

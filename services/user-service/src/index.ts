@@ -12,6 +12,8 @@ import {
 import { Keypair } from '@stellar/stellar-sdk';
 import {
   createLogger,
+  errorHandler,
+  installProcessHandlers,
   generateToken,
   encryptToString,
   ValidationError,
@@ -32,6 +34,7 @@ import { initPostgres, runInitialMigrations, initRedis, getRedis, query, transac
 import { UserRole } from '@funti3r/shared-types';
 
 const logger = createLogger('UserService');
+installProcessHandlers(logger);
 const app = express();
 
 app.use(cookieParser());
@@ -336,7 +339,7 @@ function registerAuthRoute(path: string, handler: express.RequestHandler, { bare
  * Body: { email, role }
  * Returns WebAuthn registration options and stores the challenge in Redis.
  */
-const registerStartHandler = async (req: express.Request, res: express.Response) => {
+const registerStartHandler = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
     const { email, role = 'worker' } = req.body;
 
@@ -374,8 +377,7 @@ const registerStartHandler = async (req: express.Request, res: express.Response)
     // Return the FULL options object as-is
     res.status(200).json(options);
   } catch (err) {
-    logger.error('register/start error', { error: String(err) });
-    res.status(500).json({ error: 'Registration failed: ' + String(err) });
+    next(err);
   }
 };
 
@@ -387,7 +389,7 @@ registerAuthRoute('register/start', registerStartHandler);
  * Verifies the WebAuthn credential, creates the user with a classic
  * Stellar account, and returns a JWT.
  */
-const registerFinishHandler = async (req: express.Request, res: express.Response) => {
+const registerFinishHandler = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
     const { email, credential, origin, inviteToken, companyInviteToken } = req.body as {
       email: string;
@@ -559,14 +561,8 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
       ...(companyInviteError !== undefined ? { companyInviteError } : {}),
     });
   } catch (err) {
-    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    const errorCode = (err as any)?.code;
-    logger.error('register/finish failed', { error: errorMsg, code: errorCode, stack: err instanceof Error ? err.stack : undefined });
-
-    if (errorCode === '23505') return res.status(409).json({ error: 'Email already registered' });
-
-    res.status(500).json({ error: process.env.NODE_ENV === 'development' ? errorMsg : 'Internal server error' });
+    if ((err as { code?: unknown })?.code === '23505') return res.status(409).json({ error: 'Email already registered' });
+    next(err);
   }
 };
 
@@ -579,7 +575,7 @@ registerAuthRoute('register/finish', registerFinishHandler);
  * Body: { email }
  * Returns WebAuthn authentication options.
  */
-const loginStartHandler = async (req: express.Request, res: express.Response) => {
+const loginStartHandler = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
     const { email, origin } = req.body as { email: string; origin?: string };
     if (!email) throw new ValidationError('email is required');
@@ -623,9 +619,7 @@ const loginStartHandler = async (req: express.Request, res: express.Response) =>
 
     res.json(options);
   } catch (err) {
-    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
-    logger.error('login/start failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 };
 
@@ -636,7 +630,7 @@ registerAuthRoute('login/start', loginStartHandler);
  * Body: { email, credential: AuthenticationResponseJSON }
  * Verifies the WebAuthn assertion and returns a JWT.
  */
-const loginFinishHandler = async (req: express.Request, res: express.Response) => {
+const loginFinishHandler = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
     const { email, credential, origin } = req.body as {
       email: string;
@@ -712,10 +706,7 @@ const loginFinishHandler = async (req: express.Request, res: express.Response) =
     setRefreshCookie(res, refreshToken);
     res.json({ accessToken, userId, email, role, companyId });
   } catch (err) {
-    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
-    if (err instanceof AuthenticationError) return res.status(401).json({ error: err.message });
-    logger.error('login/finish failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 };
 
@@ -729,7 +720,7 @@ registerAuthRoute('login/finish', loginFinishHandler);
  * Exists so local testing doesn't require re-registering a passkey every time
  * (passkeys are device/browser/origin-scoped and wiped on DB resets).
  */
-const devLoginHandler = async (req: express.Request, res: express.Response) => {
+const devLoginHandler = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (process.env.NODE_ENV === 'production' || process.env.ENABLE_DEV_LOGIN !== 'true') {
     return res.status(404).json({ error: 'Not found' });
   }
@@ -757,10 +748,8 @@ const devLoginHandler = async (req: express.Request, res: express.Response) => {
     logger.info('dev-login: signed in without passkey', { userId, email, role });
     res.json({ accessToken, userId, email, role, companyId });
   } catch (err) {
-    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
     if (err instanceof NotFoundError) return res.status(404).json({ error: 'No account with that email' });
-    logger.error('dev-login failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 };
 
@@ -772,7 +761,7 @@ app.post('/api/auth/dev-login', devLoginHandler);
  * POST /auth/refresh
  * Uses the httpOnly refresh_token cookie to issue a new access token.
  */
-const refreshHandler = async (req: express.Request, res: express.Response) => {
+const refreshHandler = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
     const token: string | undefined = req.cookies?.refresh_token;
     if (!token) throw new AuthenticationError('No refresh token');
@@ -796,9 +785,7 @@ const refreshHandler = async (req: express.Request, res: express.Response) => {
 
     res.json({ accessToken, companyId: session.companyId ?? null });
   } catch (err) {
-    if (err instanceof AuthenticationError) return res.status(401).json({ error: err.message });
-    logger.error('refresh failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 };
 
@@ -834,7 +821,7 @@ async function isOwnWorker(companyId: string, workerId: string): Promise<boolean
  * (Not a platform-wide count — every caller here is the enterprise dashboard's
  * own overview stat, so scoping to "my workers" is the correct contract.)
  */
-app.get('/users/summary', async (req, res) => {
+app.get('/users/summary', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
   if (requesterRole !== 'enterprise' || !requesterId) {
@@ -862,13 +849,12 @@ app.get('/users/summary', async (req, res) => {
       byRole: Object.fromEntries(byRole.rows.map((r) => [r.role, Number(r.count)])),
     });
   } catch (err) {
-    logger.error('users/summary failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
 /** GET /users — the calling enterprise's own workers (optionally filtered by search). */
-app.get('/users', async (req, res) => {
+app.get('/users', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
   if (requesterRole !== 'enterprise' || !requesterId) {
@@ -909,13 +895,12 @@ app.get('/users', async (req, res) => {
       total: Number(total.rows[0].total),
     });
   } catch (err) {
-    logger.error('users list failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
 /** GET /users/:id — self-lookup, or an enterprise looking up one of its own workers. */
-app.get('/users/:id', async (req, res) => {
+app.get('/users/:id', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
 
@@ -949,8 +934,7 @@ app.get('/users/:id', async (req, res) => {
     if (result.rows.length === 0) throw new NotFoundError('User');
     res.json(result.rows[0]);
   } catch (err) {
-    if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
@@ -959,7 +943,7 @@ app.get('/users/:id', async (req, res) => {
  * currency they are paid in. Body: { currency }.
  */
 const ALLOWED_PAYOUT_CURRENCIES = ['USDC', 'NGN', 'KES', 'GHS', 'ZAR', 'UGX'];
-const setPreferredCurrencyHandler = async (req: express.Request, res: express.Response) => {
+const setPreferredCurrencyHandler = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const userId = req.headers['x-user-id'] as string | undefined;
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
   const currency = String((req.body as any)?.currency || '').toUpperCase();
@@ -974,8 +958,7 @@ const setPreferredCurrencyHandler = async (req: express.Request, res: express.Re
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
     res.json({ preferredCurrency: result.rows[0].preferred_currency });
   } catch (err) {
-    logger.error('Failed to set preferred currency', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 };
 app.put('/users/me/preferred-currency', setPreferredCurrencyHandler);
@@ -988,7 +971,7 @@ app.put('/api/users/me/preferred-currency', setPreferredCurrencyHandler);
  * incorporation — distinct from the account holder's personal `country`).
  * Any role: updates first_name, last_name, phone, country in users.
  */
-const patchMeHandler = async (req: express.Request, res: express.Response) => {
+const patchMeHandler = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const userId = req.headers['x-user-id'] as string | undefined;
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -1045,8 +1028,7 @@ const patchMeHandler = async (req: express.Request, res: express.Response) => {
 
     res.json({ ok: true });
   } catch (err) {
-    logger.error('Failed to update profile', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 };
 app.patch('/users/me', patchMeHandler);
@@ -1056,7 +1038,7 @@ app.patch('/api/users/me', patchMeHandler);
 
 // ── Worker invites ────────────────────────────────────────────────────────────
 
-app.post('/invites', async (req, res) => {
+app.post('/invites', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string;
   const requesterRole = req.headers['x-user-role'] as string;
   if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
@@ -1114,12 +1096,11 @@ app.post('/invites', async (req, res) => {
     const inviteUrl = `${baseUrl}/register?role=worker&invite=${token}&email=${encodeURIComponent(email)}`;
     return res.status(201).json({ token, inviteUrl });
   } catch (err) {
-    logger.error('Create invite failed', { error: String(err) });
-    return res.status(500).json({ error: 'Failed to create invite' });
+    next(err);
   }
 });
 
-app.get('/invites', async (req, res) => {
+app.get('/invites', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string;
   const requesterRole = req.headers['x-user-role'] as string;
   if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
@@ -1147,12 +1128,12 @@ app.get('/invites', async (req, res) => {
       [membership.ownerUserId],
     );
     return res.json({ invites: result.rows });
-  } catch {
-    return res.status(500).json({ error: 'Failed to list invites' });
+  } catch (err) {
+    next(err);
   }
 });
 
-app.delete('/invites/:id', async (req, res) => {
+app.delete('/invites/:id', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string;
   const requesterRole = req.headers['x-user-role'] as string;
   if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
@@ -1177,12 +1158,11 @@ app.delete('/invites/:id', async (req, res) => {
     if (!result.rows.length) return res.status(404).json({ error: 'Pending invite not found' });
     return res.json({ ok: true });
   } catch (err) {
-    logger.error('Delete invite failed', { error: String(err) });
-    return res.status(500).json({ error: 'Failed to delete invite' });
+    next(err);
   }
 });
 
-app.get('/invites/:token', async (req, res) => {
+app.get('/invites/:token', async (req, res, next) => {
   try {
     const result = await query(
       `SELECT wi.id, wi.enterprise_id, wi.email, wi.status, wi.expires_at, e.company_name
@@ -1197,15 +1177,15 @@ app.get('/invites/:token', async (req, res) => {
       return res.status(410).json({ error: 'Invite has expired or already been used' });
     }
     return res.json({ email: invite.email, enterpriseId: invite.enterprise_id, companyName: invite.company_name });
-  } catch {
-    return res.status(500).json({ error: 'Failed to validate invite' });
+  } catch (err) {
+    next(err);
   }
 });
 
 // Kept for a worker who already has an account (invited to a second company,
 // or the registration-time atomic accept below couldn't run for some reason).
 // The primary path is now inviteToken passed directly to /auth/register/finish.
-app.post('/invites/:token/accept', async (req, res) => {
+app.post('/invites/:token/accept', async (req, res, next) => {
   const workerId = req.headers['x-user-id'] as string;
   if (!workerId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -1214,14 +1194,13 @@ app.post('/invites/:token/accept', async (req, res) => {
     if (!accepted) return res.status(410).json({ error: 'Invite expired or already used' });
     return res.json({ ok: true });
   } catch (err) {
-    logger.error('Accept invite failed', { error: String(err) });
-    return res.status(500).json({ error: 'Failed to accept invite' });
+    next(err);
   }
 });
 
 // ── Company invites ───────────────────────────────────────────────────────────
 
-app.post('/company/invites', async (req, res) => {
+app.post('/company/invites', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string;
   if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -1284,12 +1263,11 @@ app.post('/company/invites', async (req, res) => {
     const inviteUrl = `${baseUrl}/register?role=enterprise&teamInvite=${token}&email=${encodeURIComponent(email)}`;
     return res.status(201).json({ token, inviteUrl });
   } catch (err) {
-    logger.error('Create company invite failed', { error: String(err) });
-    return res.status(500).json({ error: 'Failed to create invite' });
+    next(err);
   }
 });
 
-app.get('/company/invites', async (req, res) => {
+app.get('/company/invites', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string;
   if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -1316,14 +1294,13 @@ app.get('/company/invites', async (req, res) => {
     );
     return res.json({ invites: result.rows });
   } catch (err) {
-    logger.error('List company invites failed', { error: String(err) });
-    return res.status(500).json({ error: 'Failed to list invites' });
+    next(err);
   }
 });
 
 // Public (see api-gateway PUBLIC_GET_PATTERNS) — same possession-of-token
 // authorization model as GET /invites/:token.
-app.get('/company/invites/:token', async (req, res) => {
+app.get('/company/invites/:token', async (req, res, next) => {
   try {
     // INNER JOIN, not LEFT — enterprise_member_invites.enterprise_id
     // correctly FKs enterprises.id from day one, unlike worker_invites'
@@ -1348,15 +1325,14 @@ app.get('/company/invites/:token', async (req, res) => {
       companyRole: invite.company_role,
     });
   } catch (err) {
-    logger.error('Validate company invite failed', { error: String(err) });
-    return res.status(500).json({ error: 'Failed to validate invite' });
+    next(err);
   }
 });
 
 // Kept for an already-registered enterprise user accepting a standalone
 // invite (edge case, not the primary path). Same gateway-authenticated
 // x-user-id pattern as POST /invites/:token/accept (worker).
-app.post('/company/invites/:token/accept', async (req, res) => {
+app.post('/company/invites/:token/accept', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string;
   if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -1366,14 +1342,13 @@ app.post('/company/invites/:token/accept', async (req, res) => {
     if (result === 'already_member') return res.status(409).json({ error: 'This account already belongs to a company' });
     return res.json({ ok: true });
   } catch (err) {
-    logger.error('Accept company invite failed', { error: String(err) });
-    return res.status(500).json({ error: 'Failed to accept invite' });
+    next(err);
   }
 });
 
 // One endpoint serves both "show the team list" and "know my own role" —
 // deliberately avoids adding a company_role JWT/session claim for v1.
-app.get('/company/members', async (req, res) => {
+app.get('/company/members', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string;
   if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -1399,8 +1374,7 @@ app.get('/company/members', async (req, res) => {
       myRole: membership.companyRole,
     });
   } catch (err) {
-    logger.error('List company members failed', { error: String(err) });
-    return res.status(500).json({ error: 'Failed to list members' });
+    next(err);
   }
 });
 
@@ -1409,7 +1383,7 @@ app.get('/company/members', async (req, res) => {
 // conventions: owners can remove anyone but themselves/other owners, admins
 // can remove members but not other admins (prevents admins removing each
 // other). Self-removal ("leave a company") is a distinct feature, not this one.
-app.delete('/company/members/:userId', async (req, res) => {
+app.delete('/company/members/:userId', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string;
   if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -1449,14 +1423,13 @@ app.delete('/company/members/:userId', async (req, res) => {
     );
     return res.json({ ok: true });
   } catch (err) {
-    logger.error('Remove company member failed', { error: String(err) });
-    return res.status(500).json({ error: 'Failed to remove teammate' });
+    next(err);
   }
 });
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 
-app.get('/notifications', async (req, res) => {
+app.get('/notifications', async (req, res, next) => {
   const userId = req.headers['x-user-id'] as string | undefined;
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -1480,13 +1453,12 @@ app.get('/notifications', async (req, res) => {
     ]);
     res.json({ notifications: rows.rows, unreadCount: Number(unread.rows[0].count) });
   } catch (err) {
-    logger.error('Failed to fetch notifications', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
 // Must be registered before /:id/read to avoid being captured by the param route
-app.patch('/notifications/read-all', async (req, res) => {
+app.patch('/notifications/read-all', async (req, res, next) => {
   const userId = req.headers['x-user-id'] as string | undefined;
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -1496,12 +1468,12 @@ app.patch('/notifications/read-all', async (req, res) => {
       [userId],
     );
     res.json({ ok: true });
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (err) {
+    next(err);
   }
 });
 
-app.patch('/notifications/:id/read', async (req, res) => {
+app.patch('/notifications/:id/read', async (req, res, next) => {
   const userId = req.headers['x-user-id'] as string | undefined;
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -1514,8 +1486,8 @@ app.patch('/notifications/:id/read', async (req, res) => {
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Notification not found' });
     res.json({ ok: true });
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (err) {
+    next(err);
   }
 });
 
@@ -1530,7 +1502,7 @@ const RECOVERY_TTL_SEC = 15 * 60; // 15 minutes
  * on a new device. Always responds 200 even if the email is unknown (prevents
  * email enumeration).
  */
-const recoveryStartHandler = async (req: express.Request, res: express.Response) => {
+const recoveryStartHandler = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const { email } = req.body as { email?: string };
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: 'Valid email required' });
@@ -1564,8 +1536,7 @@ const recoveryStartHandler = async (req: express.Request, res: express.Response)
 
     return res.json({ ok: true });
   } catch (err) {
-    logger.error('recovery/start failed', { error: String(err) });
-    return res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 };
 
@@ -1577,7 +1548,7 @@ registerAuthRoute('recovery/start', recoveryStartHandler, { bareAlias: false });
  * Verifies the magic link token, issues an access + refresh token pair,
  * and deletes the recovery token (single-use).
  */
-const recoveryVerifyHandler = async (req: express.Request, res: express.Response) => {
+const recoveryVerifyHandler = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   const { token } = req.body as { token?: string };
   if (!token) return res.status(400).json({ error: 'Token required' });
 
@@ -1614,8 +1585,7 @@ const recoveryVerifyHandler = async (req: express.Request, res: express.Response
       companyId,
     });
   } catch (err) {
-    logger.error('recovery/verify failed', { error: String(err) });
-    return res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 };
 
@@ -1642,12 +1612,7 @@ async function start() {
   });
 }
 
-// Global error handler
-app.use((err: any, req: any, res: any, _next: any) => {
-  logger.error('Unhandled error', { error: String(err), path: req.path });
-  if (!res.headersSent) {
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+// Last, after every route: the one place a thrown error becomes a response.
+app.use(errorHandler(logger));
 
 start();

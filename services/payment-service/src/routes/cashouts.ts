@@ -1,16 +1,16 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import type { Router as RouterType } from 'express';
 import { query } from '@funti3r/database';
 import { createLogger, decryptFromString } from '@funti3r/shared-utils';
 import { Memo } from '@stellar/stellar-sdk';
-import { payExactWithXlm, spendableXlm } from '../lib/stellar.js';
+import { HorizonRejectedError, SubmitOutcomeUnknownError, payExactWithXlm, spendableXlm } from '../lib/stellar.js';
 import { getCurrency } from '../lib/currencies.js';
 import {
   checkDeposit, createSession, findClaimedTransaction, listTransactions,
   moneygramConfigured, moneygramPublicKey, moneygramSandbox,
 } from '../lib/moneygram.js';
 import { awaitRampsAcknowledgement } from '../lib/rampsSync.js';
-import { ComplianceBlockedError, ensureCleared } from '../lib/clearance.js';
+import { ensureCleared } from '../lib/clearance.js';
 import { cashoutsTotal } from '../lib/metrics.js';
 import { audit } from '../lib/audit.js';
 
@@ -39,14 +39,7 @@ async function workerPublicKey(workerId: string): Promise<string | undefined> {
   return r.rows[0]?.stellar_public_key;
 }
 
-function sendError(res: Response, err: unknown, fallback: string) {
-  if (err instanceof ComplianceBlockedError) {
-    return res.status(403).json({ error: err.message, code: 'compliance_blocked' });
-  }
-  return res.status(502).json({ error: err instanceof Error ? err.message : fallback });
-}
-
-router.post('/moneygram/session', async (req: Request, res: Response) => {
+router.post('/moneygram/session', async (req: Request, res: Response, next: NextFunction) => {
   const workerId = requireWorker(req, res);
   if (!workerId) return;
   if (!moneygramConfigured()) return res.status(400).json({ error: 'MoneyGram cash-out is not configured' });
@@ -68,12 +61,11 @@ router.post('/moneygram/session', async (req: Request, res: Response) => {
       maxXlm,
     });
   } catch (err) {
-    logger.error('Failed to open MoneyGram session', { error: String(err) });
-    sendError(res, err, 'Failed to open MoneyGram');
+    next(err);
   }
 });
 
-router.post('/moneygram/deposit', async (req: Request, res: Response) => {
+router.post('/moneygram/deposit', async (req: Request, res: Response, next: NextFunction) => {
   const workerId = requireWorker(req, res);
   if (!workerId) return;
   if (!moneygramConfigured()) return res.status(400).json({ error: 'MoneyGram cash-out is not configured' });
@@ -135,12 +127,26 @@ router.post('/moneygram/deposit', async (req: Request, res: Response) => {
         { sendMaxXlm: maxXlm.toFixed(7), memo: Memo.id(tx.depositMemo!) },
       ));
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      if (err instanceof SubmitOutcomeUnknownError) {
+        // Not a failure: the payment may still land. Keeping its hash makes every retry answer "already paid"
+        // instead of paying MoneyGram a second time; the scheduled sweep reads the chain's answer once the
+        // time bound is over (lib/rampsSync.ts) and fails the cash-out, retryable, only if it never landed.
+        await query(
+          `UPDATE cashouts SET settlement_hash = $2, settlement_unconfirmed_since = NOW() WHERE id = $1`,
+          [cashoutId, err.txHash],
+        );
+        logger.warn('MoneyGram deposit submitted without a verdict; awaiting on-chain confirmation', { cashoutId, txHash: err.txHash });
+        cashoutsTotal.inc({ outcome: 'submitted' });
+        await audit({ actorId: workerId, actorRole: 'worker', action: 'cashout.submitted', entityType: 'cashout', entityId: cashoutId, detail: { usdc: claim.amount, txHash: err.txHash } });
+        return res.status(202).json({ txHash: err.txHash, status: 'submitted' });
+      }
+      // Horizon's result codes say why (op_underfunded, ...); the client-facing message does not.
+      const message = err instanceof HorizonRejectedError ? JSON.stringify(err.resultCodes) : err instanceof Error ? err.message : String(err);
       logger.error('MoneyGram deposit payment failed', { cashoutId, error: message });
       await query(`UPDATE cashouts SET status = 'failed', error = $2 WHERE id = $1`, [cashoutId, message.slice(0, 500)]);
       cashoutsTotal.inc({ outcome: 'payment_failed' });
       await audit({ actorId: workerId, actorRole: 'worker', action: 'cashout.payment_failed', entityType: 'cashout', entityId: cashoutId, detail: { error: message.slice(0, 200) } });
-      return res.status(502).json({ error: message });
+      throw err;
     }
 
     // Persist the payment the instant it exists; a retry can then never pay again.
@@ -155,14 +161,13 @@ router.post('/moneygram/deposit', async (req: Request, res: Response) => {
     await audit({ actorId: workerId, actorRole: 'worker', action: 'cashout.paid', entityType: 'cashout', entityId: cashoutId, detail: { usdc: claim.amount, xlmSpent: spentXlm, txHash: hash } });
     res.json({ txHash: hash, status: 'pending' });
   } catch (err) {
-    logger.error('Failed to handle MoneyGram deposit', { error: String(err) });
-    sendError(res, err, 'Failed to handle the MoneyGram deposit');
+    next(err);
   }
 });
 
 // ── GET /cashouts — the worker's own cash-out history ─────────────────────────
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   const workerId = requireWorker(req, res);
   if (!workerId) return;
   try {
@@ -194,8 +199,7 @@ router.get('/', async (req: Request, res: Response) => {
       })),
     });
   } catch (err) {
-    logger.error('Failed to list cash-outs', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 

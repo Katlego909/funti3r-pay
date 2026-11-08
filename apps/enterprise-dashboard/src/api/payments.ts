@@ -144,14 +144,6 @@ export async function getPayment(id: string): Promise<Payment> {
   return data;
 }
 
-export async function submitSignature(payload: {
-  paymentId: string;
-  signedXDR: string;
-}) {
-  const { data } = await api.post('/payouts/submit-signature', payload);
-  return data;
-}
-
 // --- Worker payout-currency preference (used by worker Wallet page) ---
 
 export interface PayoutCurrency { code: string; name: string; symbol: string; kind: string }

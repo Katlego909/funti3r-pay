@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { toast } from 'sonner';
 import Modal from './Modal.js';
 import { rejectMilestone } from '../api/escrows.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 interface Props {
   target: { escrowId: string; idx: number; title: string } | null;
@@ -29,7 +30,7 @@ export default function RejectWorkModal({ target, onClose, onDone }: Props) {
       close();
       onDone();
     } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? 'Failed to send the work back');
+      toast.error(apiErrorMessage(err, 'Failed to send the work back'));
     } finally {
       setBusy(false);
     }

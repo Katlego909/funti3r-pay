@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { api } from '../api/client.js';
 import { StatusBadge } from './StatusBadge.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 interface KYCStatusData {
   id?: string;
@@ -56,7 +57,7 @@ export function KYCStatus({ onStatusChange }: { onStatusChange?: (status: KYCSta
         onStatusChange?.(null);
       } else {
         console.error('Failed to fetch KYC status:', err);
-        setError(err?.response?.data?.error ?? 'Failed to load KYC status');
+        setError(apiErrorMessage(err, 'Failed to load KYC status'));
       }
     } finally {
       setLoading(false);

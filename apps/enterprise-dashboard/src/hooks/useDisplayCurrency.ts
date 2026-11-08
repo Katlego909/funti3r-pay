@@ -37,6 +37,7 @@ export function useDisplayCurrency(): UseDisplayCurrency {
 
   useEffect(() => {
     let cancelled = false;
+    // Optional: without market rates, amounts stay in their own currency.
     loadMarket().then((m) => { if (!cancelled) setMarket(m); }).catch(() => {});
     if (isWorker && user?.userId) {
       getPreferredCurrency(user.userId)

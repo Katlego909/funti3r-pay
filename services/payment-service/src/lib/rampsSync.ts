@@ -9,6 +9,8 @@
 import { query } from '@funti3r/database';
 import { createLogger } from '@funti3r/shared-utils';
 import { getTransaction, listTransactions, moneygramConfigured, type RampsTransaction } from './moneygram.js';
+import { lookupTransaction } from './stellar.js';
+import { cashoutsTotal } from './metrics.js';
 
 const logger = createLogger('RampsSync');
 
@@ -77,8 +79,54 @@ export async function awaitRampsAcknowledgement(
   return outcome;
 }
 
+// Past the cash-out payment's 60s time bound (lib/stellar.ts), with margin: a transaction not on chain by now never
+// will be, so the chain's answer is final. Same margin as the payout watchdog (scheduler.ts).
+const UNCONFIRMED_GRACE_MINUTES = 5;
+
+/**
+ * Settles cash-out payments Horizon gave no verdict on, once their time bound is over. On chain and successful → the
+ * hash is confirmed and MoneyGram's acknowledgement completes the cash-out as usual. Absent, or landed but failed →
+ * nothing was paid, so the cash-out fails with its hash removed and the worker may retry the same MoneyGram
+ * transaction. A Horizon error leaves the row for the next run; it is never failed without the chain's answer.
+ */
+export async function reconcileUnconfirmedCashouts(): Promise<void> {
+  const rows = await query<{ id: string; settlement_hash: string }>(
+    `SELECT id, settlement_hash FROM cashouts
+      WHERE status = 'pending' AND settlement_unconfirmed_since < NOW() - INTERVAL '${UNCONFIRMED_GRACE_MINUTES} minutes'`,
+  );
+  for (const row of rows.rows) {
+    let tx: Awaited<ReturnType<typeof lookupTransaction>>;
+    try {
+      tx = await lookupTransaction(row.settlement_hash);
+    } catch (err) {
+      logger.warn('Could not check an unconfirmed cash-out on chain; will retry', { cashoutId: row.id, error: String(err) });
+      continue;
+    }
+    if (tx.found && tx.successful) {
+      await query(
+        `UPDATE cashouts SET settlement_unconfirmed_since = NULL WHERE id = $1 AND settlement_hash = $2`,
+        [row.id, row.settlement_hash],
+      );
+      logger.info('Unconfirmed cash-out payment found on chain', { cashoutId: row.id, txHash: row.settlement_hash });
+      continue;
+    }
+    // The guard on the hash means a row that changed since it was read is left alone.
+    await query(
+      `UPDATE cashouts
+          SET status = 'failed', settlement_hash = NULL, settlement_unconfirmed_since = NULL, xlm_spent = NULL,
+              error = $3
+        WHERE id = $1 AND status = 'pending' AND settlement_hash = $2`,
+      [row.id, row.settlement_hash, tx.found ? 'Payment failed on chain — safe to retry' : 'Not on chain after its time bound — safe to retry'],
+    );
+    cashoutsTotal.inc({ outcome: 'payment_failed' });
+    logger.warn('Unconfirmed cash-out payment never landed; marked failed', { cashoutId: row.id, txHash: row.settlement_hash, found: tx.found });
+  }
+}
+
 /** Scheduled sweep: settle every MoneyGram cash-out still waiting on an acknowledgement. */
 export async function syncPendingRamps(): Promise<number> {
+  // The chain check needs only Horizon, so it runs even if MoneyGram has since been switched off.
+  await reconcileUnconfirmedCashouts();
   if (!moneygramConfigured()) return 0;
   const pending = await query<{ id: string; mg_tx_id: string }>(
     `SELECT id, mg_tx_id FROM cashouts WHERE status = 'pending' AND settlement_hash IS NOT NULL`,

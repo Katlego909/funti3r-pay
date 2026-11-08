@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
-import { createLogger, forwardedHeaders, retryRead, decryptFromString, ValidationError, NotFoundError, requireGatewayIdentity, requestContext, registerHealth, parseBody, stellarNetwork } from '@funti3r/shared-utils';
+import { AppError, createLogger, forwardedHeaders, retryRead, decryptFromString, ValidationError, NotFoundError, ExternalServiceError, errorHandler, requireGatewayIdentity, requestContext, registerHealth, parseBody, stellarNetwork } from '@funti3r/shared-utils';
+import { ComplianceBlockedError } from './lib/clearance.js';
 import { metrics, payoutsTotal } from './lib/metrics.js';
 import { audit } from './lib/audit.js';
 import { payoutBody, batchPayoutBody } from './lib/schemas.js';
@@ -54,14 +55,13 @@ export async function requireCompliance(workerId: string): Promise<void> {
       headers: forwardedHeaders(),
     }));
     if (resp.data.status !== 'verified') {
-      throw new Error('Worker KYC not verified');
+      throw new ComplianceBlockedError('Worker KYC not verified');
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg === 'Worker KYC not verified') throw err;
+    if (err instanceof ComplianceBlockedError) throw err;
     // Compliance service unreachable — fail safe
-    logger.error('Compliance check failed — blocking payout', { workerId, error: msg });
-    throw new Error('Compliance service unavailable', { cause: err });
+    logger.error('Compliance check failed — blocking payout', { workerId, error: err instanceof Error ? err.message : String(err) });
+    throw new ExternalServiceError('Compliance', 'Compliance service unavailable', 'compliance_unavailable', { cause: err });
   }
 }
 
@@ -72,7 +72,7 @@ export async function requireCompliance(workerId: string): Promise<void> {
  * see the same one, since custody is per-company, not per-login). Needed
  * because a teammate's own x-user-id never has a wallet of its own to show.
  */
-app.get('/wallets/company', async (req, res) => {
+app.get('/wallets/company', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
   if (requesterRole !== 'enterprise' || !requesterId) {
@@ -95,12 +95,11 @@ app.get('/wallets/company', async (req, res) => {
     }
     res.json({ address, balances });
   } catch (err) {
-    logger.error('Company wallet lookup failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
-app.get('/wallets/:userId', async (req, res) => {
+app.get('/wallets/:userId', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
 
@@ -142,9 +141,7 @@ app.get('/wallets/:userId', async (req, res) => {
     }
     res.json({ userId: req.params.userId, walletType: 'worker', address, balances });
   } catch (err) {
-    if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
-    logger.error('Wallet lookup failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
@@ -154,7 +151,7 @@ app.get('/wallets/:userId', async (req, res) => {
  * GET /payouts/quotes?amount=&sourceCurrency=&destinationCurrency=&destinationCountry=
  * Returns quotes from all available payment rails.
  */
-app.get('/payouts/quotes', async (req, res) => {
+app.get('/payouts/quotes', async (req, res, next) => {
   try {
     const { amount, sourceCurrency, destinationCurrency, destinationCountry } = req.query;
     if (!amount || !sourceCurrency || !destinationCurrency || !destinationCountry) {
@@ -168,8 +165,7 @@ app.get('/payouts/quotes', async (req, res) => {
     });
     res.json({ quotes });
   } catch (err) {
-    if (err instanceof ValidationError) return res.status(400).json({ error: err.message });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
@@ -363,10 +359,8 @@ async function executePayoutInner(opts: {
       } catch (pathErr: any) {
         // If the destination lacks a trustline (op_no_trust / op_no_destination),
         // fall back to a claimable XLM balance the worker can claim when ready.
-        const codes: string = JSON.stringify(
-          pathErr?.response?.data?.extras?.result_codes ?? {},
-        );
-        const isNoTrust = codes.includes('op_no_trust') || codes.includes('op_no_destination');
+        const ops = pathErr instanceof stellar.HorizonRejectedError ? pathErr.resultCodes.operations ?? [] : [];
+        const isNoTrust = ops.includes('op_no_trust') || ops.includes('op_no_destination');
         if (!isNoTrust) throw pathErr;
 
         // The claimable balance is XLM, but amountNum is denominated in `asset`
@@ -378,7 +372,7 @@ async function executePayoutInner(opts: {
         ]);
         const xlmEquivalent = usdValue > 0 && xlmUsd > 0 ? (usdValue / xlmUsd).toFixed(7) : '0';
         if (Number(xlmEquivalent) <= 0) {
-          throw new Error(`Cannot price XLM fallback for ${amountNum} ${asset} — FX rate unavailable`, { cause: pathErr });
+          throw new StaleRatesError(`The XLM price needed to hold ${amountNum} ${asset} for the worker`);
         }
         claimableXlm = xlmEquivalent;
 
@@ -418,8 +412,9 @@ async function executePayoutInner(opts: {
       logger.warn('Payment submitted without a verdict; awaiting on-chain confirmation', { paymentId, txHash: err.txHash, error: err.message });
       return { ...base, paymentId, status: 'submitted', httpStatus: 202 };
     }
-    const resultCodes = err?.response?.data?.extras?.result_codes;
-    const detail = resultCodes ? JSON.stringify(resultCodes) : (err instanceof Error ? err.message : String(err));
+    const detail = err instanceof stellar.HorizonRejectedError
+      ? JSON.stringify(err.resultCodes)
+      : (err instanceof Error ? err.message : String(err));
     await query(
       `UPDATE payments SET status = 'failed', failure_reason = $1, failed_at = NOW(), updated_at = NOW() WHERE id = $2`,
       [detail, paymentId],
@@ -436,7 +431,12 @@ async function executePayoutInner(opts: {
       logger.warn('Failed to emit payment_failed notification', { paymentId, error: String(notifErr) });
     }
 
-    return { ...base, paymentId, error: detail };
+    // The full detail is stored and logged above; the caller gets it only when it is safe to show: Horizon's result
+    // codes and our own client-facing messages are, anything else (a SQL or network error) is not.
+    const clientError = err instanceof stellar.HorizonRejectedError ? detail
+      : err instanceof AppError ? err.message
+      : 'The payment could not be completed';
+    return { ...base, paymentId, error: clientError };
   }
 }
 
@@ -470,7 +470,7 @@ export async function executePayout(opts: Parameters<typeof executePayoutInner>[
  *  - USD:    { workerId, amountUsd }             → employer sends USD; the worker
  *            receives their PREFERRED currency, converted at the live FX rate.
  */
-app.post('/payouts', async (req, res) => {
+app.post('/payouts', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
   if (requesterRole !== 'enterprise' || !requesterId) return res.status(403).json({ error: 'Enterprise role required' });
@@ -508,8 +508,7 @@ app.post('/payouts', async (req, res) => {
       if (!isSupportedCurrency(asset)) return res.status(400).json({ error: `Unsupported currency: ${asset}` });
     }
   } catch (err) {
-    if (err instanceof StaleRatesError) return res.status(503).json({ error: err.message });
-    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    return next(err); // input mistakes were answered above; stale FX rates are a 503, anything else a 500
   }
 
   const { secret, error } = await resolveEnterpriseSecret(enterpriseId);
@@ -724,91 +723,9 @@ app.post('/payouts/batch', async (req, res) => {
 });
 
 /**
- * POST /payouts/submit-signature
- * Submit a transaction signed by an external wallet.
- *
- * Required: paymentId, signedXDR (from wallet after user signs)
- */
-app.post('/payouts/submit-signature', async (req, res) => {
-  const { paymentId, signedXDR } = req.body as {
-    paymentId: string;
-    signedXDR: string;
-  };
-  const requesterId = req.headers['x-user-id'] as string | undefined;
-  const requesterRole = req.headers['x-user-role'] as string | undefined;
-
-  if (!paymentId || !signedXDR) {
-    return res.status(400).json({ error: 'paymentId and signedXDR are required' });
-  }
-
-  try {
-    // Verify payment exists and is pending signature
-    const paymentResult = await query(
-      `SELECT id, status, enterprise_id, signer_wallet_id FROM payments WHERE id = $1`,
-      [paymentId],
-    );
-
-    if (paymentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Payment not found' });
-    }
-
-    const payment = paymentResult.rows[0];
-    // Only a member of the company that created the payment (and only
-    // owner/admin, since this moves money) can submit the signature.
-    if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
-    const ctx = await resolveCompanyContextOrSelf(requesterId, requesterRole);
-    if (!ctx || ctx.ownerUserId !== payment.enterprise_id) {
-      return res.status(403).json({ error: 'Not authorized to submit signature for this payment' });
-    }
-    if (!canMoveMoney(ctx.companyRole)) {
-      return res.status(403).json({ error: 'Only company owners and admins can submit payment signatures' });
-    }
-    // payments.status is a raw string literal checked by a SQL CHECK constraint
-    // (see migrations/001_clean_schema.sql), not the stale PaymentStatus enum —
-    // comparing against PaymentStatus.PENDING ('pending') here previously meant
-    // this branch could never match, since nothing ever sets that literal.
-    if (payment.status !== 'pending_signature') {
-      logger.warn('Attempt to submit signature for non-pending payment', { paymentId, status: payment.status });
-      return res.status(409).json({ error: 'Payment is not pending signature' });
-    }
-
-    // Submit signed transaction to Stellar
-    logger.info('Submitting externally-signed transaction', { paymentId });
-    const txHash = await stellar.submitSignedTransaction(signedXDR);
-
-    // Update payment record
-    await query(
-      `UPDATE payments
-       SET status = $1, stellar_tx_hash = $2, updated_at = NOW()
-       WHERE id = $3`,
-      ['completed', txHash, paymentId],
-    );
-
-    logger.info('Externally-signed payment submitted', { paymentId, txHash });
-
-    res.json({
-      paymentId,
-      status: 'completed',
-      stellarTxHash: txHash,
-      message: 'Payment submitted successfully',
-    });
-  } catch (err) {
-    logger.error('Failed to submit signed transaction', { paymentId, error: String(err) });
-
-    await query(
-      `UPDATE payments SET status = $1, failure_reason = $2, updated_at = NOW() WHERE id = $3`,
-      ['failed', String(err), paymentId],
-    );
-
-    res.status(502).json({ error: 'Failed to submit payment', detail: String(err) });
-  }
-});
-
-
-/**
  * GET /payouts — list payments for an enterprise or worker.
  */
-app.get('/payouts', async (req, res) => {
+app.get('/payouts', async (req, res, next) => {
   const { workerId, status, limit = '20', offset = '0' } = req.query;
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
@@ -855,15 +772,14 @@ app.get('/payouts', async (req, res) => {
 
     res.json({ payments: result.rows, total: Number(total.rows[0].count) });
   } catch (err) {
-    logger.error('List payouts failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
 /**
  * GET /payouts/summary — dashboard aggregate stats.
  */
-app.get('/payouts/summary', async (req, res) => {
+app.get('/payouts/summary', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
 
@@ -916,16 +832,14 @@ app.get('/payouts/summary', async (req, res) => {
       completedVolumeUsd: Math.round(completedVolumeUsd * 100) / 100,
     });
   } catch (err) {
-    if (err instanceof StaleRatesError) return res.status(503).json({ error: err.message });
-    logger.error('Summary failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
 /**
  * GET /payouts/recent — last N payments for dashboard.
  */
-app.get('/payouts/recent', async (req, res) => {
+app.get('/payouts/recent', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
   const limit = Math.min(Number(req.query.limit ?? 10), 50);
@@ -961,8 +875,8 @@ app.get('/payouts/recent', async (req, res) => {
       [scopeId, limit],
     );
     res.json({ payments: result.rows });
-  } catch {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (err) {
+    next(err);
   }
 });
 
@@ -978,7 +892,7 @@ app.get('/payouts/currencies', (_req, res) => {
  * GET /payouts/fx — live USD→currency rates for the supported payout currencies.
  * Lets the employer form preview the local amount a worker will receive.
  */
-app.get('/payouts/fx', async (_req, res) => {
+app.get('/payouts/fx', async (_req, res, next) => {
   try {
     const rates = await getUsdRates();
     const out: Record<string, number> = { USDC: 1 };
@@ -986,8 +900,8 @@ app.get('/payouts/fx', async (_req, res) => {
       if (c.kind === 'local' && rates[c.code]) out[c.code] = rates[c.code];
     }
     res.json({ base: 'USD', rates: out });
-  } catch {
-    res.status(502).json({ error: 'Failed to fetch FX rates' });
+  } catch (err) {
+    next(err);
   }
 });
 
@@ -998,18 +912,18 @@ app.get('/payouts/fx', async (_req, res) => {
  * conversions) instead of keeping a second, independent 5-minute cache of
  * the same CoinGecko price.
  */
-app.get('/payouts/xlm-price', async (_req, res) => {
+app.get('/payouts/xlm-price', async (_req, res, next) => {
   try {
     res.json({ usd: await getXlmUsd() });
   } catch (err) {
-    res.status(503).json({ error: err instanceof Error ? err.message : String(err) });
+    next(err);
   }
 });
 
 /**
  * GET /payouts/:id — full detail for a single payment (for the detail modal).
  */
-app.get('/payouts/:id', async (req, res) => {
+app.get('/payouts/:id', async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
 
@@ -1056,9 +970,11 @@ app.get('/payouts/:id', async (req, res) => {
       fx_rate: fxRate, // units of `currency` per 1 USD (USDC = 1, XLM = null)
     });
   } catch (err) {
-    logger.error('Payment detail failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
+
+// Last, after every route: the one place a thrown error becomes a response.
+app.use(errorHandler(logger));
 
 export default app;

@@ -20,7 +20,7 @@ import {
   xdr,
 } from '@stellar/stellar-sdk';
 import { createHash } from 'node:crypto';
-import { createLogger, stellarNetwork } from '@funti3r/shared-utils';
+import { AppError, createLogger, ExternalServiceError, stellarNetwork } from '@funti3r/shared-utils';
 import { withAdvisoryLock } from '@funti3r/database';
 import { forgetBalances } from './balanceCache.js';
 
@@ -79,15 +79,20 @@ export const CONTRACT_ERRORS: Record<number, string> = {
   13: 'Clearance expiry must be in the future',
 };
 
-/** A rejection by the escrow contract itself, with its numeric error code. */
-export class EscrowContractError extends Error {
-  constructor(public readonly code: number, public readonly method: string) {
-    super(CONTRACT_ERRORS[code] ?? `Escrow contract error #${code}`);
+/**
+ * A rejection by the escrow contract itself, with its numeric error code. The compliance gate (codes 11, 12) is a
+ * 403; any other contract rule is a 409.
+ */
+export class EscrowContractError extends AppError {
+  constructor(public readonly contractCode: number, public readonly method: string) {
+    const complianceBlock = contractCode === 11 || contractCode === 12;
+    super(
+      complianceBlock ? 403 : 409,
+      CONTRACT_ERRORS[contractCode] ?? `Escrow contract error #${contractCode}`,
+      complianceBlock ? 'compliance_blocked' : 'contract_rejected',
+      { contractCode },
+    );
     this.name = 'EscrowContractError';
-  }
-  /** True when the compliance gate (not a business rule) rejected the call. */
-  get isComplianceBlock(): boolean {
-    return this.code === 11 || this.code === 12;
   }
 }
 
@@ -128,13 +133,13 @@ async function invokeUnlocked(
 
   const sent = await server.sendTransaction(prepared);
   if (sent.status === 'ERROR') {
-    throw new Error(`Escrow ${method} submit failed: ${JSON.stringify(sent.errorResult)}`);
+    throw new ExternalServiceError('Stellar', 'The Stellar network rejected the escrow transaction', 'escrow_submit_failed', { cause: new Error(`Escrow ${method} submit failed: ${JSON.stringify(sent.errorResult)}`) });
   }
   const result = await pollTransaction(sent.hash);
   if (result.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
     const code = contractErrorCode(JSON.stringify(result, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)));
     if (code !== undefined) throw new EscrowContractError(code, method);
-    throw new Error(`Escrow ${method} failed on-chain: ${result.status}`);
+    throw new ExternalServiceError('Stellar', 'The escrow transaction failed on-chain', 'escrow_failed', { cause: new Error(`Escrow ${method} failed on-chain: ${result.status}`) });
   }
   const returnValue =
     'returnValue' in result && result.returnValue ? scValToNative(result.returnValue) : undefined;

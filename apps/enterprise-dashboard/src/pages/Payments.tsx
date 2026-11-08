@@ -16,6 +16,7 @@ import { StatusBadge } from '../components/StatusBadge.js';
 import { STATUS_TABS } from '../lib/status.js';
 import { CURRENCY_META } from '../lib/currencyMeta.js';
 import { EXPLORER } from '../lib/explorer.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string; stellar_public_key?: string }
 interface BatchRow { workerId: string; amountUsd: string }
@@ -147,7 +148,7 @@ export default function Payments() {
       loadPayments();
     } catch (err: any) {
       if (isFinalPayoutError(err)) sendKeyRef.current = null;
-      toast.error(err?.response?.data?.error ?? err?.message ?? 'Payment failed');
+      toast.error(apiErrorMessage(err, 'Payment failed'));
     } finally {
       setSubmitting(false);
     }
@@ -184,7 +185,7 @@ export default function Payments() {
       }
     } catch (err: any) {
       if (isFinalPayoutError(err)) batchKeyRef.current = null;
-      toast.error(err?.response?.data?.error ?? err?.message ?? 'Batch failed');
+      toast.error(apiErrorMessage(err, 'Batch failed'));
     } finally {
       setSubmitting(false);
     }

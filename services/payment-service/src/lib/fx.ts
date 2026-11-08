@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { getJSON, setJSON } from '@funti3r/database';
-import { createLogger, retryRead } from '@funti3r/shared-utils';
+import { AppError, createLogger, retryRead } from '@funti3r/shared-utils';
 
 const logger = createLogger('FX');
 
@@ -23,9 +23,9 @@ function maxAgeMs(): number {
 }
 
 /** Prices are unavailable or older than FX_MAX_AGE_MINUTES. */
-export class StaleRatesError extends Error {
+export class StaleRatesError extends AppError {
   constructor(what: string) {
-    super(`${what} is unavailable or out of date; try again shortly`);
+    super(503, `${what} is unavailable or out of date; try again shortly`, 'stale_rates');
     this.name = 'StaleRatesError';
   }
 }
