@@ -12,7 +12,7 @@
  */
 import axios from 'axios';
 import { query } from '@funti3r/database';
-import { createLogger, forwardedHeaders, retryRead } from '@funti3r/shared-utils';
+import { AppError, createLogger, forwardedHeaders, retryRead } from '@funti3r/shared-utils';
 import {
   attestationHash,
   isCleared,
@@ -27,9 +27,9 @@ const COMPLIANCE_SERVICE_URL = process.env.COMPLIANCE_SERVICE_URL || 'http://loc
 const CLEARANCE_TTL_SECONDS = Number(process.env.ESCROW_CLEARANCE_TTL_SECONDS) || 24 * 60 * 60;
 
 /** The compliance verdict says this worker may not receive escrow funds. */
-export class ComplianceBlockedError extends Error {
+export class ComplianceBlockedError extends AppError {
   constructor(message: string) {
-    super(message);
+    super(403, message, 'compliance_blocked');
     this.name = 'ComplianceBlockedError';
   }
 }

@@ -3,9 +3,10 @@ import request from 'supertest';
 import axios from 'axios';
 import { Keypair, Memo } from '@stellar/stellar-sdk';
 import { query } from '@funti3r/database';
+import { AppError } from '@funti3r/shared-utils';
 import app from '../app.js';
 import { ensureCleared, ComplianceBlockedError } from '../lib/clearance.js';
-import { payExactWithXlm, spendableXlm } from '../lib/stellar.js';
+import { payExactWithXlm, spendableXlm, SubmitOutcomeUnknownError } from '../lib/stellar.js';
 import * as mg from '../lib/moneygram.js';
 import { awaitRampsAcknowledgement } from '../lib/rampsSync.js';
 import { createQueryMock, WORKER_ID, ENTERPRISE_ID } from './helpers.js';
@@ -220,13 +221,33 @@ describe('POST /cashouts/moneygram/deposit', () => {
 
   it('marks the cash-out failed (retryable) when the on-chain payment fails, and never records a hash', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([...base, TAKE]));
-    vi.mocked(payExactWithXlm).mockRejectedValue(new Error('Delivering 500 USDC needs 532.57 XLM, above the 180.5 XLM limit'));
+    vi.mocked(payExactWithXlm).mockRejectedValue(new AppError(422, 'Delivering 500 USDC needs 532.57 XLM, above the 180.5 XLM limit', 'exceeds_send_max'));
     const res = await deposit();
-    expect(res.status).toBe(502);
-    expect(res.body.error).toMatch(/above the/);
+    expect(res.status).toBe(422);
+    expect(res.body).toMatchObject({ code: 'exceeds_send_max', error: expect.stringMatching(/above the/) });
     expect(calls(/SET status = 'failed', error = \$2/)).toHaveLength(1);
     expect(calls(/SET settlement_hash/)).toHaveLength(0);
     expect(awaitRampsAcknowledgement).not.toHaveBeenCalled();
+  });
+
+  it('keeps the hash when Horizon gave no verdict, so a retry can never pay MoneyGram twice', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([...base, TAKE]));
+    vi.mocked(payExactWithXlm).mockRejectedValue(new SubmitOutcomeUnknownError('maybe-landed-hash', new Error('timeout')));
+    const res = await deposit();
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({ txHash: 'maybe-landed-hash', status: 'submitted' });
+    const kept = calls(/SET settlement_hash = \$2, settlement_unconfirmed_since = NOW\(\)/);
+    expect(kept).toHaveLength(1);
+    expect(kept[0][1]).toEqual([CASHOUT_ID, 'maybe-landed-hash']);
+    expect(calls(/SET status = 'failed'/)).toHaveLength(0);
+    expect(awaitRampsAcknowledgement).not.toHaveBeenCalled();
+
+    // The worker retries: the kept hash answers "already paid" and nothing is sent again.
+    vi.mocked(payExactWithXlm).mockClear();
+    vi.mocked(query).mockImplementation(createQueryMock([...base, PRIOR({ settlement_hash: 'maybe-landed-hash' })]));
+    const retry = await deposit();
+    expect(retry.body).toEqual({ txHash: 'maybe-landed-hash', alreadyPaid: true });
+    expect(payExactWithXlm).not.toHaveBeenCalled();
   });
 });
 

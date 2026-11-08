@@ -8,7 +8,7 @@ import {
   Transaction,
   Memo,
 } from '@stellar/stellar-sdk';
-import { createLogger, stellarNetwork } from '@funti3r/shared-utils';
+import { AppError, createLogger, ExternalServiceError, stellarNetwork } from '@funti3r/shared-utils';
 import { getRedis, getJSON, setJSON, withAdvisoryLock } from '@funti3r/database';
 import { accountsTouchedBy, balanceCacheKey, forgetBalances } from './balanceCache.js';
 
@@ -32,10 +32,26 @@ export class SubmitOutcomeUnknownError extends Error {
   }
 }
 
+/** Horizon's per-transaction verdict, e.g. { transaction: 'tx_failed', operations: ['op_underfunded'] }. */
+export interface ResultCodes { transaction?: string; operations?: string[] }
+
+/**
+ * Horizon answered and refused the transaction: a definite failure, nothing landed. The client sees a plain message
+ * and the most specific result code (public protocol values like op_underfunded, which say what to fix); Horizon's
+ * raw payload stays in the log.
+ */
+export class HorizonRejectedError extends ExternalServiceError {
+  constructor(readonly resultCodes: ResultCodes, cause: unknown) {
+    const code = resultCodes.operations?.find((c) => c !== 'op_success') ?? resultCodes.transaction ?? 'horizon_rejected';
+    super('Stellar', 'The Stellar network rejected the transaction', code, { cause });
+    this.name = 'HorizonRejectedError';
+  }
+}
+
 /**
  * Submits a transaction and clears the cached balances of every account it touched, so the next balance read
  * (the wallet, the dashboard) shows the result of the user's own action instead of a figure up to 20 seconds old.
- * A Horizon answer with result codes (4xx) is a definite failure and is rethrown as is; no answer is not.
+ * A Horizon answer (4xx) is a definite failure, rethrown as HorizonRejectedError; no answer is not.
  */
 async function submitAndRefresh(tx: Parameters<Horizon.Server['submitTransaction']>[0]) {
   let result;
@@ -44,7 +60,7 @@ async function submitAndRefresh(tx: Parameters<Horizon.Server['submitTransaction
   } catch (err: any) {
     const status: number | undefined = err?.response?.status;
     if (status === undefined || status >= 500) throw new SubmitOutcomeUnknownError(tx.hash().toString('hex'), err);
-    throw err;
+    throw new HorizonRejectedError(err?.response?.data?.extras?.result_codes ?? {}, err);
   }
   await forgetBalances(...accountsTouchedBy(tx));
   return result;
@@ -154,8 +170,10 @@ async function pathPaymentStrictSendUnlocked(
     .call();
 
   if (!pathsResult.records || pathsResult.records.length === 0) {
-    throw new Error(
+    throw new AppError(
+      422,
       `No DEX path found: ${sendAsset.code || 'XLM'} → ${destAsset.code || 'XLM'} for amount ${sendAmount}`,
+      'no_dex_path',
     );
   }
 
@@ -301,21 +319,21 @@ async function payExactWithXlmUnlocked(
     .strictReceivePaths(sourceKeypair.publicKey(), destAsset, destAmount)
     .call();
   if (!paths.records || paths.records.length === 0) {
-    throw new Error(`No DEX path to deliver ${destAmount} ${destAssetCode}`);
+    throw new AppError(422, `No DEX path to deliver ${destAmount} ${destAssetCode}`, 'no_dex_path');
   }
   // Only paths that START in XLM: the payment below spends native XLM. Without this
   // filter a sender who also holds the destination asset (or any other) would match
   // their own cheaper non-XLM path and we would build a payment that can't succeed.
   const xlmPaths = paths.records.filter((r) => r.source_asset_type === 'native');
   if (xlmPaths.length === 0) {
-    throw new Error(`No DEX path from XLM to deliver ${destAmount} ${destAssetCode}`);
+    throw new AppError(422, `No DEX path from XLM to deliver ${destAmount} ${destAssetCode}`, 'no_dex_path');
   }
   const best = xlmPaths.reduce((a, b) =>
     Number(a.source_amount) <= Number(b.source_amount) ? a : b,
   );
   const sendMax = options.sendMaxXlm ?? (Number(best.source_amount) * (1 + slippage)).toFixed(7);
   if (Number(best.source_amount) > Number(sendMax)) {
-    throw new Error(`Delivering ${destAmount} ${destAssetCode} needs ${best.source_amount} XLM, above the ${sendMax} XLM limit`);
+    throw new AppError(422, `Delivering ${destAmount} ${destAssetCode} needs ${best.source_amount} XLM, above the ${sendMax} XLM limit`, 'exceeds_send_max');
   }
 
   const account = await horizon.loadAccount(sourceKeypair.publicKey());
@@ -426,8 +444,10 @@ export async function prepareUnsignedPathPayment(
     .call();
 
   if (!pathsResult.records || pathsResult.records.length === 0) {
-    throw new Error(
+    throw new AppError(
+      422,
       `No DEX path found: ${sendAsset.code || 'XLM'} → ${destAsset.code || 'XLM'} for amount ${sendAmount}`,
+      'no_dex_path',
     );
   }
 
@@ -472,23 +492,6 @@ export async function prepareUnsignedPathPayment(
     .build();
 
   return tx.toXDR();
-}
-
-/**
- * Submit a transaction that has been signed by an external wallet.
- * @param signedXDR - The transaction XDR with signature appended
- */
-export async function submitSignedTransaction(signedXDR: string): Promise<string> {
-  try {
-    const tx = TransactionBuilder.fromXDR(signedXDR, NETWORK_PASSPHRASE) as Transaction;
-    logger.info('Submitting externally-signed transaction');
-    const result = await submitAndRefresh(tx);
-    logger.info('Externally-signed transaction submitted', { hash: result.hash });
-    return result.hash;
-  } catch (err) {
-    logger.error('Failed to submit externally-signed transaction', { error: String(err) });
-    throw err;
-  }
 }
 
 // ── Fee bump ──────────────────────────────────────────────────────────────────

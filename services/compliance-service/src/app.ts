@@ -1,5 +1,5 @@
 import express from 'express';
-import { createLogger, NotFoundError, hasIdentity, requireGatewayIdentity, requestContext, registerHealth } from '@funti3r/shared-utils';
+import { createLogger, NotFoundError, ExternalServiceError, errorHandler, hasIdentity, requireGatewayIdentity, requestContext, registerHealth } from '@funti3r/shared-utils';
 import { metrics } from './metrics.js';
 import { candidateBirthYearFromSubmission, candidateNamesFromSubmission } from './names.js';
 import type { Deps } from './deps.js';
@@ -62,7 +62,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
   // list match always forces 'rejected' so testnet auto-approve can never wave
   // through a flagged name.
 
-  app.post('/submit', async (req, res) => {
+  app.post('/submit', async (req, res, next) => {
     const { userId, ...details } = req.body ?? {};
     if (!isUuid(userId)) {
       return res.status(400).json({ error: 'userId is required and must be a valid id' });
@@ -119,30 +119,27 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
           : (autoApprove ? 'Auto-approved (testnet)' : 'Under review'),
       });
     } catch (err) {
-      logger.error('KYC submission failed', { userId, error: String(err) });
-      res.status(500).json({ error: 'KYC submission failed' });
+      next(err);
     }
   });
 
   // ── Sanctions list: what is loaded, a manual refresh, and a name check ──────
   // Registered ahead of every `/:userId/...` route so these literal paths are not read as user ids.
 
-  app.get('/sanctions/status', async (_req, res) => {
+  app.get('/sanctions/status', async (_req, res, next) => {
     try {
       res.json({ list: await sanctions.status() });
     } catch (err) {
-      logger.error('Sanctions status failed', { error: String(err) });
-      res.status(500).json({ error: 'Internal server error' });
+      next(err);
     }
   });
 
-  app.post('/sanctions/refresh', async (req, res) => {
+  app.post('/sanctions/refresh', async (req, res, next) => {
     if (req.headers['x-user-role'] !== 'admin') return res.status(403).json({ error: 'Admin role required' });
     try {
       res.json(await sanctions.refresh());
     } catch (err) {
-      logger.error('Sanctions refresh failed', { error: String(err) });
-      res.status(502).json({ error: err instanceof Error ? err.message : 'Sanctions refresh failed' });
+      next(new ExternalServiceError('OFAC', 'Sanctions list refresh failed', 'sanctions_refresh_failed', { cause: err }));
     }
   });
 
@@ -163,7 +160,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
 
   // A request with no identity is another service on the internal network (the payment service asking before it moves
   // money); one that carries an identity must be allowed to see this user's record, like every other KYC route.
-  app.get('/:userId/status', async (req, res) => {
+  app.get('/:userId/status', async (req, res, next) => {
     if (!isUuid(req.params.userId)) return res.status(400).json({ error: 'userId must be a valid id' });
     try {
       if (hasIdentity(req.headers)) {
@@ -201,8 +198,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
         basis: row.status === 'approved' ? (row.reviewed ? 'reviewed' : 'auto-approved') : 'none',
       });
     } catch (err) {
-      logger.error('Status check failed', { error: String(err) });
-      res.status(500).json({ error: 'Internal server error' });
+      next(err);
     }
   });
 
@@ -210,7 +206,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
   // Used by list views (e.g. the Workers page) to avoid an N+1 request pattern —
   // one call for all worker ids instead of one per worker.
 
-  app.post('/status/bulk', async (req, res) => {
+  app.post('/status/bulk', async (req, res, next) => {
     const body = req.body as { userIds?: unknown };
     if (!Array.isArray(body.userIds) || body.userIds.length === 0 || body.userIds.length > MAX_BULK_IDS
         || body.userIds.some((id) => typeof id !== 'string')) {
@@ -252,8 +248,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
 
       res.json({ statuses });
     } catch (err) {
-      logger.error('Bulk status check failed', { error: String(err) });
-      res.status(500).json({ error: 'Internal server error' });
+      next(err);
     }
   });
 
@@ -261,7 +256,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
   // Registered ahead of the `/:userId` param route below so this literal path
   // isn't swallowed as a userId.
 
-  app.get('/flagged', async (req, res) => {
+  app.get('/flagged', async (req, res, next) => {
     if (req.headers['x-user-role'] !== 'admin') {
       return res.status(403).json({ error: 'Admin role required' });
     }
@@ -272,8 +267,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
       );
       res.json({ flagged: result.rows });
     } catch (err) {
-      logger.error('Flagged sanctions list failed', { error: String(err) });
-      res.status(500).json({ error: 'Internal server error' });
+      next(err);
     }
   });
 
@@ -281,7 +275,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
   // The user themself, a platform admin, or a member of a company that has this user as a worker.
   // Never another company: a submission holds ID, bank and tax numbers.
 
-  app.get('/:userId', async (req, res) => {
+  app.get('/:userId', async (req, res, next) => {
     const targetUserId = req.params.userId;
     try {
       const access = await kycAccess(
@@ -315,14 +309,13 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
         sanctions_matches: row.sanctions_matches,
       });
     } catch (err) {
-      logger.error('Get KYC details failed', { error: String(err) });
-      res.status(500).json({ error: 'Internal server error' });
+      next(err);
     }
   });
 
   // ── The audit trail of one user's KYC (same access as the record itself) ────
 
-  app.get('/:userId/events', async (req, res) => {
+  app.get('/:userId/events', async (req, res, next) => {
     try {
       const access = await kycAccess(
         query, asString(req.headers['x-user-id']), asString(req.headers['x-user-role']), req.params.userId,
@@ -334,8 +327,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
       );
       res.json({ events: result.rows });
     } catch (err) {
-      logger.error('KYC events failed', { error: String(err) });
-      res.status(500).json({ error: 'Internal server error' });
+      next(err);
     }
   });
 
@@ -344,7 +336,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
   // Clearing a sanctions flag is a platform-admin decision: an employer cannot wave through
   // a name the screening flagged. A manual reject leaves the flag alone.
 
-  const setStatusHandler = (newStatus: 'approved' | 'rejected') => async (req: express.Request, res: express.Response) => {
+  const setStatusHandler = (newStatus: 'approved' | 'rejected') => async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const targetUserId = req.params.userId;
     const requesterId = asString(req.headers['x-user-id']);
     const requesterRole = asString(req.headers['x-user-role']) ?? 'unknown';
@@ -388,14 +380,14 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
       if (outcome.denied) return res.status(403).json({ error: 'A sanctions flag can only be cleared by a platform admin' });
       res.json({ status: toFrontendStatus(outcome.status) });
     } catch (err) {
-      if (err instanceof NotFoundError) return res.status(404).json({ error: err.message });
-      logger.error('KYC status update failed', { error: String(err) });
-      res.status(500).json({ error: 'Internal server error' });
+      next(err);
     }
   };
 
   app.post('/:userId/approve', setStatusHandler('approved'));
   app.post('/:userId/reject', setStatusHandler('rejected'));
 
+  // Last, after every route: the one place a thrown error becomes a response.
+  app.use(errorHandler(logger));
   return app;
 }

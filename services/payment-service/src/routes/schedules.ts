@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import type { Router as RouterType } from 'express';
 import { query } from '@funti3r/database';
 import { createLogger } from '@funti3r/shared-utils';
@@ -38,7 +38,7 @@ async function requireCompanyWrite(req: Request, res: Response): Promise<string 
 
 // ── GET /schedules ────────────────────────────────────────────────────────────
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   const enterpriseId = await requireCompanyRead(req, res);
   if (!enterpriseId) return;
 
@@ -83,14 +83,13 @@ router.get('/', async (req: Request, res: Response) => {
 
     res.json({ schedules });
   } catch (err) {
-    logger.error('Failed to list schedules', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
 // ── POST /schedules ───────────────────────────────────────────────────────────
 
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   const enterpriseId = await requireCompanyWrite(req, res);
   if (!enterpriseId) return;
 
@@ -149,14 +148,13 @@ router.post('/', async (req: Request, res: Response) => {
     logger.info('Schedule created', { scheduleId, enterpriseId, name, frequency, nextRunAt });
     res.status(201).json({ scheduleId, nextRunAt });
   } catch (err) {
-    logger.error('Failed to create schedule', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
 // ── PATCH /schedules/:id ──────────────────────────────────────────────────────
 
-router.patch('/:id', async (req: Request, res: Response) => {
+router.patch('/:id', async (req: Request, res: Response, next: NextFunction) => {
   const enterpriseId = await requireCompanyWrite(req, res);
   if (!enterpriseId) return;
 
@@ -178,14 +176,13 @@ router.patch('/:id', async (req: Request, res: Response) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Schedule not found' });
     res.json({ id, status });
   } catch (err) {
-    logger.error('Failed to update schedule', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
 // ── DELETE /schedules/:id ─────────────────────────────────────────────────────
 
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
   const enterpriseId = await requireCompanyWrite(req, res);
   if (!enterpriseId) return;
 
@@ -199,8 +196,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Schedule not found' });
     res.json({ deleted: true });
   } catch (err) {
-    logger.error('Failed to delete schedule', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 

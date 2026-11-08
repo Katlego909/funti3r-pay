@@ -24,6 +24,7 @@ import { useAuthStore } from './store/authStore.js';
 import { logout } from './api/auth.js';
 import GlobalSearch from './components/GlobalSearch.js';
 import { Toaster } from 'sonner';
+import ErrorBoundary from './components/ErrorBoundary.js';
 // Shared styles (tables, cards, landing/legal layout) that several pages use without importing them themselves. They
 // used to arrive as a side effect of importing Dashboard/Landing/HelpCenter here, so they stay global and in this
 // order — before App.css, as before — now that those pages load on demand.
@@ -485,6 +486,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Toaster position="top-right" richColors closeButton />
+      <ErrorBoundary>
       <Suspense fallback={null}>
       <Routes>
         {/* Always-public pages */}
@@ -508,6 +510,7 @@ export default function App() {
         )}
       </Routes>
       </Suspense>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

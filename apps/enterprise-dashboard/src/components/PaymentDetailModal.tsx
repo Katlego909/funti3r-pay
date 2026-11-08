@@ -10,6 +10,7 @@ import CopyButton from './CopyButton.js';
 import { StatusBadge } from './StatusBadge.js';
 import { currencyColor } from '../lib/currencyMeta.js';
 import { EXPLORER } from '../lib/explorer.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 interface PaymentDetail {
   id: string;
@@ -56,7 +57,7 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
     setP(null);
     api.get<PaymentDetail>(`/payouts/${paymentId}`)
       .then((r) => setP(r.data))
-      .catch((e: any) => setError(e?.response?.data?.error ?? 'Failed to load payment'))
+      .catch((e: any) => setError(apiErrorMessage(e, 'Failed to load payment')))
       .finally(() => setLoading(false));
   }, [paymentId]);
 
@@ -82,11 +83,11 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
         setRetrySuccess(false);
         api.get<PaymentDetail>(`/payouts/${paymentId}`)
           .then((r) => setP(r.data))
-          .catch((e: any) => setError(e?.response?.data?.error ?? 'Failed to reload payment'))
+          .catch((e: any) => setError(apiErrorMessage(e, 'Failed to reload payment')))
           .finally(() => setLoading(false));
       }, 1200);
     } catch (e: any) {
-      setRetryError(e?.response?.data?.error ?? 'Retry failed. Please try again.');
+      setRetryError(apiErrorMessage(e, 'Retry failed. Please try again.'));
     } finally {
       setRetrying(false);
     }

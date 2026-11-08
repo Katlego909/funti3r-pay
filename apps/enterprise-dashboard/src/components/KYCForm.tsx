@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { api } from '../api/client.js';
 import { CountrySelect } from './CountrySelect.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 interface KYCFormData {
   identity: {
@@ -164,7 +165,7 @@ export function KYCForm({ onSubmitSuccess }: KYCFormProps) {
       setSuccess(true);
       if (onSubmitSuccess) onSubmitSuccess();
     } catch (err: any) {
-      setError(err?.response?.data?.error ?? 'Failed to submit KYC');
+      setError(apiErrorMessage(err, 'Failed to submit KYC'));
     } finally {
       setLoading(false);
     }

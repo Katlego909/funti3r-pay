@@ -1,12 +1,12 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import type { Router as RouterType } from 'express';
 import { query } from '@funti3r/database';
-import { createLogger, decryptFromString, parseBody } from '@funti3r/shared-utils';
+import { createLogger, decryptFromString, ExternalServiceError, parseBody } from '@funti3r/shared-utils';
 import { audit } from '../lib/audit.js';
 import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from '../lib/company.js';
 import * as escrow from '../lib/escrow.js';
 import { recordEscrowPaymentSafely } from '../lib/escrowAccounting.js';
-import { ComplianceBlockedError, ensureCleared, screenEmployer } from '../lib/clearance.js';
+import { ensureCleared, screenEmployer } from '../lib/clearance.js';
 import { reconcileEscrows } from '../lib/escrowReconcile.js';
 import { moneygramConfigured } from '../lib/moneygram.js';
 import { requireCompliance, resolveEnterpriseSecret } from '../app.js';
@@ -61,25 +61,6 @@ function requireWorker(req: Request, res: Response): string | null {
 async function workerPublicKey(workerId: string): Promise<string | undefined> {
   const r = await query(`SELECT stellar_public_key FROM users WHERE id = $1`, [workerId]);
   return r.rows[0]?.stellar_public_key;
-}
-
-/**
- * Maps a failure to an HTTP response: compliance blocks (from the sync step or
- * from the contract's own gate) are 403, other contract-rule rejections are
- * 409, everything else is a 502 from the chain.
- */
-function sendChainError(res: Response, err: unknown, fallback: string) {
-  if (err instanceof ComplianceBlockedError) {
-    return res.status(403).json({ error: err.message, code: 'compliance_blocked' });
-  }
-  if (err instanceof escrow.EscrowContractError) {
-    return res.status(err.isComplianceBlock ? 403 : 409).json({
-      error: err.message,
-      code: err.isComplianceBlock ? 'compliance_blocked' : 'contract_rejected',
-      contractCode: err.code,
-    });
-  }
-  return res.status(502).json({ error: err instanceof Error ? err.message : fallback });
 }
 
 async function notify(userId: string, type: string, title: string, body: string, escrowId: string) {
@@ -201,7 +182,7 @@ async function finalizeEscrowStatus(escrowId: string): Promise<void> {
 
 // ── POST /escrows — create + fund on-chain ────────────────────────────────────
 
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   const ctx = await requireCompanyWrite(req, res);
   if (!ctx) return;
 
@@ -232,11 +213,7 @@ router.post('/', async (req: Request, res: Response) => {
     if (ctx.companyId && !(await isCompanyWorker(ctx.companyId, workerId))) {
       return res.status(403).json({ error: 'Worker is not part of your team' });
     }
-    try {
-      await requireCompliance(workerId);
-    } catch (err) {
-      return res.status(403).json({ error: err instanceof Error ? err.message : String(err) });
-    }
+    await requireCompliance(workerId);
 
     // The contract enforces the gate; this brings its clearance in line with
     // the current KYC + sanctions verdict first. The funding company is screened too.
@@ -287,14 +264,13 @@ router.post('/', async (req: Request, res: Response) => {
     await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.created', entityType: 'escrow', entityId: id, detail: { workerId, totalXlm: total, milestones: milestones.length, txHash: hash } });
     res.status(201).json({ id, onchainEscrowId: onchainId.toString(), txHash: hash });
   } catch (err) {
-    logger.error('Failed to create escrow', { error: String(err) });
-    sendChainError(res, err, 'Failed to create escrow on-chain');
+    next(err);
   }
 });
 
 // ── POST /escrows/:id/milestones/:idx/approve ─────────────────────────────────
 
-router.post('/:id/milestones/:idx/approve', async (req: Request, res: Response) => {
+router.post('/:id/milestones/:idx/approve', async (req: Request, res: Response, next: NextFunction) => {
   const ctx = await requireCompanyWrite(req, res);
   if (!ctx) return;
   const { id } = req.params;
@@ -345,8 +321,7 @@ router.post('/:id/milestones/:idx/approve', async (req: Request, res: Response) 
 
     res.json({ txHash: hash });
   } catch (err) {
-    logger.error('Failed to approve milestone', { id, idx, error: String(err) });
-    sendChainError(res, err, 'Failed to approve on-chain');
+    next(err);
   }
 });
 
@@ -354,7 +329,7 @@ router.post('/:id/milestones/:idx/approve', async (req: Request, res: Response) 
 // "The work is done": a note and/or links for the employer to review. Off-chain
 // only — the contract's moment is the employer's approval.
 
-router.post('/:id/milestones/:idx/submit', async (req: Request, res: Response) => {
+router.post('/:id/milestones/:idx/submit', async (req: Request, res: Response, next: NextFunction) => {
   const workerId = requireWorker(req, res);
   if (!workerId) return;
   const { id } = req.params;
@@ -399,8 +374,7 @@ router.post('/:id/milestones/:idx/submit', async (req: Request, res: Response) =
     await audit({ actorId: workerId, actorRole: 'worker', action: 'escrow.work_submitted', entityType: 'milestone', entityId: `${id}:${idx}` });
     res.json({ reviewStatus: 'submitted' });
   } catch (err) {
-    logger.error('Failed to submit milestone work', { id, idx, error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
@@ -408,7 +382,7 @@ router.post('/:id/milestones/:idx/submit', async (req: Request, res: Response) =
 // Sends submitted work back with a reason; the worker can resubmit. Nothing
 // on-chain changes — the milestone simply stays Pending.
 
-router.post('/:id/milestones/:idx/reject', async (req: Request, res: Response) => {
+router.post('/:id/milestones/:idx/reject', async (req: Request, res: Response, next: NextFunction) => {
   const ctx = await requireCompanyWrite(req, res);
   if (!ctx) return;
   const { id } = req.params;
@@ -455,14 +429,13 @@ router.post('/:id/milestones/:idx/reject', async (req: Request, res: Response) =
     await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.work_rejected', entityType: 'milestone', entityId: `${id}:${idx}`, detail: { reason: reason.slice(0, 200) } });
     res.json({ reviewStatus: 'rejected' });
   } catch (err) {
-    logger.error('Failed to reject milestone', { id, idx, error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
 // ── POST /escrows/:id/milestones/:idx/claim (worker) ─────────────────────────
 
-router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response) => {
+router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response, next: NextFunction) => {
   const workerId = requireWorker(req, res);
   if (!workerId) return;
   const { id } = req.params;
@@ -513,8 +486,7 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response) =>
 
     res.json({ txHash: hash });
   } catch (err) {
-    logger.error('Failed to claim milestone', { id, idx, error: String(err) });
-    sendChainError(res, err, 'Failed to claim on-chain');
+    next(err);
   }
 });
 
@@ -522,7 +494,7 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response) =>
 // Compliance hold: while frozen the contract blocks approve, claim and refund
 // for this escrow. Admin-only — same role gate as the KYC flagged list.
 
-router.post('/:id/freeze', async (req: Request, res: Response) => {
+router.post('/:id/freeze', async (req: Request, res: Response, next: NextFunction) => {
   if (req.headers['x-user-role'] !== 'admin') {
     return res.status(403).json({ error: 'Admin role required' });
   }
@@ -540,8 +512,7 @@ router.post('/:id/freeze', async (req: Request, res: Response) => {
     await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: (req.headers['x-user-role'] as string | undefined) ?? 'unknown', action: frozen ? 'escrow.frozen' : 'escrow.unfrozen', entityType: 'escrow', entityId: id, detail: { txHash: hash } });
     res.json({ frozen, txHash: hash });
   } catch (err) {
-    logger.error('Failed to change escrow freeze', { id, error: String(err) });
-    sendChainError(res, err, 'Failed to change freeze on-chain');
+    next(err);
   }
 });
 
@@ -549,7 +520,7 @@ router.post('/:id/freeze', async (req: Request, res: Response) => {
 // Resolves an upheld hold: only a frozen escrow can be resolved, and every tranche the
 // worker has not yet claimed goes back to the enterprise. Admin-only, like /freeze.
 
-router.post('/:id/return-frozen', async (req: Request, res: Response) => {
+router.post('/:id/return-frozen', async (req: Request, res: Response, next: NextFunction) => {
   if (req.headers['x-user-role'] !== 'admin') {
     return res.status(403).json({ error: 'Admin role required' });
   }
@@ -574,8 +545,7 @@ router.post('/:id/return-frozen', async (req: Request, res: Response) => {
     await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'admin', action: 'escrow.returned_frozen', entityType: 'escrow', entityId: id, detail: { returnedXlm: Number(returnedStroops) / 1e7, txHash: hash } });
     res.json({ returnedXlm: Number(returnedStroops) / 1e7, txHash: hash });
   } catch (err) {
-    logger.error('Failed to return frozen escrow', { id, error: String(err) });
-    sendChainError(res, err, 'Failed to return the frozen escrow on-chain');
+    next(err);
   }
 });
 
@@ -583,7 +553,7 @@ router.post('/:id/return-frozen', async (req: Request, res: Response) => {
 // Compare every active escrow with the chain and repair the database to match.
 // { "repair": false } is a dry run that only reports the drift.
 
-router.post('/reconcile', async (req: Request, res: Response) => {
+router.post('/reconcile', async (req: Request, res: Response, next: NextFunction) => {
   if (req.headers['x-user-role'] !== 'admin') {
     return res.status(403).json({ error: 'Admin role required' });
   }
@@ -593,14 +563,13 @@ router.post('/reconcile', async (req: Request, res: Response) => {
     logger.info('Manual escrow reconcile', { by: req.headers['x-user-id'], repair, ...report });
     res.json({ repair, ...report });
   } catch (err) {
-    logger.error('Escrow reconcile failed', { error: String(err) });
-    res.status(502).json({ error: err instanceof Error ? err.message : 'Reconcile failed' });
+    next(err);
   }
 });
 
 // ── POST /escrows/:id/refund ──────────────────────────────────────────────────
 
-router.post('/:id/refund', async (req: Request, res: Response) => {
+router.post('/:id/refund', async (req: Request, res: Response, next: NextFunction) => {
   const ctx = await requireCompanyWrite(req, res);
   if (!ctx) return;
   const { id } = req.params;
@@ -632,15 +601,14 @@ router.post('/:id/refund', async (req: Request, res: Response) => {
     await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.refunded', entityType: 'escrow', entityId: id, detail: { refundedXlm: Number(refundedStroops) / 1e7, txHash: hash } });
     res.json({ refundedXlm: Number(refundedStroops) / 1e7, txHash: hash });
   } catch (err) {
-    logger.error('Failed to refund escrow', { id, error: String(err) });
-    sendChainError(res, err, 'Failed to refund on-chain');
+    next(err);
   }
 });
 
 // ── GET /escrows/my-clearance (worker) ────────────────────────────────────────
 // The worker's own on-chain compliance clearance, so the KYC page can show what the contract sees.
 
-router.get('/my-clearance', async (req: Request, res: Response) => {
+router.get('/my-clearance', async (req: Request, res: Response, next: NextFunction) => {
   const workerId = requireWorker(req, res);
   if (!workerId) return;
   try {
@@ -651,8 +619,7 @@ router.get('/my-clearance', async (req: Request, res: Response) => {
     const cleared = !!clearance && clearance.expiry * 1000 > Date.now();
     res.json({ cleared, expiry: clearance?.expiry ?? null, attestation: clearance?.attestation ?? null });
   } catch (err) {
-    logger.error('Failed to read on-chain clearance', { workerId, error: String(err) });
-    res.status(502).json({ error: 'Could not read the on-chain clearance' });
+    next(new ExternalServiceError('Stellar', 'Could not read the on-chain clearance', 'clearance_unavailable', { cause: err }));
   }
 });
 
@@ -667,7 +634,7 @@ router.get('/cashout-options', (_req: Request, res: Response) => {
 // Escrow money in one place, in XLM (the contract's unit); the dashboards convert it
 // to the viewer's display currency. Workers see their own, employers their company's.
 
-router.get('/summary', async (req: Request, res: Response) => {
+router.get('/summary', async (req: Request, res: Response, next: NextFunction) => {
   const userId = req.headers['x-user-id'] as string | undefined;
   const role = req.headers['x-user-role'] as string | undefined;
   if (!userId) return res.status(403).json({ error: 'Authentication required' });
@@ -710,14 +677,13 @@ router.get('/summary', async (req: Request, res: Response) => {
       cashedOutXlm: wallet,
     });
   } catch (err) {
-    logger.error('Failed to summarize escrows', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
 // ── GET /escrows — enterprise (company-scoped) or worker (own) ────────────────
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   const userId = req.headers['x-user-id'] as string | undefined;
   const role = req.headers['x-user-role'] as string | undefined;
   if (!userId) return res.status(403).json({ error: 'Authentication required' });
@@ -764,8 +730,7 @@ router.get('/', async (req: Request, res: Response) => {
       })),
     });
   } catch (err) {
-    logger.error('Failed to list escrows', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 

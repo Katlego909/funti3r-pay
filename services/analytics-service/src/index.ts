@@ -2,10 +2,11 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
 import cron from 'node-cron';
-import { createLogger, assertInternalAuthConfigured, hasIdentity, requireGatewayIdentity, requestContext, registerHealth, createMetrics } from '@funti3r/shared-utils';
+import { createLogger, assertInternalAuthConfigured, errorHandler, installProcessHandlers, hasIdentity, requireGatewayIdentity, requestContext, registerHealth, createMetrics } from '@funti3r/shared-utils';
 import { initPostgres, runInitialMigrations, query, withAdvisoryLock } from '@funti3r/database';
 
 const logger = createLogger('AnalyticsService');
+installProcessHandlers(logger);
 const app = express();
 app.use(express.json());
 app.use(requireGatewayIdentity());
@@ -51,7 +52,7 @@ registerHealth(app, 'analytics-service', {
  * fire-and-forget (don't await it on a payment/auth critical path); a slow or
  * down analytics-service must never block a real request.
  */
-app.post('/events', async (req, res) => {
+app.post('/events', async (req, res, next) => {
   const { type, userId, data, timestamp } = req.body as {
     type: string;
     userId?: string;
@@ -70,8 +71,7 @@ app.post('/events', async (req, res) => {
 
     res.status(201).json({ received: true });
   } catch (err) {
-    logger.error('Event ingestion failed', { type, error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
@@ -81,7 +81,7 @@ app.post('/events', async (req, res) => {
  * GET /dashboard
  * Returns event-based aggregate stats for the last N days.
  */
-app.get('/dashboard', async (req, res) => {
+app.get('/dashboard', async (req, res, next) => {
   const days = parseIntParam(req.query.days ?? 30, 365);
   if (days === null) {
     return res.status(400).json({ error: 'days must be a non-negative integer' });
@@ -120,8 +120,7 @@ app.get('/dashboard', async (req, res) => {
       paymentSuccessRate: successRate,
     });
   } catch (err) {
-    logger.error('Dashboard aggregation failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
@@ -129,7 +128,7 @@ app.get('/dashboard', async (req, res) => {
  * GET /events?type=&userId=&limit=&offset=
  * Query the event stream with optional filters.
  */
-app.get('/events', async (req, res) => {
+app.get('/events', async (req, res, next) => {
   const { type, userId, limit = '20', offset = '0' } = req.query;
   const limitNum = parseIntParam(limit, 100);
   const offsetNum = parseIntParam(offset);
@@ -153,8 +152,7 @@ app.get('/events', async (req, res) => {
 
     res.json({ events, total });
   } catch (err) {
-    logger.error('Event query failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
@@ -162,7 +160,7 @@ app.get('/events', async (req, res) => {
  * GET /events/timeseries?type=&days=&granularity=day|hour
  * Returns a time-bucketed count of events for charting.
  */
-app.get('/events/timeseries', async (req, res) => {
+app.get('/events/timeseries', async (req, res, next) => {
   const { type, days = '30', granularity = 'day' } = req.query;
   const daysNum = parseIntParam(days);
   if (daysNum === null) {
@@ -186,10 +184,12 @@ app.get('/events/timeseries', async (req, res) => {
 
     res.json({ series, granularity: truncUnit, type: type ?? 'all' });
   } catch (err) {
-    logger.error('Timeseries failed', { error: String(err) });
-    res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
+
+// Last, after every route: the one place a thrown error becomes a response.
+app.use(errorHandler(logger));
 
 // ── Partition maintenance ─────────────────────────────────────────────────────
 // events is RANGE-partitioned by month (see migrations/008_analytics_events.sql).

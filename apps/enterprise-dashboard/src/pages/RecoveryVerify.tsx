@@ -5,6 +5,7 @@ import { HiOutlineCheckCircle, HiOutlineExclamationCircle } from 'react-icons/hi
 import { toast } from 'sonner';
 import { verifyRecoveryToken, registerPasskey } from '../api/auth.js';
 import { useAuthStore } from '../store/authStore.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 type Stage = 'verifying' | 'enroll' | 'done' | 'error';
 
@@ -28,7 +29,7 @@ export default function RecoveryVerify() {
     verifyRecoveryToken(token)
       .then(() => setStage('enroll'))
       .catch((err) => {
-        const msg = err?.response?.data?.error ?? 'This link has expired or already been used.';
+        const msg = apiErrorMessage(err, 'This link has expired or already been used.');
         setErrorMsg(msg);
         setStage('error');
       });

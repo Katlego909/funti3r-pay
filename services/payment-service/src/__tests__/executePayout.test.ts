@@ -97,9 +97,7 @@ describe('executePayout — legacy path (no idempotency key)', () => {
 
   it('op_no_trust falls back to a claimable balance (pending_claim)', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT]));
-    vi.mocked(stellar.payExactWithXlm).mockRejectedValue({
-      response: { data: { extras: { result_codes: { operations: ['op_no_trust'] } } } },
-    });
+    vi.mocked(stellar.payExactWithXlm).mockRejectedValue(new stellar.HorizonRejectedError({ operations: ['op_no_trust'] }, null));
     vi.mocked(stellar.createClaimableBalance).mockResolvedValue('tx-hash-claimable-1');
 
     const result = await executePayout({ ...baseOpts, amountNum: 10, asset: 'USDC' });
@@ -113,9 +111,7 @@ describe('executePayout — legacy path (no idempotency key)', () => {
 
   it('op_no_trust fallback converts a local-currency amount to XLM, not the raw number', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT]));
-    vi.mocked(stellar.payExactWithXlm).mockRejectedValue({
-      response: { data: { extras: { result_codes: { operations: ['op_no_trust'] } } } },
-    });
+    vi.mocked(stellar.payExactWithXlm).mockRejectedValue(new stellar.HorizonRejectedError({ operations: ['op_no_trust'] }, null));
     vi.mocked(stellar.createClaimableBalance).mockResolvedValue('tx-hash-claimable-ngn');
     vi.mocked(amountToUsd).mockResolvedValue(50); // 75,000 NGN ≈ $50
 
@@ -128,15 +124,13 @@ describe('executePayout — legacy path (no idempotency key)', () => {
 
   it('op_no_trust fallback fails the payout when FX is unavailable instead of guessing an amount', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT]));
-    vi.mocked(stellar.payExactWithXlm).mockRejectedValue({
-      response: { data: { extras: { result_codes: { operations: ['op_no_trust'] } } } },
-    });
+    vi.mocked(stellar.payExactWithXlm).mockRejectedValue(new stellar.HorizonRejectedError({ operations: ['op_no_trust'] }, null));
     vi.mocked(getXlmUsd).mockResolvedValue(0);
 
     const result = await executePayout({ ...baseOpts, amountNum: 75000, asset: 'NGN' });
 
     expect(result.status).toBe('failed');
-    expect(result.error).toMatch(/FX rate unavailable/);
+    expect(result.error).toMatch(/XLM price .* unavailable or out of date/);
     expect(stellar.createClaimableBalance).not.toHaveBeenCalled();
   });
 
@@ -155,7 +149,7 @@ describe('executePayout — legacy path (no idempotency key)', () => {
 
   it('a genuine Stellar submission error marks the payment failed', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT]));
-    vi.mocked(stellar.sendPayment).mockRejectedValue(new Error('tx_failed: op_underfunded'));
+    vi.mocked(stellar.sendPayment).mockRejectedValue(new stellar.HorizonRejectedError({ transaction: 'tx_failed', operations: ['op_underfunded'] }, null));
 
     const result = await executePayout({ ...baseOpts, amountNum: 999999999, asset: 'XLM' });
 

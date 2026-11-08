@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { toast } from 'sonner';
 import Modal from './Modal.js';
 import { submitMilestoneWork } from '../api/escrows.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 const FIELD_STYLE = {
   width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 8,
@@ -39,7 +40,7 @@ export default function SubmitWorkModal({ target, onClose, onDone }: Props) {
       close();
       onDone();
     } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? 'Failed to submit work');
+      toast.error(apiErrorMessage(err, 'Failed to submit work'));
     } finally {
       setBusy(false);
     }

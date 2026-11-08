@@ -16,6 +16,7 @@ import EscrowTransactions from '../components/EscrowTransactions.js';
 import EscrowReviewLog from '../components/EscrowReviewLog.js';
 import RejectWorkModal from '../components/RejectWorkModal.js';
 import { EXPLORER } from '../lib/explorer.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 interface WorkerOption { id: string; email: string }
 /** Employers enter milestone amounts in USD; the XLM that gets locked is derived from the live price. */
@@ -208,8 +209,8 @@ export default function Escrows() {
     load();
     api.get<{ users?: WorkerOption[]; data?: WorkerOption[] }>('/users?role=worker&limit=50')
       .then((res) => setWorkers(res.data.users ?? res.data.data ?? []))
-      .catch(() => {});
-    getXlmPrice().then(setXlmUsd).catch(() => {});
+      .catch((err) => toast.error(apiErrorMessage(err, 'Failed to load your workers')));
+    getXlmPrice().then(setXlmUsd).catch(() => {}); // optional: amounts just show without a USD estimate
   }, []);
 
   const totalUsd = rows.reduce((s, r) => s + (Number(r.amountUsd) || 0), 0);
@@ -247,7 +248,7 @@ export default function Escrows() {
       closeForm();
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? 'Failed to create escrow');
+      toast.error(apiErrorMessage(err, 'Failed to create escrow'));
     } finally {
       setSubmitting(false);
     }
@@ -261,7 +262,7 @@ export default function Escrows() {
       toast.success('Milestone approved — the worker can now claim it');
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? 'Failed to approve milestone');
+      toast.error(apiErrorMessage(err, 'Failed to approve milestone'));
     } finally {
       setActing(false);
       setPendingApprove(null);
@@ -276,7 +277,7 @@ export default function Escrows() {
       toast.success(`${dc.format(refundedXlm, 'XLM')} refunded to your wallet`);
       load();
     } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? 'Failed to refund escrow');
+      toast.error(apiErrorMessage(err, 'Failed to refund escrow'));
     } finally {
       setActing(false);
       setPendingRefund(null);

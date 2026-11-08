@@ -1,6 +1,6 @@
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { createLogger, assertInternalAuthConfigured, stellarNetwork } from '@funti3r/shared-utils';
+import { createLogger, assertInternalAuthConfigured, installProcessHandlers, stellarNetwork } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, runInitialMigrations, query } from '@funti3r/database';
 import { PaymentStatus } from '@funti3r/shared-types';
 import * as stellar from './lib/stellar.js';
@@ -8,6 +8,7 @@ import { startScheduler } from './scheduler.js';
 import app from './app.js';
 
 const logger = createLogger('PaymentService');
+installProcessHandlers(logger);
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 

@@ -1,10 +1,11 @@
-import { createLogger, assertInternalAuthConfigured } from '@funti3r/shared-utils';
+import { createLogger, assertInternalAuthConfigured, installProcessHandlers } from '@funti3r/shared-utils';
 import { initPostgres, query, transaction, tryWithAdvisoryLock } from '@funti3r/database';
 import { createApp } from './app.js';
 import { createSanctionsService } from './sanctions/service.js';
 import { sealExistingRecords } from './sealExisting.js';
 
 const logger = createLogger('ComplianceService');
+installProcessHandlers(logger);
 
 /**
  * COMPLIANCE_AUTO_APPROVE=true (testnet) marks every KYC submission as approved

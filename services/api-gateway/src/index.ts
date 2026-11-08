@@ -5,11 +5,12 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import { mountProxyRoutes } from './routes.js';
 import { randomUUID } from 'node:crypto';
-import { createLogger, assertInternalAuthConfigured, assertJwtConfigured, stripIdentity, requestContext, createMetrics } from '@funti3r/shared-utils';
+import { createLogger, errorHandler, installProcessHandlers, assertInternalAuthConfigured, assertJwtConfigured, stripIdentity, requestContext, createMetrics } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, getRedis } from '@funti3r/database';
 import { authMiddleware } from './middleware/auth.js';
 
 const logger = createLogger('APIGateway');
+installProcessHandlers(logger);
 const app = express();
 // Behind Caddy and the dashboard's nginx there are two proxy hops; trusting exactly that many makes req.ip the
 // real client (and rate limits per client, not one shared bucket). 0 when the gateway is reached directly (dev).
@@ -192,12 +193,8 @@ mountProxyRoutes(app, { user: USER_SERVICE, payment: PAYMENT_SERVICE, compliance
 
 // ── Error Handler ────────────────────────────────────────────────────────────
 
-app.use((err: any, req: any, res: any, _next: any) => {
-  logger.error('Unhandled error', { error: String(err), path: req.path });
-  if (!res.headersSent) {
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+// Last, after every route: the one place a thrown error becomes a response.
+app.use(errorHandler(logger));
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 

@@ -15,6 +15,7 @@ import {
 } from 'react-icons/hi2';
 import ConfirmDialog from '../components/ConfirmDialog.js';
 import InviteLinkModal from '../components/InviteLinkModal.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 const card: React.CSSProperties = {
   background: '#fff',
@@ -140,7 +141,7 @@ export default function Settings() {
         if (r.data.company_registration) setCompanyRegistration(r.data.company_registration);
         if (r.data.company_country) setCompanyCountry(r.data.company_country);
       })
-      .catch(() => {});
+      .catch((err) => toast.error(apiErrorMessage(err, 'Failed to load your company profile')));
   }, [isEnterprise, user?.userId]);
 
   async function loadTeam() {

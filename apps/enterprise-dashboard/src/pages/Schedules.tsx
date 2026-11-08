@@ -13,6 +13,7 @@ import ConfirmDialog from '../components/ConfirmDialog.js';
 import Modal from '../components/Modal.js';
 import PageHeader from '../components/PageHeader.js';
 import { StatusBadge } from '../components/StatusBadge.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string }
 interface ScheduleRow { workerId: string; amountUsd: string }
@@ -104,7 +105,7 @@ export default function Schedules() {
       const updated = await listSchedules();
       setSchedules(updated);
     } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? err?.message ?? 'Failed to create schedule');
+      toast.error(apiErrorMessage(err, 'Failed to create schedule'));
     } finally {
       setSubmitting(false);
     }

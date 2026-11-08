@@ -13,6 +13,7 @@ import ExportButtons from '../components/ExportButtons.js';
 import { StatusBadge, KycBadge } from '../components/StatusBadge.js';
 import { exportWorkersCSV, exportWorkersPDF } from '../utils/export.js';
 import { EXPLORER } from '../lib/explorer.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 interface WorkerRow extends Worker {
   kyc?: KYCStatus;
@@ -74,7 +75,7 @@ export default function Workers() {
   const [inviteToDelete, setInviteToDelete] = useState<WorkerInvite | null>(null);
 
   function loadInvites() {
-    getInvites().then(setInvites).catch(() => {});
+    getInvites().then(setInvites).catch((err) => toast.error(apiErrorMessage(err, 'Failed to load pending invites')));
   }
 
   async function createInvite(email: string): Promise<string> {
@@ -90,7 +91,7 @@ export default function Workers() {
       setInvites((prev) => prev.filter((i) => i.id !== inviteToDelete.id));
       toast.success('Invite deleted');
     } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? 'Failed to delete invite');
+      toast.error(apiErrorMessage(err, 'Failed to delete invite'));
     } finally {
       setInviteToDelete(null);
     }
@@ -116,10 +117,10 @@ export default function Workers() {
       setKycModalOpen(true);
       api.get<{ events: KycEvent[] }>(`/compliance/${workerId}/events`)
         .then((res) => setKycEvents(res.data.events))
-        .catch(() => {});
+        .catch(() => {}); // optional: the KYC details still show without their history
     } catch (err: any) {
       const status = err?.response?.status;
-      toast.error(status === 404 ? 'No KYC documents on file for this worker.' : (err?.response?.data?.error ?? 'Failed to load KYC details'));
+      toast.error(status === 404 ? 'No KYC documents on file for this worker.' : apiErrorMessage(err, 'Failed to load KYC details'));
     }
   }
 
@@ -138,7 +139,7 @@ export default function Workers() {
       );
       toast.success('KYC approved');
     } catch (err: unknown) {
-      toast.error((err as any)?.response?.data?.error ?? (err instanceof Error ? err.message : 'Failed to approve KYC'));
+      toast.error(apiErrorMessage(err, 'Failed to approve KYC'));
     } finally {
       setApproving(false);
     }
@@ -159,7 +160,7 @@ export default function Workers() {
       );
       toast.success('KYC rejected');
     } catch (err: unknown) {
-      toast.error((err as any)?.response?.data?.error ?? (err instanceof Error ? err.message : 'Failed to reject KYC'));
+      toast.error(apiErrorMessage(err, 'Failed to reject KYC'));
     } finally {
       setRejecting(false);
     }

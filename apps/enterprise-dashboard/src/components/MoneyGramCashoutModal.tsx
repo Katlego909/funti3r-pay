@@ -4,6 +4,7 @@ import Modal from './Modal.js';
 import MoneyGramWidget, { type DepositPayload } from './MoneyGramWidget.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { startMoneyGramCashout, submitMoneyGramDeposit, type MoneyGramSession } from '../api/escrows.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 const centered = {
   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, textAlign: 'center',
@@ -54,7 +55,7 @@ export default function MoneyGramCashoutModal({ open, onClose, onChanged }: Prop
     setWidgetReady(false);
     startMoneyGramCashout()
       .then((s) => { if (!cancelled) setSession(s); })
-      .catch((err: any) => { if (!cancelled) setError(err?.response?.data?.error ?? 'Could not open MoneyGram'); });
+      .catch((err: any) => { if (!cancelled) setError(apiErrorMessage(err, 'Could not open MoneyGram')); });
     return () => { cancelled = true; };
   }, [open, attempt]);
 
@@ -73,7 +74,7 @@ export default function MoneyGramCashoutModal({ open, onClose, onChanged }: Prop
       onChanged();
       return txHash;
     } catch (err: any) {
-      throw new Error(err?.response?.data?.error ?? 'Could not send the funds to MoneyGram', { cause: err });
+      throw new Error(apiErrorMessage(err, 'Could not send the funds to MoneyGram'), { cause: err });
     }
   }
 

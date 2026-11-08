@@ -3,6 +3,7 @@ import { HiCheck, HiOutlineClipboard } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import Modal from './Modal.js';
 import CopyButton from './CopyButton.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 interface InviteLinkModalProps {
   open: boolean;
@@ -46,7 +47,7 @@ export default function InviteLinkModal({
     try {
       setLink(await onSubmit(email));
     } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? errorFallback);
+      toast.error(apiErrorMessage(err, errorFallback));
     } finally {
       setSending(false);
     }

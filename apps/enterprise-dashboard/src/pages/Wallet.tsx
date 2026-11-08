@@ -26,6 +26,7 @@ import CashoutsTable from '../components/CashoutsTable.js';
 import WorkerMilestonesTable from '../components/WorkerMilestonesTable.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { EXPLORER } from '../lib/explorer.js';
+import { apiErrorMessage } from '../api/errors.js';
 
 interface WalletBalance {
   asset_type: string;
@@ -66,11 +67,11 @@ export default function Wallet() {
   const [submitFor, setSubmitFor] = useState<{ escrowId: string; idx: number; title: string; previousReason?: string } | null>(null);
 
   function loadEscrows() {
-    listEscrows().then(setEscrows).catch(() => {});
+    listEscrows().then(setEscrows).catch((err) => toast.error(apiErrorMessage(err, 'Failed to load your milestones')));
   }
 
   function loadCashouts() {
-    listWalletCashouts().then(setCashouts).catch(() => {});
+    listWalletCashouts().then(setCashouts).catch((err) => toast.error(apiErrorMessage(err, 'Failed to load your cash-outs')));
   }
 
   useEffect(() => {
@@ -83,6 +84,7 @@ export default function Wallet() {
     getPreferredCurrency(userId).then(setPreferred);
     loadEscrows();
     loadCashouts();
+    // Optional: without an answer the MoneyGram button just stays hidden.
     getCashoutOptions().then((o) => setMoneygramOn(o.moneygram)).catch(() => {});
   }, [userId]);
 
@@ -94,7 +96,7 @@ export default function Wallet() {
       loadEscrows();
       fetchWallet();
     } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? 'Failed to claim milestone');
+      toast.error(apiErrorMessage(err, 'Failed to claim milestone'));
     } finally {
       setClaiming(null);
     }
@@ -107,7 +109,7 @@ export default function Wallet() {
       setPreferred(saved);
       toast.success('Payout currency updated');
     } catch (err: any) {
-      toast.error(err?.response?.data?.error ?? 'Failed to update payout currency');
+      toast.error(apiErrorMessage(err, 'Failed to update payout currency'));
     } finally {
       setSavingPref(false);
     }
@@ -122,7 +124,7 @@ export default function Wallet() {
       setBalances(Array.isArray(data.balances) ? data.balances : []);
     } catch (err: any) {
       console.error('Failed to fetch wallet:', err);
-      setError(err?.response?.data?.error ?? 'Failed to load wallet');
+      setError(apiErrorMessage(err, 'Failed to load wallet'));
     } finally {
       setLoading(false);
       setRefreshing(false);

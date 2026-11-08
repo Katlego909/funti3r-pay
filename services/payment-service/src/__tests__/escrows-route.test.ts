@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import axios from 'axios';
 import { query } from '@funti3r/database';
+import { ExternalServiceError } from '@funti3r/shared-utils';
 import * as escrow from '../lib/escrow.js';
 import { ensureCleared, screenEmployer, ComplianceBlockedError } from '../lib/clearance.js';
 import app from '../app.js';
@@ -128,17 +129,34 @@ describe('POST /escrows — authorization and validation', () => {
     expect(milestoneInsert?.[1]).toHaveLength(8); // 2 rows × 4 params
   });
 
-  it('502s with the on-chain reason when the contract call fails', async () => {
+  const createEscrowRequest = () => request(app).post('/escrows').set(enterpriseHeaders)
+    .send({ workerId: WORKER_ID, milestones: [{ amountXlm: 10 }], expiresAt: new Date(Date.now() + 86_400_000).toISOString() });
+
+  it('502s with a plain message when the contract call fails on-chain', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([
       HANDLER_WORKER_LOOKUP, HANDLER_COMPANY_WORKER, HANDLER_SECRET,
     ]));
-    vi.mocked(escrow.createEscrow).mockRejectedValue(new Error('Escrow create failed on-chain: FAILED'));
+    vi.mocked(escrow.createEscrow).mockRejectedValue(
+      new ExternalServiceError('Stellar', 'The escrow transaction failed on-chain', 'escrow_failed'),
+    );
 
-    const res = await request(app).post('/escrows').set(enterpriseHeaders)
-      .send({ workerId: WORKER_ID, milestones: [{ amountXlm: 10 }], expiresAt: new Date(Date.now() + 86_400_000).toISOString() });
+    const res = await createEscrowRequest();
 
     expect(res.status).toBe(502);
-    expect(res.body.error).toMatch(/on-chain/);
+    expect(res.body).toMatchObject({ error: 'The escrow transaction failed on-chain', code: 'escrow_failed' });
+  });
+
+  it('500s without leaking the message when an unexpected error escapes', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([
+      HANDLER_WORKER_LOOKUP, HANDLER_COMPANY_WORKER, HANDLER_SECRET,
+    ]));
+    vi.mocked(escrow.createEscrow).mockRejectedValue(new Error('connect ECONNREFUSED 10.0.0.5:5432'));
+
+    const res = await createEscrowRequest();
+
+    expect(res.status).toBe(500);
+    expect(res.body.code).toBe('INTERNAL_ERROR');
+    expect(JSON.stringify(res.body)).not.toMatch(/ECONNREFUSED/);
   });
 });
 
