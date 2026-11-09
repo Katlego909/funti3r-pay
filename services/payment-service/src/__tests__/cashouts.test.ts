@@ -42,6 +42,16 @@ const SECRET = { match: /^SELECT stellar_secret_key FROM users WHERE id/, handle
 const PRIOR = (over: Record<string, unknown>) => ({ match: /SELECT worker_id, settlement_hash FROM cashouts/, handler: () => ({ rows: [{ worker_id: WORKER_ID, settlement_hash: null, ...over }] }) });
 const TAKE = { match: /INSERT INTO cashouts/, handler: () => ({ rows: [{ id: CASHOUT_ID }] }) };
 const TAKE_LOST = { match: /INSERT INTO cashouts/, handler: () => ({ rows: [] }) };
+// recordIntent's write-ahead of the hash: wins unless another attempt stored one first.
+const INTENT = { match: /SET settlement_hash = \$2, settlement_unconfirmed_since = NOW\(\)/, handler: () => ({ rows: [{ id: CASHOUT_ID }] }) };
+const INTENT_LOST = { match: INTENT.match, handler: () => ({ rows: [] }) };
+
+/** Behaves like the real payExactWithXlm: stores the signed hash via onSigned (which may refuse), then submits. */
+const paysWith = (hash: string, outcome: () => Promise<{ hash: string; sourceAmountXlm: string }> = async () => ({ hash, sourceAmountXlm: '92.6' })) =>
+  (async (...args: any[]) => {
+    await args[7]?.onSigned?.(hash, new Date());
+    return outcome();
+  }) as never;
 
 const calls = (re: RegExp) => vi.mocked(query).mock.calls.filter(([sql]) => re.test(sql));
 const deposit = (b = body(), headers: Record<string, string> = workerHeaders) =>
@@ -54,7 +64,7 @@ beforeEach(() => {
   vi.mocked(axios.get).mockReset().mockResolvedValue({ data: { status: 'verified' } });
   vi.mocked(ensureCleared).mockReset().mockResolvedValue({ cleared: true });
   vi.mocked(spendableXlm).mockReset().mockResolvedValue(180.5);
-  vi.mocked(payExactWithXlm).mockReset().mockResolvedValue({ hash: 'usdc-payment-hash', sourceAmountXlm: '92.6' });
+  vi.mocked(payExactWithXlm).mockReset().mockImplementation(paysWith('usdc-payment-hash'));
   vi.mocked(awaitRampsAcknowledgement).mockReset().mockResolvedValue('received');
   vi.mocked(mg.moneygramConfigured).mockReset().mockReturnValue(true);
   vi.mocked(mg.createSession).mockReset();
@@ -107,7 +117,7 @@ describe('POST /cashouts/moneygram/session', () => {
 });
 
 describe('POST /cashouts/moneygram/deposit', () => {
-  const base = [PUBKEY, SECRET];
+  const base = [PUBKEY, SECRET, INTENT];
 
   it('400s a malformed request before touching anything', async () => {
     for (const bad of [{}, { address: DEPOSIT }, body({ memo: '' }), body({ amount: '0' }), body({ address: 5 })]) {
@@ -198,7 +208,7 @@ describe('POST /cashouts/moneygram/deposit', () => {
     expect(opts.memo.value).toBe(MEMO);
   });
 
-  it('persists the payment hash first, then answers without waiting on MoneyGram (the gateway cuts off slow requests)', async () => {
+  it('stores the hash before submitting, then answers without waiting on MoneyGram (the gateway cuts off slow requests)', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([...base, TAKE]));
     // MoneyGram never acknowledges in this test — the response must not depend on it.
     vi.mocked(awaitRampsAcknowledgement).mockImplementation((() => new Promise(() => {})) as never);
@@ -206,8 +216,9 @@ describe('POST /cashouts/moneygram/deposit', () => {
     const res = await deposit();
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ txHash: 'usdc-payment-hash', status: 'pending' });
-    // what the cash-out actually cost (sourceAmountXlm from the path payment) is kept alongside the hash
-    expect(calls(/SET settlement_hash = \$2, xlm_spent = \$3/)[0][1]).toEqual([CASHOUT_ID, 'usdc-payment-hash', '92.6']);
+    expect(calls(INTENT.match)[0][1]).toEqual([CASHOUT_ID, 'usdc-payment-hash']);
+    // Once Horizon confirmed it: what the cash-out actually cost, and no longer waiting for the chain's answer.
+    expect(calls(/SET xlm_spent = \$3, settlement_unconfirmed_since = NULL/)[0][1]).toEqual([CASHOUT_ID, 'usdc-payment-hash', '92.6']);
     expect(awaitRampsAcknowledgement).toHaveBeenCalledWith(CASHOUT_ID, 'mg-tx-1');
   });
 
@@ -225,14 +236,18 @@ describe('POST /cashouts/moneygram/deposit', () => {
     const res = await deposit();
     expect(res.status).toBe(422);
     expect(res.body).toMatchObject({ code: 'exceeds_send_max', error: expect.stringMatching(/above the/) });
-    expect(calls(/SET status = 'failed', error = \$2/)).toHaveLength(1);
-    expect(calls(/SET settlement_hash/)).toHaveLength(0);
+    const failed = calls(/SET status = 'failed', error = \$2/);
+    expect(failed).toHaveLength(1);
+    expect(failed[0][1]).toEqual([CASHOUT_ID, expect.stringMatching(/above the/), null]);
+    expect(calls(INTENT.match)).toHaveLength(0);
     expect(awaitRampsAcknowledgement).not.toHaveBeenCalled();
   });
 
   it('keeps the hash when Horizon gave no verdict, so a retry can never pay MoneyGram twice', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([...base, TAKE]));
-    vi.mocked(payExactWithXlm).mockRejectedValue(new SubmitOutcomeUnknownError('maybe-landed-hash', new Error('timeout')));
+    vi.mocked(payExactWithXlm).mockImplementation(paysWith('maybe-landed-hash', async () => {
+      throw new SubmitOutcomeUnknownError('maybe-landed-hash', new Error('timeout'));
+    }));
     const res = await deposit();
     expect(res.status).toBe(202);
     expect(res.body).toEqual({ txHash: 'maybe-landed-hash', status: 'submitted' });
@@ -248,6 +263,19 @@ describe('POST /cashouts/moneygram/deposit', () => {
     const retry = await deposit();
     expect(retry.body).toEqual({ txHash: 'maybe-landed-hash', alreadyPaid: true });
     expect(payExactWithXlm).not.toHaveBeenCalled();
+  });
+
+  it('a racing second attempt that loses the write-ahead submits nothing and leaves the winner alone', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([PUBKEY, SECRET, INTENT_LOST, TAKE]));
+    const submitted = vi.fn();
+    vi.mocked(payExactWithXlm).mockImplementation(paysWith('second-hash', async () => { submitted(); return { hash: 'second-hash', sourceAmountXlm: '1' }; }));
+    const res = await deposit();
+    expect(res.status).toBe(409);
+    expect(submitted).not.toHaveBeenCalled();
+    // Its failure write is guarded on its own (absent) hash, so it cannot touch the row the winner signed for.
+    const failed = calls(/SET status = 'failed', error = \$2/);
+    expect(failed[0][0]).toContain('settlement_hash IS NOT DISTINCT FROM $3');
+    expect(failed[0][1]?.[2]).toBeNull();
   });
 });
 

@@ -31,7 +31,14 @@ describe('reconcileUnconfirmedCashouts', () => {
     vi.mocked(lookupTransaction).mockResolvedValue({ found: true, successful: true, memoType: 'id' });
     await reconcileUnconfirmedCashouts();
     expect(calls(/SET settlement_unconfirmed_since = NULL WHERE id = \$1 AND settlement_hash = \$2/)[0][1]).toEqual([CASHOUT_ID, HASH]);
-    expect(calls(/SET status = 'failed'/)).toHaveLength(0);
+    expect(calls(/SET status = 'failed', settlement_hash = NULL/)).toHaveLength(0);
+  });
+
+  it('fails a cash-out cut off before it signed anything, so it stops showing as pending', async () => {
+    vi.mocked(lookupTransaction).mockResolvedValue({ found: true, successful: true, memoType: 'id' });
+    await reconcileUnconfirmedCashouts();
+    const [[sql]] = calls(/Interrupted before payment/);
+    expect(sql).toMatch(/status = 'pending' AND settlement_hash IS NULL AND created_at < NOW\(\) - INTERVAL '10 minutes'/);
   });
 
   it('fails a payment that never landed and clears its hash, so the worker may retry', async () => {
@@ -51,6 +58,6 @@ describe('reconcileUnconfirmedCashouts', () => {
   it('never fails a cash-out without the chain\'s answer: a Horizon error leaves it for the next run', async () => {
     vi.mocked(lookupTransaction).mockRejectedValue(new Error('Horizon 503'));
     await reconcileUnconfirmedCashouts();
-    expect(calls(/UPDATE cashouts/)).toHaveLength(0);
+    expect(calls(/UPDATE cashouts/).filter(([sql]) => !/Interrupted before payment/.test(sql))).toHaveLength(0);
   });
 });
