@@ -11,7 +11,7 @@ const paid = (...rows: Array<{ id: string; stellar_tx_hash: string | null; rail?
   query.mockResolvedValueOnce({ rows: rows.map((r) => ({ rail: 'stellar', ...r })) } as any);
 
 beforeEach(() => {
-  query.mockReset();
+  query.mockReset().mockResolvedValue({ rows: [] } as any);
   lookup.mockReset();
 });
 
@@ -61,11 +61,30 @@ describe('verifyRecentPayments', () => {
     expect(await verifyRecentPayments()).toEqual([]);
   });
 
-  it('never writes to the database', async () => {
-    paid({ id: 'pay-missing', stellar_tx_hash: 'tx-missing' });
-    lookup.mockResolvedValueOnce({ found: false });
+  it('stamps only the payments that passed, so they are not checked again; discrepancies stay unverified', async () => {
+    paid({ id: 'pay-ok', stellar_tx_hash: 'tx-ok' }, { id: 'pay-missing', stellar_tx_hash: 'tx-missing' });
+    lookup
+      .mockResolvedValueOnce({ found: true, successful: true, memoType: 'hash', memo: memoOf('pay-ok') })
+      .mockResolvedValueOnce({ found: false });
     await verifyRecentPayments();
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(String(query.mock.calls[0][0])).toMatch(/^\s*SELECT/);
+    const writes = query.mock.calls.filter(([sql]) => /^\s*UPDATE/.test(String(sql)));
+    expect(writes).toEqual([[expect.stringContaining('SET chain_verified_at = NOW()'), [['pay-ok']]]]);
+    expect(String(query.mock.calls[0][0])).toContain('chain_verified_at IS NULL');
+  });
+
+  it('flags a payment recorded as failed whose stored transaction succeeded (a retry would pay twice)', async () => {
+    paid();
+    query.mockResolvedValueOnce({ rows: [{ id: 'pay-lost', stellar_tx_hash: 'tx-landed' }] } as any);
+    lookup.mockResolvedValueOnce({ found: true, successful: true, memoType: 'hash', memo: memoOf('pay-lost') });
+    expect(await verifyRecentPayments()).toEqual([
+      { paymentId: 'pay-lost', reason: 'recorded as failed but its transaction succeeded', txHash: 'tx-landed' },
+    ]);
+  });
+
+  it('accepts a failed payment whose transaction never landed', async () => {
+    paid();
+    query.mockResolvedValueOnce({ rows: [{ id: 'pay-f', stellar_tx_hash: 'tx-none' }] } as any);
+    lookup.mockResolvedValueOnce({ found: false });
+    expect(await verifyRecentPayments()).toEqual([]);
   });
 });
