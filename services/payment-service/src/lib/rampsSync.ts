@@ -82,6 +82,8 @@ export async function awaitRampsAcknowledgement(
 // Past the cash-out payment's 60s time bound (lib/stellar.ts), with margin: a transaction not on chain by now never
 // will be, so the chain's answer is final. Same margin as the payout watchdog (scheduler.ts).
 const UNCONFIRMED_GRACE_MINUTES = 5;
+// A cash-out signs its transaction within seconds of being taken; one still unsigned after this was cut off.
+const UNSIGNED_STALE_MINUTES = 10;
 
 /**
  * Settles cash-out payments Horizon gave no verdict on, once their time bound is over. On chain and successful → the
@@ -90,6 +92,13 @@ const UNCONFIRMED_GRACE_MINUTES = 5;
  * transaction. A Horizon error leaves the row for the next run; it is never failed without the chain's answer.
  */
 export async function reconcileUnconfirmedCashouts(): Promise<void> {
+  // Cut off before any transaction was signed (a crash): nothing was paid. Failing it says so; a late attempt could
+  // not pay anyway, because storing a hash requires the row to still be 'pending' (routes/cashouts.ts).
+  await query(
+    `UPDATE cashouts SET status = 'failed', error = 'Interrupted before payment — safe to retry'
+      WHERE status = 'pending' AND settlement_hash IS NULL AND created_at < NOW() - INTERVAL '${UNSIGNED_STALE_MINUTES} minutes'`,
+  );
+
   const rows = await query<{ id: string; settlement_hash: string }>(
     `SELECT id, settlement_hash FROM cashouts
       WHERE status = 'pending' AND settlement_unconfirmed_since < NOW() - INTERVAL '${UNCONFIRMED_GRACE_MINUTES} minutes'`,
