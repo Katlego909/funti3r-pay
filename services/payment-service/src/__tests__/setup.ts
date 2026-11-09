@@ -79,5 +79,5 @@ vi.mock('../lib/stellar.js', () => ({
   spendableXlm: vi.fn(),
   createClaimableBalance: vi.fn(),
   getAccountBalance: vi.fn(),
-  streamEnterprisePayments: vi.fn(),
+  payoutOutcome: vi.fn(),
 }));
