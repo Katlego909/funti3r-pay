@@ -147,6 +147,57 @@ describe('executePayout — legacy path (no idempotency key)', () => {
     expect(sql.some((q) => q.includes("status = 'failed'"))).toBe(false);
   });
 
+  it('stores the signed hash and time bound before submitting', async () => {
+    const intent = { match: /SET stellar_tx_hash = \$1, tx_max_time = \$2/, handler: () => ({ rows: [{ id: 'p' }] }) };
+    vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT, intent]));
+    const order: string[] = [];
+    vi.mocked(stellar.sendPayment).mockImplementation(async (...args: any[]) => {
+      await args[6]('tx-signed', new Date('2026-11-09T10:01:00Z'));
+      order.push('submit');
+      return 'tx-signed';
+    });
+
+    await executePayout({ ...baseOpts, amountNum: 5, asset: 'XLM' });
+
+    const call = vi.mocked(query).mock.calls.find(([q]) => intent.match.test(String(q)))!;
+    expect(String(call[0])).toContain("status = 'initiated'");
+    expect(call[1]?.slice(0, 2)).toEqual(['tx-signed', new Date('2026-11-09T10:01:00Z')]);
+    expect(order).toEqual(['submit']);
+  });
+
+  it('submits nothing when the row is no longer initiated (the watchdog settled it meanwhile)', async () => {
+    const intentLost = { match: /SET stellar_tx_hash = \$1, tx_max_time = \$2/, handler: () => ({ rows: [] }) };
+    vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT, intentLost]));
+    const submit = vi.fn();
+    vi.mocked(stellar.sendPayment).mockImplementation(async (...args: any[]) => {
+      await args[6]('tx-late', new Date());
+      submit();
+      return 'tx-late';
+    });
+
+    const result = await executePayout({ ...baseOpts, amountNum: 5, asset: 'XLM' });
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(result.status).toBe('failed');
+    // Its failure write is guarded too, so it cannot overwrite whatever the watchdog recorded.
+    const failed = vi.mocked(query).mock.calls.find(([q]) => String(q).includes("SET status = 'failed'"))!;
+    expect(String(failed[0])).toContain("AND status = 'initiated'");
+  });
+
+  it('a payment that landed but whose success write is lost stays submitted (202) — never failed, so a retry cannot pay twice', async () => {
+    const settleFails = { match: /WHERE id = \$4 AND status IN \('initiated', 'submitted'\)/, handler: () => { throw new Error('connection reset'); } };
+    vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT, settleFails]));
+    vi.mocked(stellar.sendPayment).mockResolvedValue('tx-landed');
+
+    const result = await executePayout({ ...baseOpts, amountNum: 5, asset: 'XLM' });
+
+    expect(result.status).toBe('submitted');
+    expect(result.httpStatus).toBe(202);
+    expect(result.stellarTxHash).toBe('tx-landed');
+    const sql = vi.mocked(query).mock.calls.map(([q]) => String(q));
+    expect(sql.some((q) => q.includes("status = 'failed'"))).toBe(false);
+  });
+
   it('a genuine Stellar submission error marks the payment failed', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_FOUND, HANDLER_INSERT_PAYMENT]));
     vi.mocked(stellar.sendPayment).mockRejectedValue(new stellar.HorizonRejectedError({ transaction: 'tx_failed', operations: ['op_underfunded'] }, null));

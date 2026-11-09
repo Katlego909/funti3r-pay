@@ -9,7 +9,7 @@ import {
   Memo,
 } from '@stellar/stellar-sdk';
 import { AppError, createLogger, ExternalServiceError, stellarNetwork } from '@funti3r/shared-utils';
-import { getRedis, getJSON, setJSON, withAdvisoryLock } from '@funti3r/database';
+import { getJSON, setJSON, withAdvisoryLock } from '@funti3r/database';
 import { accountsTouchedBy, balanceCacheKey, forgetBalances } from './balanceCache.js';
 
 const logger = createLogger('StellarService');
@@ -49,11 +49,20 @@ export class HorizonRejectedError extends ExternalServiceError {
 }
 
 /**
+ * Called with a signed transaction's hash and time bound just BEFORE it is submitted, so the caller can record what
+ * is about to be sent (write-ahead). If it throws, nothing is submitted. Once the hash is stored, a crash, a timeout or
+ * a lost database write can never hide a payment: the watchdog looks that hash up after `maxTime`, when the chain's
+ * answer is final.
+ */
+export type OnSigned = (hash: string, maxTime: Date) => Promise<void>;
+
+/**
  * Submits a transaction and clears the cached balances of every account it touched, so the next balance read
  * (the wallet, the dashboard) shows the result of the user's own action instead of a figure up to 20 seconds old.
  * A Horizon answer (4xx) is a definite failure, rethrown as HorizonRejectedError; no answer is not.
  */
-async function submitAndRefresh(tx: Parameters<Horizon.Server['submitTransaction']>[0]) {
+async function submitAndRefresh(tx: Transaction, onSigned?: OnSigned) {
+  if (onSigned) await onSigned(tx.hash().toString('hex'), new Date(Number(tx.timeBounds!.maxTime) * 1000));
   let result;
   try {
     result = await horizon.submitTransaction(tx);
@@ -120,6 +129,7 @@ async function sendPaymentUnlocked(
   // Buffer = sha256 hash memo (the payout convention); a prebuilt Memo covers
   // anchor-dictated memo types (id/text) for settlement payments.
   memoHash?: Buffer | Memo,
+  onSigned?: OnSigned,
 ): Promise<string> {
   const sourceKeypair = Keypair.fromSecret(sourceSecret);
   logger.info('Preparing payment', {
@@ -148,84 +158,8 @@ async function sendPaymentUnlocked(
     .build();
 
   tx.sign(sourceKeypair);
-  const result = await submitAndRefresh(tx);
+  const result = await submitAndRefresh(tx, onSigned);
   logger.info('Payment submitted', { hash: result.hash });
-  return result.hash;
-}
-
-async function pathPaymentStrictSendUnlocked(
-  sourceSecret: string,
-  destinationPublic: string,
-  sendAsset: Asset,
-  sendAmount: string,
-  destAsset: Asset,
-  slippage = 0.02,
-  memoHash?: Buffer,
-): Promise<string> {
-  const sourceKeypair = Keypair.fromSecret(sourceSecret);
-
-  // Discover the best DEX route and expected output before building the tx.
-  const pathsResult = await horizon
-    .strictSendPaths(sendAsset, sendAmount, [destAsset])
-    .call();
-
-  if (!pathsResult.records || pathsResult.records.length === 0) {
-    throw new AppError(
-      422,
-      `No DEX path found: ${sendAsset.code || 'XLM'} → ${destAsset.code || 'XLM'} for amount ${sendAmount}`,
-      'no_dex_path',
-    );
-  }
-
-  // Pick the path that delivers the most to the destination.
-  const best = pathsResult.records.reduce((a, b) =>
-    Number(a.destination_amount) >= Number(b.destination_amount) ? a : b,
-  );
-
-  // Guard against slippage: reject if the network moves more than `slippage` against us.
-  const destMin = (Number(best.destination_amount) * (1 - slippage)).toFixed(7);
-  const explicitPath = (best.path || []).map((p: any) =>
-    p.asset_type === 'native' ? Asset.native() : new Asset(p.asset_code, p.asset_issuer),
-  );
-
-  logger.info('Path payment route selected', {
-    from: sourceKeypair.publicKey(),
-    to: destinationPublic,
-    sendAmount,
-    sendAsset: sendAsset.code || 'XLM',
-    destAsset: destAsset.code || 'XLM',
-    expectedDestAmount: best.destination_amount,
-    destMin,
-    hops: explicitPath.length,
-  });
-
-  const account = await horizon.loadAccount(sourceKeypair.publicKey());
-  const fee = await horizon.fetchBaseFee();
-
-  const builder = new TransactionBuilder(account, {
-    fee: String(Math.max(fee * 10, 100)),
-    networkPassphrase: NETWORK_PASSPHRASE,
-  });
-
-  if (memoHash) builder.addMemo(Memo.hash(memoHash));
-
-  const tx = builder
-    .addOperation(
-      Operation.pathPaymentStrictSend({
-        destination: destinationPublic,
-        sendAsset,
-        sendAmount,
-        destAsset,
-        destMin,
-        path: explicitPath,
-      }),
-    )
-    .setTimeout(60)
-    .build();
-
-  tx.sign(sourceKeypair);
-  const result = await submitAndRefresh(tx);
-  logger.info('Path payment submitted', { hash: result.hash });
   return result.hash;
 }
 
@@ -309,7 +243,7 @@ async function payExactWithXlmUnlocked(
   destAmount: string,
   slippage = 0.05,
   memoHash?: Buffer,
-  options: { sendMaxXlm?: string; memo?: Memo } = {},
+  options: { sendMaxXlm?: string; memo?: Memo; onSigned?: OnSigned } = {},
 ): Promise<{ hash: string; sourceAmountXlm: string }> {
   const sourceKeypair = Keypair.fromSecret(sourceSecret);
   const destAsset = new Asset(destAssetCode, destAssetIssuer);
@@ -364,7 +298,7 @@ async function payExactWithXlmUnlocked(
     .build();
 
   tx.sign(sourceKeypair);
-  const result = await submitAndRefresh(tx);
+  const result = await submitAndRefresh(tx, options.onSigned);
   logger.info('Cross-asset payout submitted', {
     hash: result.hash,
     destAmount,
@@ -372,163 +306,6 @@ async function payExactWithXlmUnlocked(
     sourceAmountXlm: best.source_amount,
   });
   return { hash: result.hash, sourceAmountXlm: best.source_amount };
-}
-
-// ── Unsigned transactions for external wallet signing ──────────────────────────
-
-/**
- * Prepare an unsigned payment transaction for external wallet signing.
- * Returns the transaction XDR that the wallet will sign.
- */
-export async function prepareUnsignedPayment(
-  sourcePublic: string,
-  destinationPublic: string,
-  amount: string,
-  assetCode: string = 'XLM',
-  assetIssuer?: string,
-  memoHash?: Buffer,
-): Promise<string> {
-  logger.info('Preparing unsigned payment', {
-    from: sourcePublic,
-    to: destinationPublic,
-    amount,
-    assetCode,
-  });
-
-  const account = await horizon.loadAccount(sourcePublic);
-  const fee = await horizon.fetchBaseFee();
-  const asset = assetCode === 'XLM' ? Asset.native() : new Asset(assetCode, assetIssuer!);
-
-  const builder = new TransactionBuilder(account, {
-    fee: String(Math.max(fee * 10, 100)),
-    networkPassphrase: NETWORK_PASSPHRASE,
-  });
-
-  if (memoHash) {
-    builder.addMemo(Memo.hash(memoHash));
-  }
-
-  const tx = builder
-    .addOperation(Operation.payment({ destination: destinationPublic, asset, amount }))
-    .setTimeout(60)
-    .build();
-
-  return tx.toXDR();
-}
-
-/**
- * Prepare an unsigned path payment transaction for external wallet signing.
- * Queries the DEX to find the best route and applies `slippage` tolerance
- * so the worker is guaranteed to receive at least (1 - slippage) × expected amount.
- */
-export async function prepareUnsignedPathPayment(
-  sourcePublic: string,
-  destinationPublic: string,
-  sendAsset: Asset,
-  sendAmount: string,
-  destAsset: Asset,
-  slippage = 0.05,
-  memoHash?: Buffer,
-): Promise<string> {
-  logger.info('Preparing unsigned path payment', {
-    from: sourcePublic,
-    to: destinationPublic,
-    sendAmount,
-    sendAssetCode: sendAsset.code || 'XLM',
-    destAssetCode: destAsset.code || 'XLM',
-  });
-
-  // Query the DEX so we can set a meaningful minimum destination amount.
-  const pathsResult = await horizon
-    .strictSendPaths(sendAsset, sendAmount, [destAsset])
-    .call();
-
-  if (!pathsResult.records || pathsResult.records.length === 0) {
-    throw new AppError(
-      422,
-      `No DEX path found: ${sendAsset.code || 'XLM'} → ${destAsset.code || 'XLM'} for amount ${sendAmount}`,
-      'no_dex_path',
-    );
-  }
-
-  const best = pathsResult.records.reduce((a, b) =>
-    Number(a.destination_amount) >= Number(b.destination_amount) ? a : b,
-  );
-  const destMin = (Number(best.destination_amount) * (1 - slippage)).toFixed(7);
-  const explicitPath = (best.path || []).map((p: any) =>
-    p.asset_type === 'native' ? Asset.native() : new Asset(p.asset_code, p.asset_issuer),
-  );
-
-  logger.info('Unsigned path payment route selected', {
-    expectedDestAmount: best.destination_amount,
-    destMin,
-    hops: explicitPath.length,
-  });
-
-  const account = await horizon.loadAccount(sourcePublic);
-  const fee = await horizon.fetchBaseFee();
-
-  const builder = new TransactionBuilder(account, {
-    fee: String(Math.max(fee * 10, 100)),
-    networkPassphrase: NETWORK_PASSPHRASE,
-  });
-
-  if (memoHash) {
-    builder.addMemo(Memo.hash(memoHash));
-  }
-
-  const tx = builder
-    .addOperation(
-      Operation.pathPaymentStrictSend({
-        destination: destinationPublic,
-        sendAsset,
-        sendAmount,
-        destAsset,
-        destMin,
-        path: explicitPath,
-      }),
-    )
-    .setTimeout(60)
-    .build();
-
-  return tx.toXDR();
-}
-
-// ── Fee bump ──────────────────────────────────────────────────────────────────
-
-/**
- * Bump the fee on a stuck transaction. Call this when a submitted transaction
- * sits unconfirmed past its timeout due to a fee surge on the network.
- *
- * @param originalXDR  The XDR of the already-signed inner transaction.
- * @param feeAccountSecret  The account that pays the new fee (can be the same as sender).
- * @param newFeeStroopsPerOp  New fee per operation in stroops (e.g. 10000 = 0.001 XLM/op).
- */
-export async function bumpPaymentFee(
-  originalXDR: string,
-  feeAccountSecret: string,
-  newFeeStroopsPerOp = 10_000,
-): Promise<string> {
-  const feeKeypair = Keypair.fromSecret(feeAccountSecret);
-  const innerTx = TransactionBuilder.fromXDR(originalXDR, NETWORK_PASSPHRASE) as Transaction;
-
-  const totalFee = String(newFeeStroopsPerOp * innerTx.operations.length);
-  const feeBump = TransactionBuilder.buildFeeBumpTransaction(
-    feeKeypair,
-    totalFee,
-    innerTx,
-    NETWORK_PASSPHRASE,
-  );
-  feeBump.sign(feeKeypair);
-
-  logger.info('Submitting fee-bump transaction', {
-    innerHash: innerTx.hash().toString('hex'),
-    newFeeStroopsPerOp,
-  });
-
-  const result = await submitAndRefresh(feeBump);
-  logger.info('Fee-bump transaction submitted', { hash: result.hash });
-  return result.hash;
 }
 
 // ── Claimable balances ────────────────────────────────────────────────────────
@@ -546,6 +323,7 @@ async function createClaimableBalanceUnlocked(
   asset: Asset,
   amount: string,
   memoHash?: Buffer,
+  onSigned?: OnSigned,
 ): Promise<string> {
   const keypair = Keypair.fromSecret(sourceSecret);
   const account = await horizon.loadAccount(keypair.publicKey());
@@ -570,7 +348,7 @@ async function createClaimableBalanceUnlocked(
     .build();
 
   tx.sign(keypair);
-  const result = await submitAndRefresh(tx);
+  const result = await submitAndRefresh(tx, onSigned);
   logger.info('Claimable balance created', {
     claimant: claimantPublic,
     asset: asset.code || 'XLM',
@@ -578,84 +356,6 @@ async function createClaimableBalanceUnlocked(
     hash: result.hash,
   });
   return result.hash;
-}
-
-// ── Horizon streaming ─────────────────────────────────────────────────────────
-
-export async function streamEnterprisePayments(
-  enterprisePublicKey: string,
-  onPayment: (hash: string) => Promise<void>,
-): Promise<() => void> {
-  const redis = await getRedis();
-  const cursorKey = `stellar:cursor:${enterprisePublicKey}`;
-
-  let stopped = false;
-  let currentStream: { close: () => void } | null = null;
-
-  async function connect(retryDelayMs = 1_000): Promise<void> {
-    if (stopped) return;
-
-    let cursor: string | null = null;
-    try {
-      cursor = await redis.get(cursorKey);
-    } catch (err) {
-      logger.warn('Failed to load stream cursor from Redis', { error: String(err) });
-    }
-
-    logger.info('Starting Horizon payment stream', { enterprisePublicKey, cursor, retryDelayMs });
-
-    const stream = horizon
-      .payments()
-      .forAccount(enterprisePublicKey)
-      .cursor(cursor ?? 'now')
-      .stream({
-        onmessage: async (op: Horizon.ServerApi.OperationRecord) => {
-          // A successful message resets the backoff for the next reconnect.
-          retryDelayMs = 1_000;
-
-          if (op.type === 'payment' && 'transaction_hash' in op && op.transaction_hash) {
-            try {
-              logger.info('Payment confirmed on-chain', { hash: op.transaction_hash });
-              await onPayment(op.transaction_hash);
-            } catch (err) {
-              logger.error('Failed to process payment event', {
-                hash: op.transaction_hash,
-                error: String(err),
-              });
-            }
-          }
-
-          if ('paging_token' in op && op.paging_token) {
-            try {
-              await redis.set(cursorKey, op.paging_token, { EX: 86400 * 7 });
-            } catch (err) {
-              logger.warn('Failed to persist cursor', { error: String(err) });
-            }
-          }
-        },
-        onerror: (err: unknown) => {
-          logger.error('Horizon stream dropped — will reconnect', {
-            enterprisePublicKey,
-            error: String(err),
-            nextRetryMs: retryDelayMs,
-          });
-          if (currentStream) { currentStream.close(); currentStream = null; }
-          if (!stopped) {
-            const nextDelay = Math.min(retryDelayMs * 2, 30_000);
-            setTimeout(() => connect(nextDelay), retryDelayMs);
-          }
-        },
-      });
-
-    currentStream = stream as unknown as { close: () => void };
-  }
-
-  await connect();
-
-  return () => {
-    stopped = true;
-    if (currentStream) currentStream.close();
-  };
 }
 
 // ── Serialized entry points (per source account) ──────────────────────────────
@@ -719,8 +419,22 @@ export async function lookupTransaction(
   }
 }
 
+/**
+ * The chain's verdict on a payout transaction by its hash: not there (never landed), landed but failed, or succeeded,
+ * with `claimable` marking the claimable-balance fallback. Throws if Horizon cannot be read, so a caller never
+ * mistakes "could not check" for "missing".
+ */
+export async function payoutOutcome(
+  hash: string,
+): Promise<{ found: false } | { found: true; successful: boolean; claimable: boolean }> {
+  const tx = await lookupTransaction(hash);
+  if (!tx.found) return { found: false };
+  if (!tx.successful) return { found: true, successful: false, claimable: false };
+  const ops = await horizon.operations().forTransaction(hash).call();
+  return { found: true, successful: true, claimable: ops.records.some((op) => op.type === 'create_claimable_balance') };
+}
+
 export const sendPayment = serialized(sendPaymentUnlocked);
-export const pathPaymentStrictSend = serialized(pathPaymentStrictSendUnlocked);
 export const addTrustline = serialized(addTrustlineUnlocked);
 export const payExactWithXlm = serialized(payExactWithXlmUnlocked);
 export const createClaimableBalance = serialized(createClaimableBalanceUnlocked);

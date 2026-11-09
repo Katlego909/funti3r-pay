@@ -1,40 +1,25 @@
 import crypto from 'node:crypto';
 import cron from 'node-cron';
-import axios from 'axios';
 import { query, tryWithAdvisoryLock } from '@funti3r/database';
-import { createLogger, stampIdentity } from '@funti3r/shared-utils';
+import { createLogger } from '@funti3r/shared-utils';
 import { nextRunDate } from './lib/scheduling.js';
 import { reconcileEscrows } from './lib/escrowReconcile.js';
 import { verifyRecentPayments } from './lib/paymentReconcile.js';
 import { syncPendingRamps } from './lib/rampsSync.js';
-import { findTransactionByMemoHash } from './lib/stellar.js';
+import { findTransactionByMemoHash, payoutOutcome } from './lib/stellar.js';
 import { recordAllMissingEscrowPayments } from './lib/escrowAccounting.js';
 import { notifyPaymentSettled } from './lib/paymentNotifications.js';
 import { jobRunsTotal, jobSeconds, stuckCashouts, stuckPayments } from './lib/metrics.js';
+import { runBatchPayout } from './app.js';
 
 const logger = createLogger('Scheduler');
 
 // ── Schedule executor ─────────────────────────────────────────────────────────
 
-const PAYMENT_SERVICE_URL = `http://localhost:${process.env.PAYMENT_SERVICE_PORT ?? 3002}`;
-
-/**
- * Headers for a scheduled run, acting as the schedule's enterprise. Signed like the gateway's, because the payout
- * routes reject identity headers without a valid signature.
- */
-export function scheduleRunHeaders(enterpriseId: string, now = Date.now()): Record<string, string> {
-  const headers: Record<string, string> = {
-    'x-user-id': enterpriseId,
-    'x-user-role': 'enterprise',
-    'content-type': 'application/json',
-  };
-  stampIdentity(headers, now);
-  return headers;
-}
-
-async function runDueSchedules(): Promise<void> {
-  // Claim due schedules atomically: update next_run_at first so a concurrent
-  // run (e.g. after a restart) won't pick the same schedule again.
+export async function runDueSchedules(): Promise<void> {
+  // Due schedules. Only one instance runs this job at a time (singleton below). next_run_at moves on only once a run
+  // is recorded (updateScheduleAfterRun), so a run cut short by a crash is claimed again at the next tick with the
+  // same next_run_at, and therefore the same idempotency key: the batch replays instead of paying a second time.
   const claimed = await query<{
     id: string;
     enterprise_id: string;
@@ -42,12 +27,12 @@ async function runDueSchedules(): Promise<void> {
     frequency: string;
     run_day: string;
     timezone: string;
-    last_run_at: string;
+    next_run_at: Date;
   }>(`
     UPDATE payment_schedules
     SET last_run_at = NOW(), updated_at = NOW()
     WHERE status = 'active' AND next_run_at <= NOW()
-    RETURNING id, enterprise_id, name, frequency, run_day, timezone, last_run_at
+    RETURNING id, enterprise_id, name, frequency, run_day, timezone, next_run_at
   `);
 
   if (claimed.rows.length === 0) return;
@@ -82,11 +67,11 @@ async function executeSchedule(
     frequency: string;
     run_day: string;
     timezone: string;
-    last_run_at: string;
+    next_run_at: Date;
   },
   itemRows: Array<{ worker_id: string; amount_usd: string; memo: string | null }>,
 ): Promise<void> {
-  const { id, enterprise_id, name, frequency, run_day, timezone, last_run_at } = schedule;
+  const { id, enterprise_id, name, frequency, run_day, timezone, next_run_at } = schedule;
 
   if (itemRows.length === 0) {
     logger.warn('Schedule has no items — skipping', { scheduleId: id });
@@ -103,34 +88,31 @@ async function executeSchedule(
   let runStatus: 'success' | 'partial' | 'failed';
 
   try {
-    // Deterministic per-due-run key: stable if this exact run is retried (e.g.
-    // the process crashes between claiming the schedule and finishing it, so
-    // the next hourly tick sees it still due), changes on the next legitimate run.
-    const idempotencyKey = `schedule:${id}:${last_run_at}`;
-    const response = await axios.post(
-      `${PAYMENT_SERVICE_URL}/payouts/batch`,
-      { enterpriseId: enterprise_id, items, idempotencyKey },
-      {
-        headers: scheduleRunHeaders(enterprise_id),
-        timeout: 120_000,
-      },
-    );
+    // One key per scheduled occurrence, not per attempt: a retry of this occurrence (after a crash, or a failed
+    // updateScheduleAfterRun) replays the same batch; the next occurrence has a new next_run_at and so a new key.
+    const idempotencyKey = `schedule:${id}:${new Date(next_run_at).toISOString()}`;
+    const response = await runBatchPayout(enterprise_id, items, idempotencyKey);
+    if (response.httpStatus >= 400 && response.httpStatus !== 409) {
+      throw new Error(String(response.body.error ?? `batch answered ${response.httpStatus}`));
+    }
+    // 409: this occurrence's batch is still running elsewhere; it is recorded as in progress, never re-sent.
+    const data = response.httpStatus === 409 ? { status: 'processing' } : response.body as Record<string, any>;
 
     // 'processing' means some payments are still awaiting their on-chain verdict: money may well have moved, so the
     // run is not a failure; 'partial' is the closest outcome the schedule records (the watchdog settles each payment).
-    runStatus = response.data.status === 'completed' ? 'success'
-      : response.data.status === 'partial' || response.data.status === 'processing' ? 'partial'
+    runStatus = data.status === 'completed' ? 'success'
+      : data.status === 'partial' || data.status === 'processing' ? 'partial'
       : 'failed';
 
     logger.info('Schedule run complete', {
       scheduleId: id,
       name,
       status: runStatus,
-      completed: response.data.completedCount,
-      failed: response.data.failedCount,
+      completed: data.completedCount,
+      failed: data.failedCount,
     });
   } catch (err: any) {
-    const detail = err?.response?.data?.error ?? err?.message ?? String(err);
+    const detail = err?.message ?? String(err);
     logger.error('Schedule run failed', { scheduleId: id, name, error: detail });
     runStatus = 'failed';
   }
@@ -164,50 +146,72 @@ async function updateScheduleAfterRun(
 // mid-request, so a later idempotency-key retry (see index.ts) isn't blocked
 // forever by a row that will never resolve on its own.
 
-// Past every payout transaction's 60s time bound (lib/stellar.ts), with margin: a transaction not on chain by now
-// never will be, so the chain's answer is final.
-const STALE_INITIATED_MINUTES = 5;
+// After a transaction's time bound (tx_max_time) it can no longer land; the grace covers Horizon's ingestion lag, so
+// by then the chain's answer is final.
+const TIME_BOUND_GRACE_MINUTES = 2;
+// Rows without a stored hash: nothing was signed for them (or they predate write-ahead hashes, migration 031). Past
+// every payout's 60s time bound with margin, the memo search answers for them.
+const STALE_UNSIGNED_MINUTES = 5;
 const STALE_BATCH_HEARTBEAT_MINUTES = 3; // batches heartbeat every item; use this, not updated_at
 
+type StaleRow = {
+  id: string; enterprise_id: string; worker_id: string; amount: string; currency: string; created_at: Date;
+  stellar_tx_hash: string | null; enterprise_public_key: string | null; worker_email: string | null;
+};
+
 /**
- * Settles a payout left 'initiated' (the process died mid-request) or 'submitted' (Horizon gave no verdict) from the
- * chain: its transaction carries Memo.hash(sha256(paymentId)) from the enterprise account. Found → completed (or
- * pending_claim for the claimable-balance fallback). Absent → failed, and only then may a same-key retry pay again.
- * A Horizon error leaves the row for the next run; it is never failed without the chain's answer.
+ * The chain's answer for a stale payout: its successful transaction, or null if nothing landed. With a stored hash
+ * that is one lookup; without one, the memo search (each payout's transaction carries Memo.hash(sha256(paymentId))).
+ */
+async function chainAnswer(p: StaleRow): Promise<{ hash: string; claimable: boolean } | null> {
+  if (p.stellar_tx_hash) {
+    const outcome = await payoutOutcome(p.stellar_tx_hash);
+    return outcome.found && outcome.successful ? { hash: p.stellar_tx_hash, claimable: outcome.claimable } : null;
+  }
+  if (!p.enterprise_public_key) return null;
+  const memoHash = crypto.createHash('sha256').update(p.id).digest();
+  return findTransactionByMemoHash(p.enterprise_public_key, memoHash, new Date(p.created_at));
+}
+
+/**
+ * Settles a payout left 'initiated' (the process died mid-request, or the success write was lost) or 'submitted'
+ * (Horizon gave no verdict) from the chain, once the answer is final: after its transaction's time bound, or, for a
+ * row with no signed transaction, after a few minutes. Found → completed (or pending_claim for the claimable-balance
+ * fallback). Absent → failed, and only then may a same-key retry pay again. A Horizon error leaves the row for the
+ * next run; it is never failed without the chain's answer.
  */
 export async function reconcileStalePayments(): Promise<void> {
   const stale = await query(
-    `SELECT p.id, p.enterprise_id, p.worker_id, p.amount, p.currency, p.created_at,
+    `SELECT p.id, p.enterprise_id, p.worker_id, p.amount, p.currency, p.created_at, p.stellar_tx_hash,
             e.stellar_public_key AS enterprise_public_key, w.email AS worker_email
        FROM payments p
        JOIN users e ON e.id = p.enterprise_id
        LEFT JOIN users w ON w.id = p.worker_id
-      WHERE p.status IN ('initiated', 'submitted') AND p.updated_at < NOW() - INTERVAL '${STALE_INITIATED_MINUTES} minutes'`,
-  ) as { rows: Array<{
-    id: string; enterprise_id: string; worker_id: string; amount: string; currency: string; created_at: Date;
-    enterprise_public_key: string | null; worker_email: string | null;
-  }> };
+      WHERE p.status IN ('initiated', 'submitted')
+        AND CASE WHEN p.tx_max_time IS NOT NULL
+                 THEN p.tx_max_time < NOW() - INTERVAL '${TIME_BOUND_GRACE_MINUTES} minutes'
+                 ELSE p.updated_at < NOW() - INTERVAL '${STALE_UNSIGNED_MINUTES} minutes' END`,
+  ) as { rows: StaleRow[] };
 
   for (const p of stale.rows) {
-    let found: Awaited<ReturnType<typeof findTransactionByMemoHash>> = null;
-    if (p.enterprise_public_key) {
-      try {
-        const memoHash = crypto.createHash('sha256').update(p.id).digest();
-        found = await findTransactionByMemoHash(p.enterprise_public_key, memoHash, new Date(p.created_at));
-      } catch (err) {
-        logger.warn('Could not check a stale payment on chain; will retry', { paymentId: p.id, error: String(err) });
-        continue;
-      }
+    let found: Awaited<ReturnType<typeof chainAnswer>>;
+    try {
+      found = await chainAnswer(p);
+    } catch (err) {
+      logger.warn('Could not check a stale payment on chain; will retry', { paymentId: p.id, error: String(err) });
+      continue;
     }
 
+    // Each update is guarded on the status AND the hash that was checked, so a row that moved on since it was read
+    // (a retry that signed a new transaction) is left alone.
     if (found) {
       const status = found.claimable ? 'pending_claim' : 'completed';
       const upd = await query(
         `UPDATE payments
             SET status = $1::text, stellar_tx_hash = $2, failure_reason = NULL, updated_at = NOW(),
                 completed_at = CASE WHEN $1::text = 'completed' THEN NOW() ELSE NULL END
-          WHERE id = $3 AND status IN ('initiated', 'submitted') RETURNING id`,
-        [status, found.hash, p.id],
+          WHERE id = $3 AND status IN ('initiated', 'submitted') AND stellar_tx_hash IS NOT DISTINCT FROM $4 RETURNING id`,
+        [status, found.hash, p.id, p.stellar_tx_hash],
       );
       if (upd.rows.length === 0) continue;
       logger.warn('Settled stale payment from chain', { paymentId: p.id, status, txHash: found.hash });
@@ -219,8 +223,8 @@ export async function reconcileStalePayments(): Promise<void> {
       await query(
         `UPDATE payments
             SET status = 'failed', failure_reason = 'Not on chain after its time bound — safe to retry', failed_at = NOW(), updated_at = NOW()
-          WHERE id = $1 AND status IN ('initiated', 'submitted')`,
-        [p.id],
+          WHERE id = $1 AND status IN ('initiated', 'submitted') AND stellar_tx_hash IS NOT DISTINCT FROM $2`,
+        [p.id, p.stellar_tx_hash],
       );
       logger.warn('Stale payment not on chain; marked failed', { paymentId: p.id });
     }
