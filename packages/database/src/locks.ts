@@ -24,7 +24,12 @@ export async function withAdvisoryLock<T>(name: string, fn: () => Promise<T>, wa
   const client = await (await getPostgres()).connect();
   try {
     await client.query(`SET lock_timeout = ${Math.max(1, Math.floor(waitMs))}`);
-    await client.query('SELECT pg_advisory_lock($1, $2)', [a, b]);
+    try {
+      await client.query('SELECT pg_advisory_lock($1, $2)', [a, b]);
+    } finally {
+      // The setting lives on the pooled connection; left in place it would cap lock waits for whoever gets it next.
+      await client.query('RESET lock_timeout');
+    }
     try {
       return await fn();
     } finally {
