@@ -7,12 +7,13 @@ import {
   HiOutlineMagnifyingGlass,
   HiOutlineXMark,
 } from 'react-icons/hi2';
-import { listPayments, type Payment } from '../api/payments.js';
+import { listPayments, listAllPayments, type Payment } from '../api/payments.js';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
 import { useAuthStore } from '../store/authStore.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
 import PageHeader from '../components/PageHeader.js';
 import ExportButtons from '../components/ExportButtons.js';
+import IncomeStatementButton from '../components/IncomeStatementButton.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 import { STATUS_TABS } from '../lib/status.js';
 import '../styles/Dashboard.css';
@@ -73,9 +74,7 @@ export default function PaymentHistory() {
     setExporting(true);
     try {
       const params = { workerId: user.userId, ...(statusFilter !== 'all' ? { status: statusFilter } : {}) };
-      const { total: t } = await listPayments({ ...params, limit: 1, offset: 0 });
-      const { payments: all } = await listPayments({ ...params, limit: t, offset: 0 });
-      return all;
+      return await listAllPayments(params);
     } finally {
       setExporting(false);
     }
@@ -90,12 +89,15 @@ export default function PaymentHistory() {
       <PageHeader
         title="Payment History"
         subtitle="View all payments received"
-        actions={payments.length > 0 && (
-          <ExportButtons
-            exporting={exporting}
-            onCSV={async () => { const all = await fetchAllForExport(); exportPaymentsCSV(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}
-            onPDF={async () => { const all = await fetchAllForExport(); exportPaymentsPDF(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}
-          />
+        actions={payments.length > 0 && user && (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <IncomeStatementButton workerId={user.userId} workerEmail={user.email} />
+            <ExportButtons
+              exporting={exporting}
+              onCSV={async () => { const all = await fetchAllForExport(); exportPaymentsCSV(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}
+              onPDF={async () => { const all = await fetchAllForExport(); exportPaymentsPDF(all, statusFilter !== 'all' ? `-${statusFilter}` : ''); }}
+            />
+          </div>
         )}
       />
 

@@ -795,7 +795,8 @@ app.get('/payouts', async (req, res, next) => {
 
     const result = await query(
       `SELECT id, enterprise_id, worker_id, amount, currency, status, rail, provider_reference,
-              stellar_tx_hash, failure_reason, created_at, updated_at
+              stellar_tx_hash, failure_reason, created_at, updated_at,
+              (SELECT company_name FROM enterprises e WHERE e.user_id = payments.enterprise_id) AS company_name
          FROM payments
          ${where}
          ORDER BY created_at DESC
