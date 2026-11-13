@@ -26,16 +26,6 @@ export interface PaymentSummary {
   completedVolumeUsd: number;
 }
 
-export interface Quote {
-  rail: string;
-  sourceCurrency: string;
-  destinationCurrency: string;
-  exchangeRate: number;
-  fee: number;
-  estimatedDeliveryMinutes: number;
-  quoteId?: string;
-}
-
 export async function getXlmPrice(): Promise<number> {
   try {
     const { data } = await api.get<{ usd: number }>('/payouts/xlm-price');
@@ -63,16 +53,6 @@ export async function listPayments(params: {
 }): Promise<{ payments: Payment[]; total: number }> {
   const { data } = await api.get<{ payments: Payment[]; total: number }>('/payouts', { params });
   return data;
-}
-
-export async function getQuotes(params: {
-  amount: number;
-  sourceCurrency: string;
-  destinationCurrency: string;
-  destinationCountry: string;
-}): Promise<Quote[]> {
-  const { data } = await api.get<{ quotes: Quote[] }>('/payouts/quotes', { params });
-  return data.quotes;
 }
 
 export async function initiatePayment(payload: {
