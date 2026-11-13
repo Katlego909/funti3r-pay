@@ -1,6 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
-import { AppError, createLogger, forwardedHeaders, retryRead, decryptFromString, ValidationError, NotFoundError, ExternalServiceError, errorHandler, requireGatewayIdentity, requestContext, registerHealth, parseBody, stellarNetwork } from '@funti3r/shared-utils';
+import { AppError, createLogger, forwardedHeaders, retryRead, decryptFromString, NotFoundError, ExternalServiceError, errorHandler, requireGatewayIdentity, requestContext, registerHealth, parseBody, stellarNetwork } from '@funti3r/shared-utils';
 import { ComplianceBlockedError } from './lib/clearance.js';
 import { metrics, payoutsTotal } from './lib/metrics.js';
 import { audit } from './lib/audit.js';
