@@ -28,8 +28,9 @@ const run = async (data: IncomeStatementData) => {
 
 const base: IncomeStatementData = {
   workerEmail: 'ada@example.com',
-  from: new Date('2026-01-01T00:00:00Z'),
-  to: new Date('2026-06-30T23:59:59Z'),
+  // Local dates, as the period picker builds them; the filename must name these days in any timezone.
+  from: new Date(2026, 0, 1),
+  to: new Date(2026, 5, 30, 23, 59, 59),
   payments: [
     { createdAt: '2026-02-01T10:00:00Z', payer: 'Acme Ltd', amount: 100, currency: 'USDC', txHash: 'a'.repeat(64) },
     { createdAt: '2026-03-01T10:00:00Z', payer: 'Acme Ltd', amount: 50, currency: 'USDC', txHash: 'b'.repeat(64) },
