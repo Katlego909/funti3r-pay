@@ -55,6 +55,16 @@ export async function listPayments(params: {
   return data;
 }
 
+/** Every payment matching the filter, fetched a page at a time. */
+export async function listAllPayments(params: { workerId?: string; status?: string } = {}): Promise<Payment[]> {
+  const out: Payment[] = [];
+  for (let offset = 0; ; offset += 100) {
+    const page = await listPayments({ ...params, limit: 100, offset });
+    out.push(...page.payments);
+    if (page.payments.length < 100 || out.length >= page.total) return out;
+  }
+}
+
 export async function initiatePayment(payload: {
   workerId: string;
   amount?: number;

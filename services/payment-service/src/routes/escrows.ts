@@ -204,7 +204,7 @@ router.post('/', recoveryHold, async (req: Request, res: Response, next: NextFun
     // Worker must exist, hold a Stellar account, and — when the company is
     // formalized — belong to it. Same KYC gate as payouts.
     const workerRes = await query(
-      `SELECT stellar_public_key, email FROM users WHERE id = $1 AND role = 'worker'`,
+      `SELECT stellar_public_key, email FROM users WHERE id = $1 AND role = 'worker' AND status IS DISTINCT FROM 'closed'`,
       [workerId],
     );
     const worker = workerRes.rows[0];

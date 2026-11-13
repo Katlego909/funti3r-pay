@@ -17,6 +17,7 @@ import cashoutsRouter from './routes/cashouts.js';
 import axios from 'axios';
 import { resolveCompanyContext, resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from './lib/company.js';
 import { recoveryHold } from './lib/recoveryHold.js';
+import { closureBlockers } from './lib/accountClosure.js';
 
 const logger = createLogger('PaymentService');
 const COMPLIANCE_SERVICE_URL = process.env.COMPLIANCE_SERVICE_URL || 'http://localhost:3003';
@@ -94,6 +95,17 @@ app.get('/wallets/company', async (req, res, next) => {
       logger.warn('Balance lookup failed; returning empty', { address, error: String(balErr) });
     }
     res.json({ address, balances });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** What still stops the caller closing their account (see lib/accountClosure.ts). Also asked by user-service. */
+app.get('/wallets/me/closure-check', async (req, res, next) => {
+  const userId = req.headers['x-user-id'];
+  if (typeof userId !== 'string' || !userId) return res.status(401).json({ error: 'Authentication required' });
+  try {
+    res.json({ blockers: await closureBlockers(userId) });
   } catch (err) {
     next(err);
   }
@@ -266,10 +278,11 @@ async function executePayoutInner(opts: {
     }
   }
 
-  // Worker destination (+ secret for trustline setup on issued assets).
+  // Worker destination (+ secret for trustline setup on issued assets). A closed account's key is destroyed, so
+  // nothing sent to it could ever be spent: it is not a payee (here, in the batch prefetch and in escrow create).
   const workerRow = precomputed
     ? precomputed.worker
-    : (await query('SELECT stellar_public_key, stellar_secret_key, email FROM users WHERE id = $1', [workerId])).rows[0];
+    : (await query("SELECT stellar_public_key, stellar_secret_key, email FROM users WHERE id = $1 AND status IS DISTINCT FROM 'closed'", [workerId])).rows[0];
   const destination: string | undefined = workerRow?.stellar_public_key;
   const workerEmail: string = workerRow?.email ?? 'your worker';
   const workerStoredSecret: string | undefined = workerRow?.stellar_secret_key;
@@ -631,7 +644,7 @@ export async function runBatchPayout(
   }
 
   const workersRes = await query(
-    'SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency FROM users WHERE id = ANY($1::uuid[])',
+    "SELECT id, stellar_public_key, stellar_secret_key, email, preferred_currency FROM users WHERE id = ANY($1::uuid[]) AND status IS DISTINCT FROM 'closed'",
     [workerIds],
   );
   const workerById = new Map(workersRes.rows.map((w) => [w.id, w]));
