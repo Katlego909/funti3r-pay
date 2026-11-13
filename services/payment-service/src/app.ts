@@ -11,7 +11,6 @@ import { notifyPaymentSettled } from './lib/paymentNotifications.js';
 import { Asset } from '@stellar/stellar-sdk';
 import { getCurrency, isSupportedCurrency, PAYOUT_CURRENCIES } from './lib/currencies.js';
 import { usdToCurrencyRate, getUsdRates, amountToUsd, getXlmUsd, StaleRatesError } from './lib/fx.js';
-import { getAllQuotes } from './rails/router.js';
 import schedulesRouter from './routes/schedules.js';
 import escrowsRouter from './routes/escrows.js';
 import cashoutsRouter from './routes/cashouts.js';
@@ -140,30 +139,6 @@ app.get('/wallets/:userId', async (req, res, next) => {
       logger.warn('Balance lookup failed; returning empty', { address, error: String(balErr) });
     }
     res.json({ userId: req.params.userId, walletType: 'worker', address, balances });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ── Quotes ────────────────────────────────────────────────────────────────────
-
-/**
- * GET /payouts/quotes?amount=&sourceCurrency=&destinationCurrency=&destinationCountry=
- * Returns quotes from all available payment rails.
- */
-app.get('/payouts/quotes', async (req, res, next) => {
-  try {
-    const { amount, sourceCurrency, destinationCurrency, destinationCountry } = req.query;
-    if (!amount || !sourceCurrency || !destinationCurrency || !destinationCountry) {
-      throw new ValidationError('amount, sourceCurrency, destinationCurrency, destinationCountry are required');
-    }
-    const quotes = await getAllQuotes({
-      amount: Number(amount),
-      sourceCurrency: String(sourceCurrency),
-      destinationCurrency: String(destinationCurrency),
-      destinationCountry: String(destinationCountry),
-    });
-    res.json({ quotes });
   } catch (err) {
     next(err);
   }
