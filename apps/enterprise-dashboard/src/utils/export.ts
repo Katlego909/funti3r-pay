@@ -1,7 +1,129 @@
+import { IS_MAINNET } from '../lib/explorer.js';
+
 // jsPDF + autotable are ~400 KB, so they load only when someone actually exports a PDF.
 async function loadPdf() {
   const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
   return { jsPDF, autoTable };
+}
+
+// ── Branding (every PDF) ──────────────────────────────────────────────────────
+
+type Rgb = [number, number, number];
+/** The app's colours (App.css :root): --primary, --accent, --dark, plus a light tint of the primary for table rows. */
+const BRAND = {
+  primary: [66, 10, 99] as Rgb,
+  accent: [254, 119, 41] as Rgb,
+  ink: [10, 17, 28] as Rgb,
+  muted: [107, 114, 128] as Rgb,
+  tint: [249, 246, 251] as Rgb,
+  rule: [232, 226, 238] as Rgb,
+};
+const HEADER_H = 64;
+const FOOTER_H = 40;
+/** Where content starts below the header band, on the first page and on every continuation page. */
+const CONTENT_TOP = HEADER_H + 26;
+const LOGO_RATIO = 1310 / 212; // public/images/logo-wht.png
+
+let logoPromise: Promise<string | null> | null = null;
+/** The white logo as a data URL, fetched once. Null when it cannot load: the header then sets the name in type. */
+function loadLogo(): Promise<string | null> {
+  logoPromise ??= fetch('/images/logo-wht.png')
+    .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`logo ${r.status}`))))
+    .then((b) => new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(b);
+    }))
+    .catch(() => { logoPromise = null; return null; });
+  return logoPromise;
+}
+
+/** Table colours for every autoTable: brand-purple header row, faintly tinted alternate rows. */
+const brandTable = {
+  headStyles: { fillColor: BRAND.primary, textColor: [255, 255, 255] as Rgb, fontStyle: 'bold' as const },
+  alternateRowStyles: { fillColor: BRAND.tint },
+  styles: { textColor: [30, 30, 30] as Rgb, lineColor: BRAND.rule },
+};
+
+/** A new A4 document with what the branded header and footer need. Lay content out from `top`. */
+async function brandedDoc(orientation: 'portrait' | 'landscape') {
+  const [{ jsPDF, autoTable }, logo] = await Promise.all([loadPdf(), loadLogo()]);
+  const doc = new jsPDF({ orientation, unit: 'pt', format: 'a4' });
+  return {
+    doc,
+    autoTable,
+    logo,
+    W: doc.internal.pageSize.getWidth(),
+    top: CONTENT_TOP,
+    /** autoTable margins that keep continuation pages clear of the header band and footer. */
+    margin: (side: number) => ({ top: CONTENT_TOP, bottom: FOOTER_H + 12, left: side, right: side }),
+  };
+}
+
+/**
+ * Draws the header band (logo, title, subtitle, orange accent rule) and the footer (platform line, generated time,
+ * page numbers) on every page, then downloads. Call it last, once all content is laid out.
+ */
+function finishBranded(doc: any, logo: string | null, title: string, subtitle: string, filename: string, side = 32) {
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const pages = doc.internal.getNumberOfPages();
+  const generated = `Generated ${new Date().toLocaleString()}`;
+
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i);
+
+    doc.setFillColor(...BRAND.primary);
+    doc.rect(0, 0, W, HEADER_H, 'F');
+    doc.setFillColor(...BRAND.accent);
+    doc.rect(0, HEADER_H, W, 3, 'F');
+    if (logo) {
+      const h = 20;
+      // One alias for every page, deflated: otherwise each page embeds the raw PNG (~1 MB).
+      doc.addImage(logo, 'PNG', side, (HEADER_H - h) / 2, h * LOGO_RATIO, h, 'brand-logo', 'FAST');
+    } else {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.setTextColor(255, 255, 255);
+      doc.text('Funti3rPay', side, HEADER_H / 2 + 6);
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(255, 255, 255);
+    doc.text(title, W - side, HEADER_H / 2 - 1, { align: 'right' });
+    if (subtitle) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(226, 206, 240);
+      doc.text(subtitle, W - side, HEADER_H / 2 + 12, { align: 'right' });
+    }
+
+    doc.setDrawColor(...BRAND.rule);
+    doc.setLineWidth(0.5);
+    doc.line(side, H - FOOTER_H + 8, W - side, H - FOOTER_H + 8);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...BRAND.primary);
+    doc.text('Funti3rPay', side, H - 16);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...BRAND.muted);
+    doc.text('  ·  Cross-border payroll on Stellar  ·  pay.funti3r.xyz', side + doc.getTextWidth('Funti3rPay'), H - 16);
+    doc.text(`${generated}  ·  Page ${i} of ${pages}`, W - side, H - 16, { align: 'right' });
+  }
+
+  doc.save(filename);
+}
+
+/** Red band for anything produced on the test network, so it cannot pass as a record of real money. Returns the next y. */
+function testnetBanner(doc: any, x: number, y: number, width: number, text: string): number {
+  doc.setFillColor(254, 226, 226);
+  doc.roundedRect(x, y, width, 24, 4, 4, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(153, 27, 27);
+  doc.text(text, x + width / 2, y + 15.5, { align: 'center' });
+  return y + 36;
 }
 
 function timestamp() {
@@ -49,51 +171,19 @@ export async function exportPDF(
   filename: string,
   columnStyles?: Record<number, { cellWidth?: 'auto' | 'wrap' | number }>,
 ) {
-  const { jsPDF, autoTable } = await loadPdf();
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-  const pageW = doc.internal.pageSize.getWidth();
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(20, 20, 20);
-  doc.text('FUNTI3RPAY', 32, 32);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(80, 80, 80);
-  doc.text(title, pageW / 2, 32, { align: 'center' });
-  doc.setFontSize(8.5);
-  doc.setTextColor(140, 140, 140);
-  doc.text(subtitle, pageW - 32, 32, { align: 'right' });
-  doc.setDrawColor(210, 210, 210);
-  doc.setLineWidth(0.5);
-  doc.line(32, 40, pageW - 32, 40);
+  const { doc, autoTable, logo, top, margin } = await brandedDoc('landscape');
 
   autoTable(doc, {
-    startY: 56,
+    startY: top,
     head: [headers],
     body: rows.map((r) => r.map((v) => (v == null ? '' : String(v)))),
-    styles: { fontSize: 8.5, cellPadding: 5 },
-    headStyles: { fillColor: [245, 245, 245], textColor: [30, 30, 30], fontStyle: 'bold' },
-    alternateRowStyles: { fillColor: [250, 250, 250] },
+    ...brandTable,
+    styles: { ...brandTable.styles, fontSize: 8.5, cellPadding: 5 },
     columnStyles,
-    margin: { left: 32, right: 32 },
+    margin: margin(32),
   });
 
-  // Footer with page numbers
-  const pageCount = (doc as any).internal.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i);
-    doc.setFontSize(8);
-    doc.setTextColor(150);
-    doc.text(
-      `Page ${i} of ${pageCount} · Generated ${new Date().toLocaleString()}`,
-      pageW / 2,
-      doc.internal.pageSize.getHeight() - 12,
-      { align: 'center' },
-    );
-  }
-
-  doc.save(filename);
+  finishBranded(doc, logo, title, subtitle, filename);
 }
 
 // ── Payments helpers ──────────────────────────────────────────────────────────
@@ -300,34 +390,22 @@ export interface PayslipData {
   completedAt?: string | null;
 }
 
+const MONO_ROWS = new Set(['Stellar Tx Hash', 'Worker Stellar Address', 'Payment ID']);
+
 export async function generatePayslip(p: PayslipData) {
-  const { jsPDF, autoTable } = await loadPdf();
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-  const W = doc.internal.pageSize.getWidth();
+  const { doc, autoTable, logo, W, top, margin } = await brandedDoc('portrait');
   const M = 56;
   const inner = W - M * 2;
 
-  let y = 48;
-
-  // Header — plain text, thin rule
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(20, 20, 20);
-  doc.text('FUNTI3RPAY', M, y);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(120, 120, 120);
-  doc.text('PAYSLIP', W - M, y, { align: 'right' });
-  y += 10;
-  doc.setDrawColor(210, 210, 210);
-  doc.setLineWidth(0.5);
-  doc.line(M, y, W - M, y);
-  y += 32;
+  let y = top;
+  if (!IS_MAINNET) y = testnetBanner(doc, M, y - 8, inner, 'STELLAR TEST NETWORK: NOT REAL MONEY. NOT A VALID PAYMENT RECORD.');
+  y += 22;
 
   // Amount
-  const amtFormatted = Number(p.amount).toLocaleString(undefined, { maximumFractionDigits: 7 });
+  const amtFormatted = Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 7 });
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(30);
-  doc.setTextColor(20, 20, 20);
+  doc.setTextColor(...BRAND.primary);
   doc.text(`${amtFormatted} ${p.currency}`, W / 2, y, { align: 'center' });
   y += 18;
   if (p.usdValue != null) {
@@ -346,7 +424,7 @@ export async function generatePayslip(p: PayslipData) {
   // Employer / Worker — two columns, no boxes
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
-  doc.setTextColor(140, 140, 140);
+  doc.setTextColor(...BRAND.accent);
   doc.text('EMPLOYER', M, y);
   doc.text('WORKER', W / 2 + 8, y);
   y += 13;
@@ -386,29 +464,33 @@ export async function generatePayslip(p: PayslipData) {
     body: rows,
     styles: { fontSize: 9, cellPadding: { top: 7, bottom: 7, left: 0, right: 8 } },
     columnStyles: {
-      0: { fontStyle: 'bold', textColor: [80, 80, 80], cellWidth: 160 },
+      0: { fontStyle: 'bold', textColor: BRAND.primary, cellWidth: 160 },
       1: { textColor: [20, 20, 20] },
     },
-    alternateRowStyles: { fillColor: [249, 249, 249] },
-    margin: { left: M, right: M },
+    alternateRowStyles: brandTable.alternateRowStyles,
+    margin: margin(M),
+    // Hashes, addresses and ids in monospace, small enough to sit on one line and be copied whole.
+    didParseCell: (cell: any) => {
+      if (cell.section === 'body' && cell.column.index === 1 && MONO_ROWS.has(String(cell.row.raw[0]))) {
+        cell.cell.styles.font = 'courier';
+        cell.cell.styles.fontSize = 7;
+      }
+    },
   });
 
   const afterTable = (doc as any).lastAutoTable.finalY + 20;
-
-  // Footer
-  doc.setLineWidth(0.5);
-  doc.setDrawColor(215, 215, 215);
-  doc.line(M, afterTable, W - M, afterTable);
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
-  doc.setTextColor(165, 165, 165);
+  doc.setTextColor(...BRAND.muted);
   doc.text(
-    'This is an official payment record generated by Funti3rPay. Retain for tax, visa, or loan applications.',
-    W / 2, afterTable + 14, { align: 'center', maxWidth: inner },
+    IS_MAINNET
+      ? 'This is an official payment record generated by Funti3rPay. Retain for tax, visa, or loan applications.'
+      : 'Generated on the Stellar test network for demonstration. It records no real payment.',
+    W / 2, afterTable, { align: 'center', maxWidth: inner },
   );
-  doc.text(`Generated ${new Date().toLocaleString()}`, W / 2, afterTable + 26, { align: 'center' });
 
   const dateStr = new Date(p.createdAt).toISOString().slice(0, 10);
-  doc.save(`payslip-${p.currency}-${dateStr}-${p.id.slice(0, 8)}.pdf`);
+  finishBranded(doc, logo, 'Payslip', fmtDate(p.createdAt), `payslip-${p.currency}-${dateStr}-${p.id.slice(0, 8)}.pdf`, M);
 }
 
 // ── Analytics helpers ─────────────────────────────────────────────────────────
@@ -438,73 +520,44 @@ export function exportAnalyticsCSV(summary: ExportSummary, recentPayments: Expor
 }
 
 export async function exportAnalyticsPDF(summary: ExportSummary, recentPayments: ExportPayment[]) {
-  const { jsPDF, autoTable } = await loadPdf();
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-  const pageW = doc.internal.pageSize.getWidth();
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(20, 20, 20);
-  doc.text('FUNTI3RPAY', 32, 32);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(80, 80, 80);
-  doc.text('Analytics Report', pageW / 2, 32, { align: 'center' });
-  doc.setFontSize(8.5);
-  doc.setTextColor(140, 140, 140);
-  doc.text(new Date().toLocaleDateString(), pageW - 32, 32, { align: 'right' });
-  doc.setDrawColor(210, 210, 210);
-  doc.setLineWidth(0.5);
-  doc.line(32, 40, pageW - 32, 40);
+  const { doc, autoTable, logo, top, margin } = await brandedDoc('landscape');
 
   // Summary KPIs
   autoTable(doc, {
-    startY: 56,
+    startY: top,
     head: [['Metric', 'Value']],
     body: [
       ['Total Payments', summary.totalCount],
       ['Completed', summary.byStatus['completed'] ?? 0],
       ['Failed', summary.byStatus['failed'] ?? 0],
       ['Success Rate', summary.successRate != null ? `${summary.successRate.toFixed(1)}%` : '—'],
-      ['Total Volume (USD)', summary.completedVolumeUsd ?? '—'],
-      ...Object.entries(summary.byCurrency ?? {}).map(([k, v]) => [`Volume ${k}`, v]),
+      ['Total Volume (USD)', summary.completedVolumeUsd != null
+        ? `$${summary.completedVolumeUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : '—'],
+      ...Object.entries(summary.byCurrency ?? {}).map(([k, v]) => [`Volume ${k}`, `${Number(v).toLocaleString(undefined, { maximumFractionDigits: 7 })} ${k}`]),
     ],
-    styles: { fontSize: 9 },
-    headStyles: { fillColor: [245, 245, 245], textColor: [30, 30, 30], fontStyle: 'bold' },
-    columnStyles: { 0: { fontStyle: 'bold', textColor: [60, 60, 60] } },
-    alternateRowStyles: { fillColor: [250, 250, 250] },
-    margin: { left: 32, right: 32 },
+    ...brandTable,
+    styles: { ...brandTable.styles, fontSize: 9 },
+    columnStyles: { 0: { fontStyle: 'bold', textColor: BRAND.primary } },
+    margin: margin(32),
   });
 
-  const afterSummary = (doc as any).lastAutoTable.finalY + 20;
+  const afterSummary = (doc as any).lastAutoTable.finalY + 22;
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 30, 30);
+  doc.setTextColor(...BRAND.primary);
   doc.text('Recent Payments', 32, afterSummary);
 
   autoTable(doc, {
     startY: afterSummary + 8,
     head: [PAYMENT_HEADERS],
     body: recentPayments.map(paymentRow).map((r) => r.map((v) => String(v))),
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [245, 245, 245], textColor: [30, 30, 30], fontStyle: 'bold' },
-    alternateRowStyles: { fillColor: [250, 250, 250] },
-    margin: { left: 32, right: 32 },
+    ...brandTable,
+    styles: { ...brandTable.styles, fontSize: 8 },
+    margin: margin(32),
   });
 
-  const pageCount = (doc as any).internal.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i);
-    doc.setFontSize(8);
-    doc.setTextColor(150);
-    doc.text(
-      `Page ${i} of ${pageCount} · Generated ${new Date().toLocaleString()}`,
-      pageW / 2,
-      doc.internal.pageSize.getHeight() - 12,
-      { align: 'center' },
-    );
-  }
-
-  doc.save(`funti3rpay-analytics-${timestamp()}.pdf`);
+  finishBranded(doc, logo, 'Analytics Report', new Date().toLocaleDateString(), `funti3rpay-analytics-${timestamp()}.pdf`);
 }
 
 // ── Income statement ──────────────────────────────────────────────────────────
@@ -527,47 +580,33 @@ export interface IncomeStatementData {
  * USD value at the time, so the USD total is labelled as today's value.
  */
 export async function generateIncomeStatement(s: IncomeStatementData) {
-  const { jsPDF, autoTable } = await loadPdf();
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-  const W = doc.internal.pageSize.getWidth();
+  const { doc, autoTable, logo, W, top, margin } = await brandedDoc('portrait');
+  const H = doc.internal.pageSize.getHeight();
   const M = 48;
   const day = (d: Date | string) => new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   const num = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 7 });
-  let y = 48;
+  let y = top - 8;
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(20, 20, 20);
-  doc.text('FUNTI3RPAY', M, y);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(120, 120, 120);
-  doc.text('INCOME STATEMENT', W - M, y, { align: 'right' });
-  y += 10;
-  doc.setDrawColor(210, 210, 210);
-  doc.setLineWidth(0.5);
-  doc.line(M, y, W - M, y);
-  y += 26;
+  if (!s.isMainnet) y = testnetBanner(doc, M, y, W - M * 2, 'STELLAR TEST NETWORK: NOT REAL MONEY. NOT VALID AS PROOF OF INCOME.');
 
-  if (!s.isMainnet) {
-    doc.setFillColor(254, 226, 226);
-    doc.rect(M, y - 14, W - M * 2, 24, 'F');
+  // Who and when, as label/value pairs.
+  const facts: Array<[string, string]> = [
+    ['ACCOUNT', s.workerEmail],
+    ['PERIOD', `${day(s.from)} to ${day(s.to)}`],
+    ['ISSUED', new Date().toLocaleString()],
+  ];
+  const colW = (W - M * 2) / facts.length;
+  facts.forEach(([label, value], i) => {
     doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...BRAND.accent);
+    doc.text(label, M + i * colW, y + 6);
+    doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
-    doc.setTextColor(153, 27, 27);
-    doc.text('STELLAR TEST NETWORK: NOT REAL MONEY. NOT VALID AS PROOF OF INCOME.', W / 2, y + 2, { align: 'center' });
-    y += 30;
-  }
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(30, 30, 30);
-  doc.text(`Account: ${s.workerEmail}`, M, y);
-  y += 15;
-  doc.text(`Period: ${day(s.from)} to ${day(s.to)}`, M, y);
-  y += 15;
-  doc.setTextColor(120, 120, 120);
-  doc.text(`Issued: ${new Date().toLocaleString()}`, M, y);
-  y += 20;
+    doc.setTextColor(...BRAND.ink);
+    doc.text(value, M + i * colW, y + 20, { maxWidth: colW - 10 });
+  });
+  y += 40;
 
   // Totals per currency, then an indicative USD total.
   const totals = new Map<string, number>();
@@ -590,9 +629,10 @@ export async function generateIncomeStatement(s: IncomeStatementData) {
   autoTable(doc, {
     startY: y,
     body: totalRows,
-    styles: { fontSize: 9.5, cellPadding: 5 },
-    columnStyles: { 0: { fontStyle: 'bold', textColor: [80, 80, 80] }, 1: { halign: 'right' } },
-    margin: { left: M, right: M },
+    ...brandTable,
+    styles: { ...brandTable.styles, fontSize: 9.5, cellPadding: 6 },
+    columnStyles: { 0: { fontStyle: 'bold', textColor: BRAND.primary }, 1: { halign: 'right', fontStyle: 'bold' } },
+    margin: margin(M),
   });
   y = (doc as any).lastAutoTable.finalY + 18;
 
@@ -600,21 +640,28 @@ export async function generateIncomeStatement(s: IncomeStatementData) {
     startY: y,
     head: [['Date', 'Paid by', 'Amount', 'Stellar transaction']],
     body: s.payments.map((p) => [day(p.createdAt), p.payer, `${num(p.amount)} ${p.currency}`, p.txHash ?? '—']),
-    styles: { fontSize: 8, cellPadding: 4, overflow: 'linebreak' },
-    headStyles: { fillColor: [245, 245, 245], textColor: [30, 30, 30], fontStyle: 'bold' },
+    ...brandTable,
+    styles: { ...brandTable.styles, fontSize: 8, cellPadding: 4, overflow: 'linebreak' },
     // The hash column must hold 64 Courier characters on one line (~250pt at 6.5pt) so it can be copied whole.
     columnStyles: { 0: { cellWidth: 62 }, 1: { cellWidth: 100 }, 2: { cellWidth: 75 }, 3: { font: 'courier', fontSize: 6.5 } },
-    margin: { left: M, right: M },
+    margin: margin(M),
   });
   y = (doc as any).lastAutoTable.finalY + 20;
+  if (y > H - FOOTER_H - 40) {
+    doc.addPage();
+    y = top;
+  }
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
-  doc.setTextColor(120, 120, 120);
+  doc.setTextColor(...BRAND.muted);
   const note =
     `Each payment settled on the Stellar ${s.isMainnet ? 'public network' : 'test network'}. ` +
     `Verify any line at ${s.explorerUrl}/tx/ followed by its transaction. Amounts are what the account received.`;
   doc.text(doc.splitTextToSize(note, W - M * 2), M, y);
 
-  doc.save(`funti3rpay-income-statement-${s.from.toISOString().slice(0, 10)}-to-${s.to.toISOString().slice(0, 10)}.pdf`);
+  // Local dates: toISOString would name a period starting 1 Jan after 31 Dec east of GMT.
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const file = `funti3rpay-income-statement-${ymd(s.from)}-to-${ymd(s.to)}.pdf`;
+  finishBranded(doc, logo, 'Income Statement', `${day(s.from)} to ${day(s.to)}`, file, M);
 }
