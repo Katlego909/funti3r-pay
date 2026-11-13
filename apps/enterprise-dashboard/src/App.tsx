@@ -57,6 +57,13 @@ const Proof = lazy(() => import('./pages/Proof.js'));
 const HelpCenter = lazy(() => import('./pages/HelpCenter.js'));
 const RecoveryStart = lazy(() => import('./pages/RecoveryStart.js'));
 const RecoveryVerify = lazy(() => import('./pages/RecoveryVerify.js'));
+const NotFound = lazy(() => import('./pages/NotFound.js'));
+
+// Signed-in pages. Signed out, these send the visitor to login (and back afterwards) instead of a 404; signed in as
+// the other role, they go to the dashboard.
+const WORKER_ONLY_PATHS = ['/wallet', '/kyc'];
+const ENTERPRISE_ONLY_PATHS = ['/schedules', '/escrows', '/workers'];
+const APP_PATHS = ['/payments', '/profile', '/settings', '/support', ...WORKER_ONLY_PATHS, ...ENTERPRISE_ONLY_PATHS];
 
 function hasToken(): boolean {
   const storeToken = useAuthStore.getState().accessToken;
@@ -70,10 +77,14 @@ function hasToken(): boolean {
   return false;
 }
 
+function RedirectToLogin() {
+  const location = useLocation();
+  return <Navigate to="/login" state={{ from: location }} replace />;
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.accessToken);
-  const location = useLocation();
-  if (!token) return <Navigate to="/login" state={{ from: location }} replace />;
+  if (!token) return <RedirectToLogin />;
   return <>{children}</>;
 }
 
@@ -461,7 +472,12 @@ function AuthedApp({ role }: { role: string }) {
                 <Route path="/support" element={<ProtectedRoute><Support /></ProtectedRoute>} />
               </>
             )}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            {(isWorker ? ENTERPRISE_ONLY_PATHS : WORKER_ONLY_PATHS).map((p) => (
+              <Route key={p} path={p} element={<Navigate to="/" replace />} />
+            ))}
+            <Route path="/login" element={<Navigate to="/" replace />} />
+            <Route path="/register" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
           </Suspense>
         </main>
@@ -503,7 +519,8 @@ export default function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            {APP_PATHS.map((p) => <Route key={p} path={p} element={<RedirectToLogin />} />)}
+            <Route path="*" element={<NotFound publicNav />} />
           </>
         ) : (
           <Route path="/*" element={<AuthedApp role={role} />} />
