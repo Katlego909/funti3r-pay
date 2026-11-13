@@ -507,3 +507,114 @@ export async function exportAnalyticsPDF(summary: ExportSummary, recentPayments:
   doc.save(`funti3rpay-analytics-${timestamp()}.pdf`);
 }
 
+// ── Income statement ──────────────────────────────────────────────────────────
+
+export interface IncomeStatementData {
+  workerEmail: string;
+  from: Date;
+  to: Date;
+  /** Completed payments received in the period. */
+  payments: Array<{ createdAt: string; payer: string; amount: number; currency: string; txHash?: string | null }>;
+  /** Today's USD value of `amount` of `currency`, null when no rate is known. */
+  toUsdToday: (amount: number, currency: string) => number | null;
+  isMainnet: boolean;
+  explorerUrl: string;
+}
+
+/**
+ * A statement of income received over a period, for a loan, lease or visa application. Every line carries its Stellar
+ * transaction hash, so anyone can check it on the public ledger. Amounts are what arrived; payments do not record their
+ * USD value at the time, so the USD total is labelled as today's value.
+ */
+export async function generateIncomeStatement(s: IncomeStatementData) {
+  const { jsPDF, autoTable } = await loadPdf();
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+  const W = doc.internal.pageSize.getWidth();
+  const M = 48;
+  const day = (d: Date | string) => new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  const num = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 7 });
+  let y = 48;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(20, 20, 20);
+  doc.text('FUNTI3RPAY', M, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(120, 120, 120);
+  doc.text('INCOME STATEMENT', W - M, y, { align: 'right' });
+  y += 10;
+  doc.setDrawColor(210, 210, 210);
+  doc.setLineWidth(0.5);
+  doc.line(M, y, W - M, y);
+  y += 26;
+
+  if (!s.isMainnet) {
+    doc.setFillColor(254, 226, 226);
+    doc.rect(M, y - 14, W - M * 2, 24, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(153, 27, 27);
+    doc.text('STELLAR TEST NETWORK: NOT REAL MONEY. NOT VALID AS PROOF OF INCOME.', W / 2, y + 2, { align: 'center' });
+    y += 30;
+  }
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(30, 30, 30);
+  doc.text(`Account: ${s.workerEmail}`, M, y);
+  y += 15;
+  doc.text(`Period: ${day(s.from)} to ${day(s.to)}`, M, y);
+  y += 15;
+  doc.setTextColor(120, 120, 120);
+  doc.text(`Issued: ${new Date().toLocaleString()}`, M, y);
+  y += 20;
+
+  // Totals per currency, then an indicative USD total.
+  const totals = new Map<string, number>();
+  for (const p of s.payments) totals.set(p.currency, (totals.get(p.currency) ?? 0) + p.amount);
+  let usd = 0;
+  let unpriced = false;
+  for (const [cur, amt] of totals) {
+    const v = s.toUsdToday(amt, cur);
+    if (v === null) unpriced = true;
+    else usd += v;
+  }
+  const totalRows: string[][] = [...totals].map(([cur, amt]) => [`Total received in ${cur}`, `${num(amt)} ${cur}`]);
+  totalRows.push(['Payments received', String(s.payments.length)]);
+  if (totals.size > 0) {
+    totalRows.push([
+      `Approximate value in USD at today's rates${unpriced ? ' (excludes currencies with no rate)' : ''}`,
+      `$${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    ]);
+  }
+  autoTable(doc, {
+    startY: y,
+    body: totalRows,
+    styles: { fontSize: 9.5, cellPadding: 5 },
+    columnStyles: { 0: { fontStyle: 'bold', textColor: [80, 80, 80] }, 1: { halign: 'right' } },
+    margin: { left: M, right: M },
+  });
+  y = (doc as any).lastAutoTable.finalY + 18;
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Date', 'Paid by', 'Amount', 'Stellar transaction']],
+    body: s.payments.map((p) => [day(p.createdAt), p.payer, `${num(p.amount)} ${p.currency}`, p.txHash ?? '—']),
+    styles: { fontSize: 8, cellPadding: 4, overflow: 'linebreak' },
+    headStyles: { fillColor: [245, 245, 245], textColor: [30, 30, 30], fontStyle: 'bold' },
+    // The hash column must hold 64 Courier characters on one line (~250pt at 6.5pt) so it can be copied whole.
+    columnStyles: { 0: { cellWidth: 62 }, 1: { cellWidth: 100 }, 2: { cellWidth: 75 }, 3: { font: 'courier', fontSize: 6.5 } },
+    margin: { left: M, right: M },
+  });
+  y = (doc as any).lastAutoTable.finalY + 20;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 120, 120);
+  const note =
+    `Each payment settled on the Stellar ${s.isMainnet ? 'public network' : 'test network'}. ` +
+    `Verify any line at ${s.explorerUrl}/tx/ followed by its transaction. Amounts are what the account received.`;
+  doc.text(doc.splitTextToSize(note, W - M * 2), M, y);
+
+  doc.save(`funti3rpay-income-statement-${s.from.toISOString().slice(0, 10)}-to-${s.to.toISOString().slice(0, 10)}.pdf`);
+}
