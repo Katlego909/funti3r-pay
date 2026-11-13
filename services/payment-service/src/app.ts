@@ -16,6 +16,7 @@ import escrowsRouter from './routes/escrows.js';
 import cashoutsRouter from './routes/cashouts.js';
 import axios from 'axios';
 import { resolveCompanyContext, resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from './lib/company.js';
+import { recoveryHold } from './lib/recoveryHold.js';
 
 const logger = createLogger('PaymentService');
 const COMPLIANCE_SERVICE_URL = process.env.COMPLIANCE_SERVICE_URL || 'http://localhost:3003';
@@ -470,7 +471,7 @@ export async function executePayout(opts: Parameters<typeof executePayoutInner>[
  *  - USD:    { workerId, amountUsd }             → employer sends USD; the worker
  *            receives their PREFERRED currency, converted at the live FX rate.
  */
-app.post('/payouts', async (req, res, next) => {
+app.post('/payouts', recoveryHold, async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
   if (requesterRole !== 'enterprise' || !requesterId) return res.status(403).json({ error: 'Enterprise role required' });
@@ -707,7 +708,7 @@ export async function runBatchPayout(
  * just per-item. Payments execute sequentially (one Stellar source account →
  * one sequence number), but each item's destination currency is independent.
  */
-app.post('/payouts/batch', async (req, res, next) => {
+app.post('/payouts/batch', recoveryHold, async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
   if (requesterRole !== 'enterprise' || !requesterId) return res.status(403).json({ error: 'Enterprise role required' });

@@ -4,6 +4,7 @@ import { query } from '@funti3r/database';
 import { createLogger } from '@funti3r/shared-utils';
 import { resolveCompanyContextOrSelf, canMoveMoney } from '../lib/company.js';
 import { nextRunDate } from '../lib/scheduling.js';
+import { recoveryHold } from '../lib/recoveryHold.js';
 
 const router: RouterType = Router();
 const logger = createLogger('SchedulesRoute');
@@ -89,7 +90,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 
 // ── POST /schedules ───────────────────────────────────────────────────────────
 
-router.post('/', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/', recoveryHold, async (req: Request, res: Response, next: NextFunction) => {
   const enterpriseId = await requireCompanyWrite(req, res);
   if (!enterpriseId) return;
 
@@ -154,7 +155,7 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
 
 // ── PATCH /schedules/:id ──────────────────────────────────────────────────────
 
-router.patch('/:id', async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id', recoveryHold, async (req: Request, res: Response, next: NextFunction) => {
   const enterpriseId = await requireCompanyWrite(req, res);
   if (!enterpriseId) return;
 

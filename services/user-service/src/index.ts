@@ -1494,6 +1494,8 @@ app.patch('/notifications/:id/read', async (req, res, next) => {
 // ── Account recovery (magic link) ────────────────────────────────────────────
 
 const RECOVERY_TTL_SEC = 15 * 60; // 15 minutes
+// Must match payment-service lib/recoveryHold.ts, which enforces it.
+const RECOVERY_HOLD_MS = 48 * 60 * 60 * 1000;
 
 /**
  * POST /auth/recovery/start
@@ -1565,6 +1567,16 @@ const recoveryVerifyHandler = async (req: express.Request, res: express.Response
     // Single-use: delete immediately
     await deleteKey(`recovery:${tokenHash}`);
 
+    // Recorded before any session exists, so a failed write issues no session. payment-service holds money
+    // movements for RECOVERY_HOLD_MS after this (lib/recoveryHold.ts); the same 48h is reported to the user here.
+    const recovered = await query<{ recovered_at: Date }>(
+      'UPDATE users SET recovered_at = NOW() WHERE id = $1 RETURNING recovered_at',
+      [session.userId],
+    );
+    const recoveredAt = recovered.rows[0]?.recovered_at;
+    if (!recoveredAt) return res.status(410).json({ error: 'Link has expired or already been used' });
+    const moneyHeldUntil = new Date(new Date(recoveredAt).getTime() + RECOVERY_HOLD_MS).toISOString();
+
     const companyId = await resolveActiveCompanyId(session.userId);
     const accessToken = generateToken(session.userId, session.email, session.role, companyId ?? undefined);
     const refreshToken = randomBytes(64).toString('hex');
@@ -1583,6 +1595,7 @@ const recoveryVerifyHandler = async (req: express.Request, res: express.Response
       email: session.email,
       role: session.role,
       companyId,
+      moneyHeldUntil,
     });
   } catch (err) {
     next(err);

@@ -3,6 +3,7 @@ import type { Router as RouterType } from 'express';
 import { query } from '@funti3r/database';
 import { createLogger, decryptFromString, ExternalServiceError, parseBody } from '@funti3r/shared-utils';
 import { audit } from '../lib/audit.js';
+import { recoveryHold } from '../lib/recoveryHold.js';
 import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from '../lib/company.js';
 import * as escrow from '../lib/escrow.js';
 import { recordEscrowPaymentSafely } from '../lib/escrowAccounting.js';
@@ -182,7 +183,7 @@ async function finalizeEscrowStatus(escrowId: string): Promise<void> {
 
 // ── POST /escrows — create + fund on-chain ────────────────────────────────────
 
-router.post('/', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/', recoveryHold, async (req: Request, res: Response, next: NextFunction) => {
   const ctx = await requireCompanyWrite(req, res);
   if (!ctx) return;
 
@@ -270,7 +271,7 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
 
 // ── POST /escrows/:id/milestones/:idx/approve ─────────────────────────────────
 
-router.post('/:id/milestones/:idx/approve', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/milestones/:idx/approve', recoveryHold, async (req: Request, res: Response, next: NextFunction) => {
   const ctx = await requireCompanyWrite(req, res);
   if (!ctx) return;
   const { id } = req.params;

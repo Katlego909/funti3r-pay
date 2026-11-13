@@ -17,6 +17,7 @@ export default function RecoveryVerify() {
   const [stage, setStage] = useState<Stage>('verifying');
   const [enrolling, setEnrolling] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [moneyHeldUntil, setMoneyHeldUntil] = useState('');
 
   useEffect(() => {
     const token = searchParams.get('token');
@@ -27,7 +28,10 @@ export default function RecoveryVerify() {
     }
 
     verifyRecoveryToken(token)
-      .then(() => setStage('enroll'))
+      .then((session) => {
+        setMoneyHeldUntil(session.moneyHeldUntil);
+        setStage('enroll');
+      })
       .catch((err) => {
         const msg = apiErrorMessage(err, 'This link has expired or already been used.');
         setErrorMsg(msg);
@@ -93,6 +97,13 @@ export default function RecoveryVerify() {
             <p className="auth-subtitle">
               Register your passkey on this device so you can sign in with your fingerprint next time — no link needed.
             </p>
+            {moneyHeldUntil && (
+              <p className="auth-subtitle" role="note">
+                For your security, sending and cashing out money is paused until{' '}
+                <strong>{new Date(moneyHeldUntil).toLocaleString()}</strong>. You can still view your account and receive
+                payments.
+              </p>
+            )}
 
             <div className="auth-form">
               <button

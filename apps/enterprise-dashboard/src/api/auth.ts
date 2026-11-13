@@ -102,20 +102,18 @@ export async function requestRecoveryLink(email: string): Promise<void> {
   await api.post(`${base}/recovery/start`, { email });
 }
 
-export async function verifyRecoveryToken(token: string): Promise<{
+interface RecoverySession {
   accessToken: string;
   userId: string;
   email: string;
   role: string;
   companyId?: string | null;
-}> {
-  const { data } = await api.post<{
-    accessToken: string;
-    userId: string;
-    email: string;
-    role: string;
-    companyId?: string | null;
-  }>(`${base}/recovery/verify`, { token });
+  /** End of the 48h pause on sending and cashing out money that follows an email recovery. */
+  moneyHeldUntil: string;
+}
+
+export async function verifyRecoveryToken(token: string): Promise<RecoverySession> {
+  const { data } = await api.post<RecoverySession>(`${base}/recovery/verify`, { token });
 
   useAuthStore.getState().setSession(
     { userId: data.userId, email: data.email, role: data.role, companyId: data.companyId ?? undefined },
