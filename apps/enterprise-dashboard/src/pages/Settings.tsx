@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { isAxiosError } from 'axios';
 import { Helmet } from 'react-helmet-async';
 import { toast } from 'sonner';
 import { useAuthStore } from '../store/authStore.js';
@@ -12,10 +14,14 @@ import {
   HiOutlineCheckCircle,
   HiOutlineUserGroup,
   HiOutlineTrash,
+  HiOutlineArrowDownTray,
 } from 'react-icons/hi2';
 import ConfirmDialog from '../components/ConfirmDialog.js';
 import InviteLinkModal from '../components/InviteLinkModal.js';
 import { apiErrorMessage } from '../api/errors.js';
+import { collectMyData, getClosureBlockers, closeAccount } from '../api/account.js';
+import { logout } from '../api/auth.js';
+import { exportJSON } from '../utils/export.js';
 
 const card: React.CSSProperties = {
   background: '#fff',
@@ -484,6 +490,138 @@ export default function Settings() {
           {saving ? 'Saving…' : 'Save changes'}
         </button>
       </div>
+
+      <div style={{ marginTop: '24px' }}>
+        <YourData />
+      </div>
+    </div>
+  );
+}
+
+/** "Download my data" and "Close account": the data-protection rights every user has over their own account. */
+function YourData() {
+  const user = useAuthStore((s) => s.user);
+  const navigate = useNavigate();
+  const [exporting, setExporting] = useState(false);
+  const [blockers, setBlockers] = useState<string[] | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [confirmEmail, setConfirmEmail] = useState('');
+  const [closing, setClosing] = useState(false);
+
+  if (!user) return null;
+  const signedIn = user;
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const data = await collectMyData(signedIn.userId, signedIn.role);
+      exportJSON(data, `funti3rpay-my-data-${new Date().toISOString().slice(0, 10)}.json`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not gather your data. Try again.'));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function startClose() {
+    setChecking(true);
+    try {
+      setBlockers(await getClosureBlockers());
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not check whether this account can be closed.'));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function handleClose() {
+    setClosing(true);
+    try {
+      await closeAccount(confirmEmail);
+      await logout();
+      toast.success('Your account is closed.');
+      navigate('/', { replace: true });
+    } catch (err) {
+      const serverBlockers = isAxiosError(err) ? (err.response?.data as { blockers?: string[] } | undefined)?.blockers : undefined;
+      if (serverBlockers?.length) setBlockers(serverBlockers);
+      else toast.error(apiErrorMessage(err, 'Could not close the account.'));
+    } finally {
+      setClosing(false);
+    }
+  }
+
+  const emailMatches = confirmEmail.trim().toLowerCase() === signedIn.email.toLowerCase();
+
+  return (
+    <div style={card}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+        <HiOutlineArrowDownTray size={18} style={{ color: 'var(--primary)' }} />
+        <div style={sectionTitle}>Your data</div>
+      </div>
+      <p style={sectionDesc}>Download what we hold about you, or close your account</p>
+
+      <button className="btn btn-secondary" onClick={handleExport} disabled={exporting}>
+        {exporting ? 'Gathering…' : 'Download my data'}
+      </button>
+      <p style={{ fontSize: '13px', color: 'var(--gray-600)', marginTop: '8px' }}>
+        A JSON file with your profile, KYC submission, payments, escrows and cash-outs.
+      </p>
+
+      <hr style={divider} />
+
+      <div style={{ fontWeight: 700, color: 'var(--gray-900)', marginBottom: '6px' }}>Close account</div>
+      <p style={{ fontSize: '13px', color: 'var(--gray-600)', marginBottom: '12px', lineHeight: 1.6 }}>
+        Closing deletes your name, contact details, KYC submission and passkeys, and destroys your wallet's key, so it
+        cannot be undone. The law requires us to keep records of payments and compliance checks for 5 years; those stay,
+        no longer linked to your details.
+      </p>
+
+      {blockers === null && (
+        <button className="btn btn-secondary" onClick={startClose} disabled={checking}>
+          {checking ? 'Checking…' : 'Close my account'}
+        </button>
+      )}
+
+      {blockers !== null && blockers.length > 0 && (
+        <div role="alert" style={{ background: 'rgba(220,38,38,0.06)', borderRadius: '10px', padding: '14px 16px' }}>
+          <div style={{ fontWeight: 700, color: 'var(--danger)', marginBottom: '6px' }}>Not yet — first:</div>
+          <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '13px', color: 'var(--gray-700)', lineHeight: 1.7 }}>
+            {blockers.map((b) => <li key={b}>{b}</li>)}
+          </ul>
+          <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={startClose} disabled={checking}>
+            {checking ? 'Checking…' : 'Check again'}
+          </button>
+        </div>
+      )}
+
+      {blockers !== null && blockers.length === 0 && (
+        <div>
+          <label htmlFor="close-confirm" style={labelStyle}>Type {signedIn.email} to confirm</label>
+          <input
+            id="close-confirm"
+            style={{ ...field, maxWidth: '360px' }}
+            value={confirmEmail}
+            onChange={(e) => setConfirmEmail(e.target.value)}
+            autoComplete="off"
+          />
+          <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+            <button
+              onClick={handleClose}
+              disabled={!emailMatches || closing}
+              style={{
+                padding: '10px 18px', borderRadius: '10px', border: 'none', fontWeight: 700, fontFamily: 'inherit',
+                background: emailMatches && !closing ? 'var(--danger)' : 'var(--gray-300)', color: '#fff',
+                cursor: emailMatches && !closing ? 'pointer' : 'not-allowed',
+              }}
+            >
+              {closing ? 'Closing…' : 'Close account permanently'}
+            </button>
+            <button className="btn btn-secondary" onClick={() => { setBlockers(null); setConfirmEmail(''); }} disabled={closing}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -30,6 +30,10 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+export function exportJSON(value: unknown, filename: string) {
+  downloadBlob(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }), filename);
+}
+
 export function exportCSV(headers: string[], rows: unknown[][], filename: string) {
   const lines = [headers, ...rows].map((r) => r.map(escapeCell).join(',')).join('\r\n');
   downloadBlob(new Blob([lines], { type: 'text/csv;charset=utf-8;' }), filename);
@@ -502,3 +506,4 @@ export async function exportAnalyticsPDF(summary: ExportSummary, recentPayments:
 
   doc.save(`funti3rpay-analytics-${timestamp()}.pdf`);
 }
+

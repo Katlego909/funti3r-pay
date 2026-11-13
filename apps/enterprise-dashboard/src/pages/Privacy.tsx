@@ -126,11 +126,11 @@ const sections = [
         <p>Depending on your jurisdiction, you may have the following rights regarding your personal data:</p>
         <ul style={{ paddingLeft: '20px', margin: '10px 0 0' }}>
           {[
-            'Right to access: request a copy of the personal data we hold about you',
+            'Right to access: download a copy of the personal data we hold about you from Settings → Your data, or ask us',
             'Right to rectification: request correction of inaccurate or incomplete data',
-            'Right to erasure: request deletion of your data (subject to legal retention requirements)',
+            'Right to erasure: close your account from Settings → Your data, which deletes your name, contact details, KYC submission and passkeys; payment and compliance records we must keep by law are retained without those details',
             'Right to restrict processing: request that we limit how we use your data',
-            'Right to data portability: receive your data in a machine-readable format',
+            'Right to data portability: the Settings download is a machine-readable JSON file',
             'Right to object: object to processing based on legitimate interests',
             'Right to withdraw consent: at any time, where processing is based on consent',
             'Right to lodge a complaint: with your national data protection authority',

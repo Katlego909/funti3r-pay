@@ -110,6 +110,29 @@ export async function spendableXlm(publicKey: string): Promise<number> {
 }
 
 /**
+ * What the account's owner would lose if its key were destroyed: every asset other than XLM with a balance, plus
+ * spendable XLM on mainnet. Testnet XLM is Friendbot's grant, not the owner's money, so it does not count there.
+ * Read live from Horizon. An account that was never funded holds nothing.
+ */
+export async function balancesHeld(publicKey: string): Promise<Array<{ asset: string; amount: number }>> {
+  let account: any;
+  try {
+    account = await horizon.loadAccount(publicKey);
+  } catch (err: any) {
+    if (err?.response?.status === 404) return [];
+    throw err;
+  }
+  const held = (account.balances as Horizon.HorizonApi.BalanceLine[])
+    .filter((b) => b.asset_type !== 'native' && b.asset_type !== 'liquidity_pool_shares' && Number(b.balance) > 0)
+    .map((b) => ({ asset: (b as Horizon.HorizonApi.BalanceLineAsset).asset_code, amount: Number(b.balance) }));
+  if (stellarNetwork().isMainnet) {
+    const xlm = await spendableXlm(publicKey);
+    if (xlm > 0) held.unshift({ asset: 'XLM', amount: xlm });
+  }
+  return held;
+}
+
+/**
  * Stellar accepts one transaction per account at a time: each carries the account's next sequence number, so two
  * submitted at once (two admins paying, the scheduler plus a manual send) collide and one fails with tx_bad_seq.
  * Every submission from a given source account therefore runs under a cluster-wide lock named after it, and loads

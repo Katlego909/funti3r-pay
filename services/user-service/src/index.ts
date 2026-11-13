@@ -25,10 +25,15 @@ import {
   assertInternalAuthConfigured,
   assertJwtConfigured,
   stellarNetwork,
+  IDENTITY_HEADERS,
+  stampIdentity,
+  forwardedHeaders,
+  getLogContext,
 } from '@funti3r/shared-utils';
 import { sendRecoveryEmail } from './lib/email.js';
 import { hasSessionFor } from './lib/sessionAuth.js';
 import { decoyCredentialId } from './lib/loginDecoy.js';
+import { closeAccount, closureBlockers, type ClosureDeps } from './lib/accountClosure.js';
 import { metrics } from './metrics.js';
 import { initPostgres, runInitialMigrations, initRedis, getRedis, query, transaction, setJSON, getJSON, deleteKey } from '@funti3r/database';
 import { UserRole } from '@funti3r/shared-types';
@@ -771,6 +776,13 @@ const refreshHandler = async (req: express.Request, res: express.Response, next:
     );
     if (!session) throw new AuthenticationError('Refresh token expired or invalid');
 
+    // A closed account keeps no sessions: other devices lose access at their next refresh (access tokens last 15m).
+    const owner = (await query('SELECT status FROM users WHERE id = $1', [session.userId])).rows[0];
+    if (!owner || owner.status === 'closed') {
+      await deleteKey(`refresh:${hashRefreshToken(token)}`);
+      throw new AuthenticationError('This account is closed');
+    }
+
     const accessToken = generateToken(session.userId, session.email, session.role, session.companyId ?? undefined);
 
     // Rotate refresh token
@@ -1033,6 +1045,105 @@ const patchMeHandler = async (req: express.Request, res: express.Response, next:
 };
 app.patch('/users/me', patchMeHandler);
 app.patch('/api/users/me', patchMeHandler);
+
+/**
+ * GET /users/me/export — the personal data user-service holds about the caller, for "Download my data" (POPIA s23 /
+ * NDPA access right). The dashboard adds KYC, payments, escrows and cash-outs from their own services. Never includes
+ * the wallet's secret key or a passkey's public key material.
+ */
+app.get('/users/me/export', async (req, res, next) => {
+  const userId = req.headers['x-user-id'] as string | undefined;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    const [profile, company, memberships, passkeys, notifications] = await Promise.all([
+      query(
+        `SELECT id, email, role, status, first_name, last_name, phone, country, preferred_currency,
+                stellar_public_key, kyc_status, recovered_at, created_at, updated_at
+           FROM users WHERE id = $1`,
+        [userId],
+      ),
+      query('SELECT company_name, company_registration, country, created_at FROM enterprises WHERE user_id = $1', [userId]),
+      query(
+        `SELECT e.company_name, m.company_role, m.status, m.created_at
+           FROM enterprise_members m JOIN enterprises e ON e.id = m.enterprise_id WHERE m.user_id = $1`,
+        [userId],
+      ),
+      query('SELECT origin, transports, created_at FROM user_credentials WHERE user_id = $1', [userId]),
+      query('SELECT type, title, body, read_at, created_at FROM notifications WHERE user_id = $1 ORDER BY created_at DESC', [userId]),
+    ]);
+    if (!profile.rows[0]) throw new NotFoundError('User');
+    res.json({
+      profile: profile.rows[0],
+      company: company.rows[0] ?? null,
+      memberships: memberships.rows,
+      passkeys: passkeys.rows,
+      notifications: notifications.rows,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Account closure (lib/accountClosure.ts) ───────────────────────────────────
+
+const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3002';
+
+function closureDeps(req: express.Request): ClosureDeps {
+  return {
+    query,
+    transaction: (fn) => transaction((client) => fn({ query: (sql, params) => client.query(sql, params as unknown[]) })),
+    // Asks as the caller: their gateway-verified identity is re-signed for payment-service, which trusts nothing else.
+    paymentBlockers: async () => {
+      const headers: Record<string, string> = {};
+      for (const h of IDENTITY_HEADERS) {
+        const v = req.headers[h];
+        if (typeof v === 'string') headers[h] = v;
+      }
+      stampIdentity(headers);
+      const r = await fetch(`${PAYMENT_SERVICE_URL}/wallets/me/closure-check`, {
+        headers: { ...headers, ...forwardedHeaders() },
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!r.ok) throw new Error(`payment-service closure check returned ${r.status}`);
+      return ((await r.json()) as { blockers: string[] }).blockers;
+    },
+  };
+}
+
+/** GET /users/me/closure — what still stops the caller closing their account. */
+app.get('/users/me/closure', async (req, res, next) => {
+  const userId = req.headers['x-user-id'] as string | undefined;
+  if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    res.json({ blockers: await closureBlockers(userId, closureDeps(req)) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /users/me/close  Body: { confirmEmail }
+ * Closes the caller's account for good. The email must be typed back, so a stray click or forged request cannot do it.
+ * 409 with the blockers when something would be lost; the client signs out after a 200.
+ */
+app.post('/users/me/close', async (req, res, next) => {
+  const userId = req.headers['x-user-id'] as string | undefined;
+  const role = req.headers['x-user-role'] as string | undefined;
+  if (!userId || !role) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    const user = (await query('SELECT email FROM users WHERE id = $1', [userId])).rows[0];
+    if (!user) throw new NotFoundError('User');
+    const confirm = String((req.body as { confirmEmail?: unknown })?.confirmEmail ?? '').trim().toLowerCase();
+    if (confirm !== String(user.email).toLowerCase()) throw new ValidationError('Type your account email to confirm');
+
+    const result = await closeAccount(userId, role, getLogContext()?.requestId, closureDeps(req));
+    if (!result.closed) return res.status(409).json({ error: 'This account cannot be closed yet', blockers: result.blockers });
+    logger.info('Account closed', { userId });
+    res.json({ closed: true });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
