@@ -1,18 +1,20 @@
 import { Helmet } from 'react-helmet-async';
 import LegalLayout from '../components/LegalLayout.js';
 
-const UPDATED = 'July 2, 2026';
+const UPDATED = 'November 13, 2026';
 
 const sections = [
   {
     heading: 'Our Commitment',
     content: (
       <p>
-        Funti3r Technologies is committed to the highest standards of Anti-Money Laundering (AML), Counter-Financing of
-        Terrorism (CFT), and sanctions compliance. We recognise that cross-border payment platforms carry elevated risks
-        of financial crime, and we take active measures to prevent the misuse of our Service. Our compliance programme
-        is designed to meet the requirements of South Africa's Financial Intelligence Centre Act (FICA), the Financial
-        Action Task Force (FATF) recommendations, and equivalent regulations in all jurisdictions where we operate.
+        Funti3r Technologies is committed to Anti-Money Laundering (AML), Counter-Financing of Terrorism (CFT) and
+        sanctions compliance. We recognise that cross-border payment platforms carry elevated risks of financial crime,
+        and we build controls against misuse into the Service itself. Funti3rPay currently runs on the Stellar test
+        network and does not move real money. Before we handle real funds we will operate through a licensed partner,
+        under South Africa's Financial Intelligence Centre Act (FICA), the Financial Action Task Force (FATF)
+        recommendations and the rules of each country we serve. This page describes the controls that exist today and
+        says plainly where a control is still planned.
       </p>
     ),
   },
@@ -38,27 +40,25 @@ const sections = [
     ),
   },
   {
-    heading: 'Enhanced Due Diligence',
+    heading: 'Checks Before Money Moves',
     content: (
-      <p>
-        We apply Enhanced Due Diligence (EDD) to accounts presenting elevated risk factors, including: politically
-        exposed persons (PEPs) and their close associates, accounts transacting above defined volume thresholds,
-        businesses operating in high-risk industries or jurisdictions, and accounts that trigger automated risk alerts.
-        EDD may require additional documentation, source-of-funds declarations, senior management approval, and
-        ongoing enhanced monitoring.
-      </p>
-    ),
-  },
-  {
-    heading: 'Transaction Monitoring',
-    content: (
-      <p>
-        All transactions on the Funti3rPay platform are subject to automated and manual monitoring for suspicious
-        patterns. Our systems screen for indicators including: unusual payment volumes or frequencies relative to
-        account history, payments to or from high-risk jurisdictions, structuring (deliberate splitting of transactions
-        to avoid thresholds), and transactions inconsistent with the stated business purpose. Flagged transactions may
-        be delayed, held, or declined pending investigation.
-      </p>
+      <>
+        <p>
+          A worker's KYC approval and sanctions status are checked again, at the moment of the action, before an escrow is
+          created, before a milestone is approved or claimed, before a cash-out, and before a direct or batch payment.
+          A worker who is not cleared cannot be paid, and our escrow contract on Stellar refuses a payout unless a current
+          clearance for that worker is recorded on-chain.
+        </p>
+        <p style={{ marginTop: '12px' }}>
+          Every payment is recorded with its Stellar transaction, and our records are regularly checked against the
+          ledger in both directions.
+        </p>
+        <p style={{ marginTop: '12px' }}>
+          Not yet in place: screening for politically exposed persons (PEPs), enhanced due diligence for higher-risk
+          accounts, and automated monitoring for suspicious patterns such as unusual volumes or structuring. These will be
+          in place, with our licensed partner, before we handle real funds.
+        </p>
+      </>
     ),
   },
   {
@@ -78,11 +78,12 @@ const sections = [
     heading: 'Restricted Jurisdictions',
     content: (
       <p>
-        Funti3rPay does not currently offer services to users in jurisdictions subject to comprehensive international
-        sanctions or those designated as high-risk and non-cooperative by the FATF. This list is reviewed quarterly.
-        Even in non-sanctioned jurisdictions, we may restrict services to specific transaction types or require
-        additional verification depending on the prevailing regulatory environment. Users are responsible for
-        ensuring their use of the Service complies with their local laws.
+        Funti3rPay does not offer, and will not offer, services to users in jurisdictions subject to comprehensive
+        international sanctions or designated as high-risk and non-cooperative by the FATF. The Service does not yet
+        block these jurisdictions automatically; that check will be in place before we handle real funds. We may
+        restrict services to specific transaction types or require additional verification depending on the
+        regulatory environment. Users are responsible for ensuring their use of the Service complies with their local
+        laws.
       </p>
     ),
   },
@@ -91,11 +92,9 @@ const sections = [
     content: (
       <p>
         Where we identify or reasonably suspect money laundering, terrorist financing, or other financial crimes, we
-        are obligated by law to file a Suspicious Activity Report (SAR) or Suspicious Transaction Report (STR) with
-        the relevant Financial Intelligence Unit (FIU) — such as South Africa's Financial Intelligence Centre (FIC).
-        We are legally prohibited from informing ("tipping off") the subject of the report that a report has been
-        filed. Funti3rPay staff and systems are designed to identify red flags and escalate for SAR filing without
-        undue delay.
+        will report it to the relevant Financial Intelligence Unit (FIU), such as South Africa's Financial
+        Intelligence Centre (FIC), through our licensed partner once we handle real funds. The law prohibits informing
+        ("tipping off") the subject of such a report that it has been filed.
       </p>
     ),
   },
@@ -103,10 +102,10 @@ const sections = [
     heading: 'Record Keeping',
     content: (
       <p>
-        We maintain comprehensive records of all customer identification documents, transaction records, monitoring
-        alerts, and compliance decisions for a minimum of 5 years from the date of the last transaction, or such
-        longer period as required by applicable law. Records are stored securely with access restricted to authorised
-        personnel and are available for inspection by regulators upon lawful request.
+        We keep the KYC details customers submit, every KYC and sanctions decision, and every transaction record. Once
+        we handle real funds we will keep these records for at least 5 years from the date of the last transaction, or
+        longer where the law requires. KYC details are encrypted at rest, access is restricted to authorised people,
+        and records are available to regulators on lawful request.
       </p>
     ),
   },
