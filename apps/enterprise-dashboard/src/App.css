@@ -1062,6 +1062,101 @@ h6 {
   color: var(--primary);
 }
 
+/* Income statement popover (components/IncomeStatementButton.tsx) — same surface as the user menu */
+.statement { position: relative; }
+.statement-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  padding: 18px;
+  background: #fff;
+  border: 1px solid var(--gray-100);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.13), 0 2px 8px rgba(0, 0, 0, 0.06);
+  z-index: 300;
+  animation: dropIn 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.statement-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.statement-title { font-size: 0.95rem; font-weight: 800; color: var(--gray-900); }
+.statement-sub { font-size: 0.8rem; color: var(--gray-600); margin-top: 2px; line-height: 1.45; }
+.statement-close {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; flex-shrink: 0;
+  border: none; border-radius: 8px; background: transparent; color: #9ca3af; cursor: pointer;
+}
+.statement-close:hover { background: #f3f4f6; color: #374151; }
+.statement-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.statement-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.statement-dates label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.statement-dates label > span {
+  font-size: 0.7rem; font-weight: 700; color: var(--gray-600);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.statement-date { position: relative; display: flex; align-items: center; }
+.statement-date svg { position: absolute; left: 10px; z-index: 1; color: #9ca3af; pointer-events: none; }
+.statement-dates input {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px 0 32px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #111827;
+  color-scheme: light;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.statement-dates input:hover { border-color: #d1d5db; }
+.statement-dates input:focus-visible { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px rgba(66, 10, 99, 0.12); }
+/* The browser's solid calendar glyph clashes with the outline icon set: hide it, but stretch its click target over
+   the whole field so a click anywhere opens the picker. */
+.statement-dates input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.statement-date:focus-within svg { color: var(--primary); }
+.statement-summary {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #374151;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+.statement-summary.is-error { color: var(--danger); background: rgba(220, 38, 38, 0.06); }
+.statement-download { width: 100%; padding: 11px 18px; }
+.statement-note { font-size: 0.75rem; color: #9ca3af; text-align: center; margin-top: -4px; }
+/* On a phone the button sits at the left edge, so a right-anchored popover would run off screen: show a bottom sheet. */
+@media (max-width: 640px) {
+  .statement-panel {
+    position: fixed;
+    top: auto;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    width: auto;
+    max-width: none;
+    animation: none;
+  }
+}
+
 /* ── Global search ─────────────────────────────────────────────────────────── */
 .topbar-center {
   flex: 1;
