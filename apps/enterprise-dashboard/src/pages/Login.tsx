@@ -1,5 +1,5 @@
 import { useState, FormEvent } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { toast } from 'sonner';
 import { loginPasskey, devLogin } from '../api/auth.js';
@@ -16,6 +16,8 @@ function loginErrorMessage(err: unknown): string {
 
 export default function Login() {
   const navigate = useNavigate();
+  // Set by RedirectToLogin when a signed-out visitor opened an app page; send them back there after sign-in.
+  const returnTo = (useLocation().state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/';
   const setSession = useAuthStore((s) => s.setSession);
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -26,7 +28,7 @@ export default function Login() {
     try {
       const session = await loginPasskey(email);
       setSession({ userId: session.userId, email: session.email, role: session.role, companyId: session.companyId ?? undefined }, session.accessToken);
-      navigate('/');
+      navigate(returnTo);
     } catch (err: unknown) {
       toast.error(loginErrorMessage(err));
     } finally {
@@ -38,7 +40,7 @@ export default function Login() {
     setLoading(true);
     try {
       await devLogin(email);
-      navigate('/');
+      navigate(returnTo);
     } catch (err: any) {
       toast.error(apiErrorMessage(err, 'Dev login failed'));
     } finally {
