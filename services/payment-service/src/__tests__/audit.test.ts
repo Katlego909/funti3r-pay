@@ -24,6 +24,6 @@ describe('audit trail', () => {
 
   it('never throws: money that already moved is not undone because the trail could not be written', async () => {
     vi.mocked(query).mockRejectedValue(new Error('database is down'));
-    await expect(audit({ actorRole: 'worker', action: 'cashout.paid', entityType: 'cashout', entityId: 'c-2' })).resolves.toBeUndefined();
+    await expect(audit({ actorRole: 'worker', action: 'cashout.paid', entityType: 'cashout', entityId: 'c-2' })).resolves.toBe(false);
   });
 });

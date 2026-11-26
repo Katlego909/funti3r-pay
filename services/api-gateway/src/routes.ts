@@ -42,6 +42,24 @@ export function stripApiPrefix(req: express.Request, _res: express.Response, nex
  * Routing uses app.all() + a proxyReq-style http-proxy-middleware so the x-user-* headers set by the auth
  * middleware survive proxying — a plain app.use proxy silently drops them. Mount after stripApiPrefix.
  */
+const READINESS_TIMEOUT_MS = 5000;
+
+/**
+ * Every service's own readiness report (`/health/ready`, from registerHealth), side by side for the admin console. A
+ * service that does not answer is shown as unreachable rather than failing the whole page.
+ */
+async function servicesReadiness(upstreams: Upstreams) {
+  const entries = await Promise.all(Object.entries(upstreams).map(async ([name, url]) => {
+    try {
+      const res = await fetch(`${url}/health/ready`, { signal: AbortSignal.timeout(READINESS_TIMEOUT_MS) });
+      return [name, { httpStatus: res.status, ...(await res.json() as object) }] as const;
+    } catch (err) {
+      return [name, { status: 'unreachable', error: err instanceof Error ? err.message : String(err) }] as const;
+    }
+  }));
+  return Object.fromEntries(entries);
+}
+
 export function mountProxyRoutes(app: express.Express, upstreams: Upstreams): void {
   // Auth & Users → user-service
   app.all('/auth*', proxy(upstreams.user));
@@ -67,6 +85,7 @@ export function mountProxyRoutes(app: express.Express, upstreams: Upstreams): vo
   // depth: a service reached without the gateway still refuses). /admin/compliance strips its prefix, like /compliance,
   // so the compliance service's own routes (flagged queue, approve/reject, sanctions refresh, KYC detail) serve it.
   app.use('/admin', requireRole('admin'));
+  app.get('/admin/health', async (_req, res) => { res.json(await servicesReadiness(upstreams)); });
   app.all(['/admin/search*', '/admin/users*', '/admin/companies*'], proxy(upstreams.user));
   app.all(['/admin/money*', '/admin/payments*', '/admin/escrows*', '/admin/cashouts*', '/admin/ops*', '/admin/audit*'],
     proxy(upstreams.payment));

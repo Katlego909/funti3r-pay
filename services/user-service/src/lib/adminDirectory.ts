@@ -10,7 +10,7 @@ import { escapeLike, isUuid, NotFoundError, ValidationError } from '@funti3r/sha
 interface Rows { rows: any[] }
 export interface AdminDirectoryDeps {
   query: (sql: string, params?: unknown[]) => Promise<Rows>;
-  audit: (entry: AuditEntry) => Promise<void>;
+  audit: (entry: AuditEntry) => Promise<unknown>;
 }
 
 const SEARCH_LIMIT = 20;

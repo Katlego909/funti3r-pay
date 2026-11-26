@@ -19,12 +19,13 @@ export interface AuditEntry {
  * Appends one row to the append-only audit trail (audit_events, migration 025), tagged with the request it happened in.
  * It runs AFTER the action it records, and a failed write never undoes or blocks what already happened: it is logged
  * loudly and reported through `onFailure` (each service counts it as audit_write_failures_total, which has an alert).
+ * Returns whether the row was written, for the rare action that must not happen unrecorded (revealing someone's KYC).
  * `run` is the query function to write with; tests pass their mock.
  */
 export async function audit(
   entry: AuditEntry,
-  opts: { onFailure?: () => void; run?: typeof query } = {},
-): Promise<void> {
+  opts: { onFailure?: () => void; run?: (sql: string, params?: unknown[]) => Promise<unknown> } = {},
+): Promise<boolean> {
   try {
     await (opts.run ?? query)(
       `INSERT INTO audit_events (actor_id, actor_role, action, entity_type, entity_id, detail, request_id)
@@ -34,8 +35,10 @@ export async function audit(
         entry.detail ? JSON.stringify(entry.detail) : null, getLogContext()?.requestId ?? null,
       ],
     );
+    return true;
   } catch (err) {
     opts.onFailure?.();
     logger.error('Failed to write an audit event', { action: entry.action, entityId: entry.entityId, error: String(err) });
+    return false;
   }
 }

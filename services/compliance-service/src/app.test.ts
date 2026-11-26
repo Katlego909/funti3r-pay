@@ -31,6 +31,8 @@ const workers = [{ company: 'A', worker: WORKER_A }, { company: 'B', worker: WOR
 let records: Record<string, any>;
 let events: any[];
 let failAuditWrites = false;
+let audits: any[] = [];
+let failAudit = false;
 
 const query = async (sql: string, params: unknown[] = []): Promise<{ rows: any[] }> => {
   if (/ew\.worker_id = ANY/.test(sql)) {
@@ -77,6 +79,12 @@ const query = async (sql: string, params: unknown[] = []): Promise<{ rows: any[]
   }
   if (/FROM kyc_events/.test(sql)) return { rows: events.filter((e) => e.userId === params[0]) };
   if (/SELECT id, data FROM kyc_records/.test(sql)) return { rows: Object.values(records).filter((r) => r.data) };
+  if (/INSERT INTO audit_events/.test(sql)) {
+    if (failAudit) throw new Error('audit_events write failed');
+    const [actorId, actorRole, action, entityType, entityId, detail] = params as string[];
+    audits.push({ actorId, actorRole, action, entityType, entityId, detail: JSON.parse(detail) });
+    return { rows: [] };
+  }
   if (/UPDATE kyc_records SET data/.test(sql)) {
     const [id, data] = params as string[];
     const r = Object.values(records).find((x) => x.id === id)!;
@@ -108,7 +116,7 @@ const admin = { id: ADMIN, role: 'admin' };
 const submit = (id: string, fullName = 'Thandi Nkosi') =>
   call('POST', '/submit', worker(id), { userId: id, identity: { fullName, idNumber: '8001015009087' }, bankAccount: { accountNumber: '1234567890' } });
 
-const fresh = () => { records = {}; events = []; };
+const fresh = () => { records = {}; events = []; audits = []; failAudit = false; };
 
 test('a submission is stored encrypted, never as readable ID or bank numbers', async () => {
   fresh();
@@ -121,7 +129,7 @@ test('a submission is stored encrypted, never as readable ID or bank numbers', a
 test('the user and their own company read the decrypted record', async () => {
   fresh();
   await submit(WORKER_A);
-  for (const who of [worker(WORKER_A), enterprise(OWNER_A), enterprise(MEMBER_A), admin]) {
+  for (const who of [worker(WORKER_A), enterprise(OWNER_A), enterprise(MEMBER_A)]) {
     const res = await call('GET', `/${WORKER_A}`, who);
     assert.equal(res.status, 200);
     const body = await res.json() as any;
@@ -366,3 +374,46 @@ test('a decision and its audit event commit together: if the trail cannot be wri
     app.close();
   }
 });
+
+// ── Platform admin: masked by default, full record only through an audited reveal ──
+
+test('a platform admin sees identifying numbers masked, everything needed to review in the clear', async () => {
+  fresh();
+  await submit(WORKER_A);
+  const body = await (await call('GET', `/${WORKER_A}`, admin)).json() as any;
+  assert.equal(body.masked, true);
+  assert.equal(body.identity.idNumber, '•••• 9087');
+  assert.equal(body.bankAccount.accountNumber, '•••• 7890');
+  assert.equal(body.identity.fullName, 'Thandi Nkosi');
+  assert.equal(audits.length, 0); // a masked look is not a reveal
+});
+
+test('a reveal needs a platform admin and a reason, and is recorded before anything is shown', async () => {
+  fresh();
+  await submit(WORKER_A);
+  for (const who of [enterprise(OWNER_A), worker(WORKER_A)]) {
+    assert.equal((await call('POST', `/${WORKER_A}/reveal`, who, { reason: 'x' })).status, 403);
+  }
+  assert.equal((await call('POST', `/${WORKER_A}/reveal`, admin, { reason: '  ' })).status, 400);
+  assert.equal(audits.length, 0);
+
+  const res = await call('POST', `/${WORKER_A}/reveal`, admin, { reason: 'Sanctions match: comparing ID numbers' });
+  assert.equal(res.status, 200);
+  const body = await res.json() as any;
+  assert.equal(body.masked, false);
+  assert.equal(body.identity.idNumber, '8001015009087');
+  assert.deepEqual(audits, [{
+    actorId: ADMIN, actorRole: 'admin', action: 'kyc.revealed', entityType: 'user', entityId: WORKER_A,
+    detail: { reason: 'Sanctions match: comparing ID numbers' },
+  }]);
+});
+
+test('when the reveal cannot be recorded, nothing is revealed', async () => {
+  fresh();
+  await submit(WORKER_A);
+  failAudit = true;
+  const res = await call('POST', `/${WORKER_A}/reveal`, admin, { reason: 'checking' });
+  assert.equal(res.status, 503);
+  assert.ok(!JSON.stringify(await res.json()).includes('8001015009087'));
+});
+

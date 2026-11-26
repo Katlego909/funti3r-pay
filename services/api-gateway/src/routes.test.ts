@@ -203,3 +203,26 @@ test('the internal sanctions screen stays unreachable through the admin console 
   assert.equal(r.status, 404);
   assert.deepEqual(r.reached, []);
 });
+
+test('the admin console sees the readiness of every service; one that is down shows as unreachable', async () => {
+  const app = express();
+  app.use((req, _res, next) => { req.headers['x-user-role'] = req.headers['x-test-role'] ?? 'worker'; next(); });
+  mountProxyRoutes(app, { ...urls, analytics: 'http://127.0.0.1:1' });
+  const server = http.createServer(app);
+  const url = await listen(server);
+  try {
+    assert.equal((await fetch(`${url}/admin/health`)).status, 403);
+    for (const name of ['user', 'payment', 'compliance'] as const) seen[name].length = 0;
+    const res = await fetch(`${url}/admin/health`, { headers: { 'x-test-role': 'admin' } });
+    assert.equal(res.status, 200);
+    const body = await res.json() as Record<string, any>;
+    for (const name of ['user', 'payment', 'compliance'] as const) {
+      assert.deepEqual(body[name], { httpStatus: 200, upstream: name });
+      assert.equal(seen[name][0].url, '/health/ready');
+    }
+    assert.equal(body.analytics.status, 'unreachable');
+  } finally {
+    server.close();
+  }
+});
+
