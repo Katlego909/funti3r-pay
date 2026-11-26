@@ -7,7 +7,6 @@ import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker, NOT_ON_TEAM
 import * as escrow from '../lib/escrow.js';
 import { recordEscrowPaymentSafely } from '../lib/escrowAccounting.js';
 import { ensureCleared, screenEmployer } from '../lib/clearance.js';
-import { reconcileEscrows } from '../lib/escrowReconcile.js';
 import { moneygramConfigured } from '../lib/moneygram.js';
 import { requireCompliance, resolveEnterpriseSecret } from '../app.js';
 import { createEscrowBody } from '../lib/schemas.js';
@@ -499,10 +498,18 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response, ne
 // Compliance hold: while frozen the contract blocks approve, claim and refund
 // for this escrow. Admin-only — same role gate as the KYC flagged list.
 
+/** The reason an admin gives for a compliance action on an escrow: required, kept in the audit trail. */
+function adminReason(req: Request): string | null {
+  const reason = (req.body as { reason?: unknown } | undefined)?.reason;
+  return typeof reason === 'string' && reason.trim() ? reason.trim().slice(0, 500) : null;
+}
+
 router.post('/:id/freeze', requireRole('admin'), async (req: Request, res: Response, next: NextFunction) => {
   const { id } = req.params;
   const frozen = (req.body as { frozen?: unknown })?.frozen;
   if (typeof frozen !== 'boolean') return res.status(400).json({ error: 'frozen (boolean) is required' });
+  const reason = adminReason(req);
+  if (!reason) return res.status(400).json({ error: 'A reason is required' });
 
   try {
     const r = await query(`SELECT onchain_escrow_id FROM escrows WHERE id = $1`, [id]);
@@ -511,7 +518,7 @@ router.post('/:id/freeze', requireRole('admin'), async (req: Request, res: Respo
     const hash = await escrow.setFrozen(BigInt(r.rows[0].onchain_escrow_id), frozen);
     await query(`UPDATE escrows SET frozen = $2, updated_at = NOW() WHERE id = $1`, [id, frozen]);
     logger.warn('Escrow freeze changed', { id, frozen, hash, by: req.headers['x-user-id'] });
-    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: (req.headers['x-user-role'] as string | undefined) ?? 'unknown', action: frozen ? 'escrow.frozen' : 'escrow.unfrozen', entityType: 'escrow', entityId: id, detail: { txHash: hash } });
+    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: (req.headers['x-user-role'] as string | undefined) ?? 'unknown', action: frozen ? 'escrow.frozen' : 'escrow.unfrozen', entityType: 'escrow', entityId: id, detail: { reason, txHash: hash } });
     res.json({ frozen, txHash: hash });
   } catch (err) {
     next(err);
@@ -524,6 +531,8 @@ router.post('/:id/freeze', requireRole('admin'), async (req: Request, res: Respo
 
 router.post('/:id/return-frozen', requireRole('admin'), async (req: Request, res: Response, next: NextFunction) => {
   const { id } = req.params;
+  const reason = adminReason(req);
+  if (!reason) return res.status(400).json({ error: 'A reason is required' });
 
   try {
     const r = await query(`SELECT onchain_escrow_id, status, frozen, token_code FROM escrows WHERE id = $1`, [id]);
@@ -541,27 +550,13 @@ router.post('/:id/return-frozen', requireRole('admin'), async (req: Request, res
     await finalizeEscrowStatus(id);
 
     logger.warn('Frozen escrow returned to the enterprise', { id, hash, by: req.headers['x-user-id'] });
-    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'admin', action: 'escrow.returned_frozen', entityType: 'escrow', entityId: id, detail: { returned: fromStroops(returnedStroops), tokenCode: row.token_code, txHash: hash } });
+    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'admin', action: 'escrow.returned_frozen', entityType: 'escrow', entityId: id, detail: { reason, returned: fromStroops(returnedStroops), tokenCode: row.token_code, txHash: hash } });
     res.json({ returned: Number(fromStroops(returnedStroops)), tokenCode: row.token_code, txHash: hash });
   } catch (err) {
     next(err);
   }
 });
 
-// ── POST /escrows/reconcile (admin) ───────────────────────────────────────────
-// Compare every active escrow with the chain and repair the database to match.
-// { "repair": false } is a dry run that only reports the drift.
-
-router.post('/reconcile', requireRole('admin'), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const repair = (req.body as { repair?: unknown } | undefined)?.repair !== false;
-    const report = await reconcileEscrows({ repair });
-    logger.info('Manual escrow reconcile', { by: req.headers['x-user-id'], repair, ...report });
-    res.json({ repair, ...report });
-  } catch (err) {
-    next(err);
-  }
-});
 
 // ── POST /escrows/:id/refund ──────────────────────────────────────────────────
 

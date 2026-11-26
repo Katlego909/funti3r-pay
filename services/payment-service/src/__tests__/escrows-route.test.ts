@@ -322,10 +322,20 @@ describe('POST /escrows/:id/freeze', () => {
     ]));
     vi.mocked(escrow.setFrozen).mockResolvedValue('tx-freeze');
 
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/freeze`).set(adminHeaders).send({ frozen: true });
+    const res = await request(app).post(`/escrows/${ESCROW_ID}/freeze`).set(adminHeaders).send({ frozen: true, reason: 'Sanctions match under review' });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ frozen: true, txHash: 'tx-freeze' });
     expect(escrow.setFrozen).toHaveBeenCalledWith(3n, true);
+    // The reason is kept in the audit trail with the action.
+    const audited = vi.mocked(query).mock.calls.find(([sql]) => /INSERT INTO audit_events/.test(String(sql)));
+    expect(JSON.parse(String((audited?.[1] as unknown[])[5]))).toMatchObject({ reason: 'Sanctions match under review' });
+  });
+
+  it('refuses a freeze with no reason, before anything happens on-chain', async () => {
+    vi.mocked(escrow.setFrozen).mockClear();
+    const res = await request(app).post(`/escrows/${ESCROW_ID}/freeze`).set(adminHeaders).send({ frozen: true, reason: '  ' });
+    expect(res.status).toBe(400);
+    expect(escrow.setFrozen).not.toHaveBeenCalled();
   });
 
   it('400s a non-boolean frozen value', async () => {
@@ -379,7 +389,7 @@ describe('POST /escrows/:id/return-frozen', () => {
 
   it('409s an escrow that is not frozen, without touching the chain', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([frozenRow({ frozen: false })]));
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/return-frozen`).set(adminHeaders).send({});
+    const res = await request(app).post(`/escrows/${ESCROW_ID}/return-frozen`).set(adminHeaders).send({ reason: 'Confirmed sanctions hit' });
     expect(res.status).toBe(409);
     expect(escrow.returnFrozen).not.toHaveBeenCalled();
   });
@@ -388,7 +398,7 @@ describe('POST /escrows/:id/return-frozen', () => {
     vi.mocked(query).mockImplementation(createQueryMock([frozenRow()]));
     vi.mocked(escrow.returnFrozen).mockResolvedValue({ returnedStroops: 3_000_000_000n, hash: 'tx-return' });
 
-    const res = await request(app).post(`/escrows/${ESCROW_ID}/return-frozen`).set(adminHeaders).send({});
+    const res = await request(app).post(`/escrows/${ESCROW_ID}/return-frozen`).set(adminHeaders).send({ reason: 'Confirmed sanctions hit' });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ returned: 300, tokenCode: 'USDC', txHash: 'tx-return' });
     expect(escrow.returnFrozen).toHaveBeenCalledWith(3n);

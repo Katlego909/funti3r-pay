@@ -1,6 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
-import { AppError, createLogger, forwardedHeaders, retryRead, decryptFromString, NotFoundError, ExternalServiceError, errorHandler, requireGatewayIdentity, requestContext, registerHealth, parseBody, stellarNetwork } from '@funti3r/shared-utils';
+import { AppError, createLogger, forwardedHeaders, retryRead, decryptFromString, NotFoundError, ExternalServiceError, errorHandler, requireGatewayIdentity, requireRole, requestContext, registerHealth, parseBody, stellarNetwork } from '@funti3r/shared-utils';
 import { ComplianceBlockedError } from './lib/clearance.js';
 import { metrics, payoutsTotal } from './lib/metrics.js';
 import { audit } from './lib/audit.js';
@@ -19,6 +19,7 @@ import { resolveCompanyContext, resolveCompanyContextOrSelf, canMoveMoney, isCom
 import { closureBlockers } from './lib/accountClosure.js';
 import { activateWorkerAccount } from './lib/workerAccounts.js';
 import { batchVerdict, isMoneyMoved } from './lib/paymentStatus.js';
+import adminRouter from './routes/admin.js';
 
 const logger = createLogger('PaymentService');
 const COMPLIANCE_SERVICE_URL = process.env.COMPLIANCE_SERVICE_URL || 'http://localhost:3003';
@@ -34,6 +35,8 @@ app.get('/metrics', metrics.handler);
 app.use('/schedules', schedulesRouter);
 app.use('/escrows', escrowsRouter);
 app.use('/cashouts', cashoutsRouter);
+// The platform admin console's money routes: admins only (the gateway checks the same role first).
+app.use('/admin', requireRole('admin'), adminRouter);
 
 // ── Health ────────────────────────────────────────────────────────────────────
 

@@ -5,7 +5,7 @@
  * Columns are always named: never SELECT * here, so no secret (custodial keys, password hashes) can leak into a view.
  */
 import type { AuditEntry } from '@funti3r/database';
-import { isUuid, NotFoundError, ValidationError } from '@funti3r/shared-utils';
+import { escapeLike, isUuid, NotFoundError, ValidationError } from '@funti3r/shared-utils';
 
 interface Rows { rows: any[] }
 export interface AdminDirectoryDeps {
@@ -23,7 +23,7 @@ const STELLAR_ADDRESS = /^G[A-Z2-7]{55}$/;
 export async function searchDirectory(q: string, deps: AdminDirectoryDeps) {
   const term = q.trim();
   if (term.length < 2) return { users: [], companies: [] };
-  const like = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const like = `%${escapeLike(term)}%`;
   const byId = isUuid(term);
   const byAddress = STELLAR_ADDRESS.test(term);
 

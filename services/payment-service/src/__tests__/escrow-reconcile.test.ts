@@ -140,29 +140,33 @@ describe('reconcileEscrows', () => {
   });
 });
 
-describe('POST /escrows/reconcile', () => {
+describe('POST /admin/ops/reconcile-escrows', () => {
+  const admin = { 'x-user-id': '55555555-5555-4555-8555-555555555555', 'x-user-role': 'admin' };
+
   it('403s anyone who is not a platform admin', async () => {
-    const res = await request(app).post('/escrows/reconcile').set({ 'x-user-id': ENTERPRISE_ID, 'x-user-role': 'enterprise' });
+    const res = await request(app).post('/admin/ops/reconcile-escrows').set({ 'x-user-id': ENTERPRISE_ID, 'x-user-role': 'enterprise' });
     expect(res.status).toBe(403);
     expect(getEscrow).not.toHaveBeenCalled();
   });
 
-  it('runs a repair by default and returns the report', async () => {
+  it('is a dry run unless a repair is asked for: it reports the drift and writes nothing', async () => {
     mockDb({ milestones: ['approved', 'pending'] });
     getEscrow.mockResolvedValue(chainState({ milestones: ['Claimed', 'Pending'] }));
 
-    const res = await request(app).post('/escrows/reconcile').set({ 'x-user-id': 'admin-1', 'x-user-role': 'admin' });
-    expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ repair: true, checked: 1, repaired: 1 });
-  });
-
-  it('supports a dry run', async () => {
-    mockDb({ milestones: ['approved', 'pending'] });
-    getEscrow.mockResolvedValue(chainState({ milestones: ['Claimed', 'Pending'] }));
-
-    const res = await request(app).post('/escrows/reconcile').set({ 'x-user-id': 'admin-1', 'x-user-role': 'admin' }).send({ repair: false });
+    const res = await request(app).post('/admin/ops/reconcile-escrows').set(admin);
     expect(res.body).toMatchObject({ repair: false, repaired: 0 });
     expect(res.body.drift).toHaveLength(1);
     expect(writes()).toHaveLength(0);
+  });
+
+  it('repairs when asked, and records who did it in the audit trail', async () => {
+    mockDb({ milestones: ['approved', 'pending'] });
+    getEscrow.mockResolvedValue(chainState({ milestones: ['Claimed', 'Pending'] }));
+
+    const res = await request(app).post('/admin/ops/reconcile-escrows').set(admin).send({ repair: true });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ repair: true, checked: 1, repaired: 1 });
+    const audited = vi.mocked(query).mock.calls.find(([sql]) => /INSERT INTO audit_events/.test(String(sql)));
+    expect(audited?.[1]).toEqual(expect.arrayContaining([admin['x-user-id'], 'admin', 'escrow.reconciled']));
   });
 });
