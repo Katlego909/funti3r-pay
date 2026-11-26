@@ -23,11 +23,14 @@ const TIME_BOUND_GRACE_MINUTES = 2;
 /** A pending row that never stored a hash: nothing was signed, and nothing ever will be once the request is gone. */
 const STALE_UNSIGNED_MINUTES = 5;
 
-export interface MilestoneSpec { description?: string; amountXlm: string }
+/** One tranche, in the escrow's token (USDC: dollars), as a decimal string so no precision is lost. */
+export interface MilestoneSpec { description?: string; amount: string }
 
 export interface CreationRequest {
   enterpriseId: string;
   workerId: string;
+  /** The token the escrow locks (its code, e.g. USDC); recorded so the reconciler writes the right currency. */
+  tokenCode: string;
   milestones: MilestoneSpec[];
   expiresAt: Date;
   idempotencyKey?: string;
@@ -43,7 +46,8 @@ export type BeginResult =
 function payloadHash(r: CreationRequest): string {
   return crypto.createHash('sha256').update(JSON.stringify({
     workerId: r.workerId,
-    milestones: r.milestones.map((m) => ({ description: m.description ?? null, amountXlm: m.amountXlm })),
+    tokenCode: r.tokenCode,
+    milestones: r.milestones.map((m) => ({ description: m.description ?? null, amount: m.amount })),
     expiresAt: r.expiresAt.toISOString(),
   })).digest('hex');
 }
@@ -79,10 +83,10 @@ export async function beginEscrowCreation(r: CreationRequest): Promise<BeginResu
   }
   try {
     const ins = await query(
-      `INSERT INTO escrow_creations (enterprise_id, worker_id, contract_address, milestones, expires_at, idempotency_key, payload_hash)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      `INSERT INTO escrow_creations (enterprise_id, worker_id, contract_address, milestones, expires_at, idempotency_key, payload_hash, token_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
       [r.enterpriseId, r.workerId, process.env.ESCROW_CONTRACT_ADDRESS, JSON.stringify(r.milestones), r.expiresAt,
-        r.idempotencyKey ?? null, r.idempotencyKey ? hash : null],
+        r.idempotencyKey ?? null, r.idempotencyKey ? hash : null, r.tokenCode],
     );
     return { kind: 'new', creationId: ins.rows[0].id };
   } catch (err: any) {
@@ -114,21 +118,21 @@ export async function completeEscrowCreation(
     const c = (await client.query(`SELECT * FROM escrow_creations WHERE id = $1 FOR UPDATE`, [creationId])).rows[0];
     if (!c) throw new Error(`Escrow creation ${creationId} not found`);
     const milestones = c.milestones as MilestoneSpec[];
-    const total = milestones.reduce((s, m) => s + Number(m.amountXlm), 0);
+    const total = milestones.reduce((s, m) => s + Number(m.amount), 0);
     const count = milestones.length;
-    if (c.status === 'done') return { escrowId: c.escrow_id as string, created: false, workerId: c.worker_id as string, total, count };
+    if (c.status === 'done') return { escrowId: c.escrow_id as string, created: false, workerId: c.worker_id as string, total, count, tokenCode: c.token_code as string };
 
     const ins = await client.query(
       `INSERT INTO escrows (enterprise_id, worker_id, contract_address, onchain_escrow_id,
                             token_code, total_amount, status, expires_at, create_tx_hash)
-       VALUES ($1, $2, $3, $4, 'XLM', $5, 'active', $6, $7)
+       VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8)
        RETURNING id`,
-      [c.enterprise_id, c.worker_id, c.contract_address, onchainEscrowId.toString(), total, c.expires_at, txHash],
+      [c.enterprise_id, c.worker_id, c.contract_address, onchainEscrowId.toString(), c.token_code, total, c.expires_at, txHash],
     );
     const escrowId = ins.rows[0].id as string;
     const values: unknown[] = [];
     const placeholders = milestones.map((m, i) => {
-      values.push(escrowId, i, m.description ?? null, m.amountXlm);
+      values.push(escrowId, i, m.description ?? null, m.amount);
       const base = i * 4;
       return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
     });
@@ -140,12 +144,12 @@ export async function completeEscrowCreation(
       `UPDATE escrow_creations SET status = 'done', escrow_id = $1, tx_hash = $2, updated_at = NOW() WHERE id = $3`,
       [escrowId, txHash, creationId],
     );
-    return { escrowId, created: true, workerId: c.worker_id as string, total, count };
+    return { escrowId, created: true, workerId: c.worker_id as string, total, count, tokenCode: c.token_code as string };
   });
   if (out.created) {
     await notify({
       userId: out.workerId, type: 'escrow_created', title: 'New milestone escrow',
-      body: `Your employer locked ${out.total} XLM across ${out.count} milestone(s) for you.`,
+      body: `Your employer locked ${out.total} ${out.tokenCode} across ${out.count} milestone(s) for you.`,
       entityType: 'escrow', entityId: out.escrowId,
     });
   }

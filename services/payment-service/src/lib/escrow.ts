@@ -24,6 +24,8 @@ import { AppError, createLogger, ExternalServiceError, stellarNetwork } from '@f
 import { withAdvisoryLock } from '@funti3r/database';
 import { forgetBalances } from './balanceCache.js';
 import { SubmitOutcomeUnknownError, type OnSigned } from './stellar.js';
+import { toStroops } from './amounts.js';
+import { getCurrency } from './currencies.js';
 
 const logger = createLogger('EscrowService');
 
@@ -40,19 +42,17 @@ function contractAddress(): string {
   return addr;
 }
 
-/** The Stellar Asset Contract address for native XLM on the current network. */
-export function nativeTokenAddress(): string {
-  return Asset.native().contractId(NETWORK_PASSPHRASE);
+/**
+ * The token new escrows lock: USDC, so a milestone is worth the same dollars when it is claimed as when it was funded.
+ * The contract accepts only allowlisted tokens (`set_token_allowed`); this is the one the platform allows. Escrows
+ * funded earlier in native XLM keep paying out in it: each escrow records its own token.
+ */
+export function escrowToken(): { code: string; issuer: string; address: string } {
+  const usdc = getCurrency('USDC');
+  if (!usdc?.issuer) throw new Error('USDC is not configured: set STELLAR_USDC_ISSUER');
+  return { code: usdc.code, issuer: usdc.issuer, address: new Asset(usdc.code, usdc.issuer).contractId(NETWORK_PASSPHRASE) };
 }
 
-export function xlmToStroops(amountXlm: string | number): bigint {
-  // Fixed-point via string math — no float drift on 7-decimal amounts.
-  const [whole, frac = ''] = String(amountXlm).split('.');
-  if (!/^\d+$/.test(whole) || !/^\d*$/.test(frac) || frac.length > 7) {
-    throw new Error(`Invalid XLM amount: ${amountXlm}`);
-  }
-  return BigInt(whole) * 10_000_000n + BigInt(frac.padEnd(7, '0') || '0');
-}
 
 /** How long the SDK's pollTransaction waits for a verdict: 30 checks, 2s apart, the 60s time bound the tx carries. */
 const POLL = { attempts: 30, sleepStrategy: () => 2000 };
@@ -312,7 +312,8 @@ export interface OnchainEscrow {
 export async function createEscrow(
   enterpriseSecret: string,
   workerPublic: string,
-  amountsXlm: Array<string | number>,
+  tokenAddress: string,
+  amounts: Array<string | number>,
   expiryUnix: number,
   onSigned?: OnSigned,
 ): Promise<{ escrowId: bigint; hash: string }> {
@@ -320,8 +321,8 @@ export async function createEscrow(
   const { hash, returnValue } = await invoke(enterpriseSecret, 'create', [
     nativeToScVal(new Address(enterprise), { type: 'address' }),
     nativeToScVal(new Address(workerPublic), { type: 'address' }),
-    nativeToScVal(new Address(nativeTokenAddress()), { type: 'address' }),
-    nativeToScVal(amountsXlm.map(xlmToStroops), { type: 'i128' }),
+    nativeToScVal(new Address(tokenAddress), { type: 'address' }),
+    nativeToScVal(amounts.map(toStroops), { type: 'i128' }),
     nativeToScVal(BigInt(expiryUnix), { type: 'u64' }),
   ], onSigned);
   return { escrowId: returnValue as bigint, hash };

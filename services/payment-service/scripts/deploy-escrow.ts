@@ -24,6 +24,7 @@ import {
   rpc,
 } from '@stellar/stellar-sdk';
 import { stellarNetwork } from '@funti3r/shared-utils';
+import { escrowToken } from '../src/lib/escrow.js';
 import { readFileSync } from 'fs';
 import { randomBytes } from 'crypto';
 import { fileURLToPath } from 'url';
@@ -106,11 +107,21 @@ async function main() {
   }
   const contractAddress = Address.fromScVal(create.returnValue!).toString();
 
+  // A fresh contract accepts no token until the admin allows one: allow the platform's escrow token (USDC).
+  const token = escrowToken();
+  const allow = await buildAndSubmit(keypair, Operation.invokeContractFunction({
+    contract: contractAddress,
+    function: 'set_token_allowed',
+    args: [nativeToScVal(new Address(token.address), { type: 'address' }), nativeToScVal(true, { type: 'bool' })],
+  }));
+  if (allow.status !== rpc.Api.GetTransactionStatus.SUCCESS) throw new Error(`Allowing ${token.code} failed: ${allow.status}`);
+
   console.log('\n── Escrow contract deployed ──────────────────────────────');
   console.log(`Contract address : ${contractAddress}`);
   console.log(`Admin            : ${keypair.publicKey()}`);
   console.log(`Compliance       : ${compliancePublic}`);
   console.log(`Deploy tx        : ${create.txHash}`);
+  console.log(`Allowed token    : ${token.code} ${token.address} (tx ${allow.txHash})`);
   console.log(`Explorer         : ${NETWORK.explorerUrl}/contract/${contractAddress}`);
   console.log('\nAdd to .env.local:');
   console.log(`ESCROW_CONTRACT_ADDRESS=${contractAddress}`);

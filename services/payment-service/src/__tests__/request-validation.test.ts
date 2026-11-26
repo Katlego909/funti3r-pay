@@ -37,9 +37,9 @@ describe('request bodies are checked before any handler or database sees them', 
 
   it('POST /escrows: too many milestones, a bad worker id or a missing expiry are refused', async () => {
     const expiresAt = new Date(Date.now() + 86_400_000).toISOString();
-    const many = Array.from({ length: 51 }, () => ({ amountXlm: 1 }));
+    const many = Array.from({ length: 51 }, () => ({ amount: 1 }));
     expect((await request(app).post('/escrows').set(enterprise).send({ workerId: WORKER_ID, milestones: many, expiresAt })).status).toBe(400);
-    expect((await request(app).post('/escrows').set(enterprise).send({ workerId: 'x', milestones: [{ amountXlm: 1 }], expiresAt })).status).toBe(400);
-    expect((await request(app).post('/escrows').set(enterprise).send({ workerId: WORKER_ID, milestones: [{ amountXlm: 1 }] })).status).toBe(400);
+    expect((await request(app).post('/escrows').set(enterprise).send({ workerId: 'x', milestones: [{ amount: 1 }], expiresAt })).status).toBe(400);
+    expect((await request(app).post('/escrows').set(enterprise).send({ workerId: WORKER_ID, milestones: [{ amount: 1 }] })).status).toBe(400);
   });
 });

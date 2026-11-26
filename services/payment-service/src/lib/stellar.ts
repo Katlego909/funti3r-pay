@@ -11,6 +11,7 @@ import {
 import { AppError, createLogger, ExternalServiceError, stellarNetwork } from '@funti3r/shared-utils';
 import { getJSON, setJSON, withAdvisoryLock } from '@funti3r/database';
 import { accountsTouchedBy, balanceCacheKey, forgetBalances } from './balanceCache.js';
+import { fromStroops, toStroops } from './amounts.js';
 
 const logger = createLogger('StellarService');
 
@@ -90,6 +91,35 @@ export async function getAccountBalance(
   const account = await horizon.loadAccount(publicKey);
   await setJSON(cacheKey, account.balances, BALANCE_CACHE_TTL_SECONDS).catch(() => {});
   return account.balances;
+}
+
+/** How much of an issued asset the account can spend: its balance less what open DEX offers have reserved. */
+export async function spendableAsset(publicKey: string, code: string, issuer: string): Promise<bigint> {
+  const account = await horizon.loadAccount(publicKey);
+  const line = account.balances.find(
+    (b): b is Horizon.HorizonApi.BalanceLineAsset => 'asset_code' in b && b.asset_code === code && b.asset_issuer === issuer,
+  );
+  if (!line) return 0n;
+  const spendable = toStroops(line.balance) - toStroops(line.selling_liabilities);
+  return spendable > 0n ? spendable : 0n;
+}
+
+/**
+ * Makes sure the account can spend at least `amount` of an issued asset: opens the trustline if missing, then buys any
+ * shortfall with the account's XLM through the DEX (a strict-receive path payment to itself, at most `slippage` above
+ * the quoted price). Returns the XLM spent, or null when the balance already covered it. Read live, not cached: it
+ * gates a payment.
+ */
+export async function ensureAssetBalance(
+  secret: string, code: string, issuer: string, amount: string, slippage = 0.05,
+): Promise<{ spentXlm: string | null }> {
+  await ensureTrustline(secret, code, issuer);
+  const pub = Keypair.fromSecret(secret).publicKey();
+  const shortfall = toStroops(amount) - (await spendableAsset(pub, code, issuer));
+  if (shortfall <= 0n) return { spentXlm: null };
+  const { sourceAmountXlm } = await payExactWithXlm(secret, pub, code, issuer, fromStroops(shortfall), slippage);
+  logger.info('Bought the shortfall with XLM', { account: pub, code, amount: fromStroops(shortfall), spentXlm: sourceAmountXlm });
+  return { spentXlm: sourceAmountXlm };
 }
 
 /** Network fee headroom kept back so a cash-out never leaves the account unable to pay its next fee. */

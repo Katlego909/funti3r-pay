@@ -4,7 +4,7 @@ import { HiOutlineLockClosed, HiOutlineArrowTopRightOnSquare } from 'react-icons
 import { toast } from 'sonner';
 import { api } from '../api/client.js';
 import { listEscrows, createEscrow, approveMilestone, refundEscrow, type Escrow, type CreateEscrowPayload } from '../api/escrows.js';
-import { getXlmPrice, isFinalPayoutError } from '../api/payments.js';
+import { isFinalPayoutError } from '../api/payments.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import EscrowMoneyTrail from '../components/EscrowMoneyTrail.js';
 import PageHeader from '../components/PageHeader.js';
@@ -77,7 +77,7 @@ function EscrowDetailDrawer({
           padding: '16px', marginBottom: '8px', textAlign: 'center',
         }}>
           <div style={{ fontSize: '1.9rem', fontWeight: 800 }}>
-            {dc.format(current.totalXlm, 'XLM')}
+            {dc.format(current.total, current.tokenCode)}
           </div>
           <div style={{ color: '#6b7280', fontSize: '0.85rem', marginTop: '2px' }}>{current.workerEmail}</div>
           <StatusBadge variant={ESCROW_BADGE[current.status][0]} style={{ marginTop: '10px', display: 'inline-block' }}>
@@ -114,7 +114,7 @@ function EscrowDetailDrawer({
                 return (
                   <tr key={m.idx}>
                     <td data-label="Milestone" style={{ fontWeight: 600 }}>{m.description || `Milestone ${m.idx + 1}`}</td>
-                    <td data-label="Amount">{dc.format(m.amountXlm, 'XLM')}</td>
+                    <td data-label="Amount">{dc.format(m.amount, current.tokenCode)}</td>
                     <td data-label="Status"><StatusBadge variant={variant}>{label}</StatusBadge></td>
                     <td data-label="" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {m.status === 'pending' && current.status === 'active' && (
@@ -178,7 +178,6 @@ export default function Escrows() {
   const [escrows, setEscrows] = useState<Escrow[]>([]);
   const [loading, setLoading] = useState(true);
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
-  const [xlmUsd, setXlmUsd] = useState(0);
 
   // Create form
   const [formOpen, setFormOpen] = useState(false);
@@ -212,12 +211,10 @@ export default function Escrows() {
     api.get<{ users?: WorkerOption[]; data?: WorkerOption[] }>('/users?role=worker&limit=50')
       .then((res) => setWorkers(res.data.users ?? res.data.data ?? []))
       .catch((err) => toast.error(apiErrorMessage(err, 'Failed to load your workers')));
-    getXlmPrice().then(setXlmUsd).catch(() => {}); // optional: amounts just show without a USD estimate
   }, []);
 
+  // Escrows lock USDC, so the dollars the employer types are exactly what is locked: no exchange rate involved.
   const totalUsd = rows.reduce((s, r) => s + (Number(r.amountUsd) || 0), 0);
-  // The contract locks XLM; the employer thinks in dollars. The price is read at submit time.
-  const lockedXlm = xlmUsd > 0 ? totalUsd / xlmUsd : 0;
 
   function updateRow(i: number, patch: Partial<MilestoneRow>) {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -232,31 +229,23 @@ export default function Escrows() {
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
-    if (!(xlmUsd > 0)) {
-      toast.error('The XLM price is unavailable right now — try again in a moment');
-      return;
-    }
     setSubmitting(true);
     // A retry of the same form resends the exact payload it first sent, with the same key, so the server replays it
-    // instead of locking the money twice. The XLM amounts are priced once: a fresh price would make it a different
-    // escrow. Changing the form starts a new escrow, with a new key.
+    // instead of locking the money twice. Changing the form starts a new escrow, with a new key.
     const formKey = JSON.stringify({ workerId, rows, expiresAt });
-    if (pendingCreateRef.current?.formKey !== formKey) {
-      pendingCreateRef.current = {
-        formKey,
-        payload: {
-          workerId,
-          milestones: rows.map((r) => ({
-            description: r.description || undefined,
-            amountXlm: Number((Number(r.amountUsd) / xlmUsd).toFixed(7)),
-          })),
-          expiresAt: new Date(`${expiresAt}T23:59:59`).toISOString(),
-          idempotencyKey: crypto.randomUUID(),
-        },
-      };
-    }
+    const pending = pendingCreateRef.current?.formKey === formKey ? pendingCreateRef.current : {
+      formKey,
+      payload: {
+        workerId,
+        // In USDC: the dollar amount as typed (the server checks it is positive with at most 7 decimals).
+        milestones: rows.map((r) => ({ description: r.description || undefined, amount: r.amountUsd.trim() })),
+        expiresAt: new Date(`${expiresAt}T23:59:59`).toISOString(),
+        idempotencyKey: crypto.randomUUID(),
+      },
+    };
+    pendingCreateRef.current = pending;
     try {
-      const result = await createEscrow(pendingCreateRef.current.payload);
+      const result = await createEscrow(pending.payload);
       if (result.status === 'submitted') {
         toast.info('Escrow sent — waiting for the Stellar network to confirm it. It appears here once confirmed.');
       } else {
@@ -293,8 +282,8 @@ export default function Escrows() {
     if (!pendingRefund) return;
     setActing(true);
     try {
-      const { refundedXlm } = await refundEscrow(pendingRefund.id);
-      toast.success(`${dc.format(refundedXlm, 'XLM')} refunded to your wallet`);
+      const { refunded, tokenCode } = await refundEscrow(pendingRefund.id);
+      toast.success(`${dc.format(refunded, tokenCode)} refunded to your wallet`);
       load();
     } catch (err: any) {
       toast.error(apiErrorMessage(err, 'Failed to refund escrow'));
@@ -349,7 +338,7 @@ export default function Escrows() {
                 {escrows.map((e) => (
                   <tr key={e.id} onClick={() => setSelected(e)} style={{ cursor: 'pointer' }}>
                     <td data-label="Worker">{e.workerEmail}</td>
-                    <td data-label="Total">{dc.format(e.totalXlm, 'XLM')}</td>
+                    <td data-label="Total">{dc.format(e.total, e.tokenCode)}</td>
                     <td data-label="Milestones">{claimedCount(e)}/{e.milestones.length} claimed</td>
                     <td data-label="Status">
                       <StatusBadge variant={ESCROW_BADGE[e.status][0]}>{ESCROW_BADGE[e.status][1]}</StatusBadge>
@@ -434,10 +423,7 @@ export default function Escrows() {
 
           {totalUsd > 0 && (
             <p style={{ margin: '-4px 0 4px', fontSize: '0.85rem', color: '#065f46', fontWeight: 600 }}>
-              Total locked: {dc.formatValue(totalUsd)}
-              {lockedXlm > 0 && (
-                <span style={{ color: '#6b7280', fontWeight: 400 }}> · locks ≈ {lockedXlm.toLocaleString(undefined, { maximumFractionDigits: 2 })} XLM at today's rate</span>
-              )}
+              Total locked: {dc.format(totalUsd, 'USDC')}
             </p>
           )}
 
@@ -473,7 +459,7 @@ export default function Escrows() {
       <ConfirmDialog
         open={!!pendingApprove}
         title="Approve milestone"
-        message={`Approve milestone ${pendingApprove ? pendingApprove.idx + 1 : ''} (${pendingApprove ? dc.format(pendingApprove.escrow.milestones[pendingApprove.idx]?.amountXlm ?? 0, 'XLM') : ''})? This is recorded on-chain and cannot be undone — the worker gains the right to claim these funds.`}
+        message={`Approve milestone ${pendingApprove ? pendingApprove.idx + 1 : ''} (${pendingApprove ? dc.format(pendingApprove.escrow.milestones[pendingApprove.idx]?.amount ?? 0, pendingApprove.escrow.tokenCode) : ''})? This is recorded on-chain and cannot be undone — the worker gains the right to claim these funds.`}
         confirmLabel={acting ? 'Approving…' : 'Approve'}
         onConfirm={confirmApprove}
         onCancel={() => setPendingApprove(null)}

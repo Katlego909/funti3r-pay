@@ -30,7 +30,7 @@ export default function EscrowTransactionsDrawer({ escrow, onClose }: { escrow: 
         <div style={{ marginTop: '1rem' }}>
           <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, marginBottom: 16, textAlign: 'center' }}>
             <div style={{ fontSize: '1.9rem', fontWeight: 800 }}>
-              {dc.format(current.totalXlm, 'XLM')}
+              {dc.format(current.total, current.tokenCode)}
             </div>
             <StatusBadge variant={STATUS[current.status][0]} style={{ marginTop: 10, display: 'inline-block' }}>
               {STATUS[current.status][1]}

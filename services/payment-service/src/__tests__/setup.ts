@@ -49,8 +49,7 @@ vi.mock('../lib/escrow.js', () => ({
   claimMilestone: vi.fn(),
   refundEscrow: vi.fn(),
   getEscrow: vi.fn(),
-  nativeTokenAddress: vi.fn(),
-  xlmToStroops: vi.fn(),
+  escrowToken: vi.fn(() => ({ code: 'USDC', issuer: process.env.STELLAR_USDC_ISSUER, address: 'CUSDCSACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX' })),
   // The error handler maps failures by their AppError status, so the class must be real.
   EscrowContractError: class EscrowContractError extends AppError {
     constructor(public readonly contractCode: number, public readonly method: string) {
@@ -71,6 +70,8 @@ vi.mock('../lib/clearance.js', () => ({
 }));
 
 vi.mock('../lib/stellar.js', () => ({
+  ensureAssetBalance: vi.fn(async () => ({ spentXlm: null })),
+  spendableAsset: vi.fn(async () => 0n),
   sendPayment: vi.fn(),
   findTransactionByMemoHash: vi.fn(),
   lookupTransaction: vi.fn(),

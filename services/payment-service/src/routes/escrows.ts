@@ -12,7 +12,8 @@ import { moneygramConfigured } from '../lib/moneygram.js';
 import { requireCompliance, resolveEnterpriseSecret } from '../app.js';
 import { createEscrowBody } from '../lib/schemas.js';
 import { beginEscrowCreation, completeEscrowCreation, failEscrowCreation, recordCreationIntent } from '../lib/escrowCreation.js';
-import { SubmitOutcomeUnknownError } from '../lib/stellar.js';
+import { SubmitOutcomeUnknownError, ensureAssetBalance, ensureTrustline } from '../lib/stellar.js';
+import { fromStroops, toStroops } from '../lib/amounts.js';
 
 const router: RouterType = Router();
 const logger = createLogger('EscrowsRoute');
@@ -143,7 +144,7 @@ async function listMilestones(escrowIds: string[]) {
     (byEscrow[m.escrow_id] ??= []).push({
       idx: m.idx,
       description: m.description,
-      amountXlm: Number(m.amount),
+      amount: Number(m.amount),
       status: m.status,
       approvedAt: m.approved_at,
       claimedAt: m.claimed_at,
@@ -182,11 +183,6 @@ router.post('/', recoveryHold(), async (req: Request, res: Response, next: NextF
   const body = parseBody(createEscrowBody, req.body, res);
   if (!body) return;
   const { workerId, milestones, expiresAt, idempotencyKey } = body;
-  for (const m of milestones) {
-    if (!m.amountXlm || Number(m.amountXlm) <= 0) {
-      return res.status(400).json({ error: 'Each milestone requires a positive amountXlm' });
-    }
-  }
   const expiry = expiresAt ? Math.floor(new Date(expiresAt).getTime() / 1000) : NaN;
   if (!Number.isFinite(expiry) || expiry * 1000 <= Date.now()) {
     return res.status(400).json({ error: 'expiresAt must be a valid future date' });
@@ -195,7 +191,7 @@ router.post('/', recoveryHold(), async (req: Request, res: Response, next: NextF
   try {
     // Worker must exist, hold a Stellar account and belong to the company. Same KYC gate as payouts.
     const workerRes = await query(
-      `SELECT stellar_public_key, email FROM users WHERE id = $1 AND role = 'worker' AND status IS DISTINCT FROM 'closed'`,
+      `SELECT stellar_public_key, stellar_secret_key, email FROM users WHERE id = $1 AND role = 'worker' AND status IS DISTINCT FROM 'closed'`,
       [workerId],
     );
     const worker = workerRes.rows[0];
@@ -205,9 +201,12 @@ router.post('/', recoveryHold(), async (req: Request, res: Response, next: NextF
     if (!(await isCompanyWorker(ctx.companyId, workerId))) {
       return res.status(403).json({ error: NOT_ON_TEAM });
     }
-    const specs = milestones.map((m) => ({ description: m.description, amountXlm: String(m.amountXlm) }));
+    // Amounts are in the escrow's token: USDC, so a milestone is simply its dollar value.
+    const token = escrow.escrowToken();
+    const specs = milestones.map((m) => ({ description: m.description, amount: m.amount }));
+    const total = fromStroops(specs.reduce((sum, m) => sum + toStroops(m.amount), 0n));
     const begun = await beginEscrowCreation({
-      enterpriseId: ctx.ownerUserId, workerId, milestones: specs, expiresAt: new Date(expiry * 1000), idempotencyKey,
+      enterpriseId: ctx.ownerUserId, workerId, tokenCode: token.code, milestones: specs, expiresAt: new Date(expiry * 1000), idempotencyKey,
     });
     if (begun.kind === 'mismatch') return res.status(422).json({ error: 'Idempotency key already used for a different escrow' });
     if (begun.kind === 'in_progress') return res.status(409).json({ error: 'This escrow is already being created' });
@@ -227,8 +226,23 @@ router.post('/', recoveryHold(), async (req: Request, res: Response, next: NextF
       const { secret, error } = await resolveEnterpriseSecret(ctx.ownerUserId);
       if (!secret) throw new AppError(400, error ?? 'Enterprise Stellar account is not set up');
 
+      // The worker must be able to receive the token when they claim; checked now, before any money is locked.
+      if (worker.stellar_secret_key) {
+        await ensureTrustline(decryptFromString(worker.stellar_secret_key), token.code, token.issuer);
+      }
+      // The company wallet holds XLM: buy any USDC it is short of first. If that cannot be confirmed, nothing has been
+      // locked yet, so it is a plain failure the employer can retry (any USDC bought simply stays in their wallet).
+      try {
+        await ensureAssetBalance(secret, token.code, token.issuer, total);
+      } catch (err) {
+        if (err instanceof SubmitOutcomeUnknownError) {
+          throw new ExternalServiceError('Stellar', `Could not confirm buying ${token.code} for this escrow; try again shortly`, 'escrow_funding_unconfirmed', { cause: err });
+        }
+        throw err;
+      }
+
       ({ escrowId: onchainId, hash } = await escrow.createEscrow(
-        secret, worker.stellar_public_key, specs.map((m) => m.amountXlm), expiry, recordCreationIntent(begun.creationId),
+        secret, worker.stellar_public_key, token.address, specs.map((m) => m.amount), expiry, recordCreationIntent(begun.creationId),
       ));
     } catch (err) {
       if (err instanceof SubmitOutcomeUnknownError) {
@@ -251,7 +265,7 @@ router.post('/', recoveryHold(), async (req: Request, res: Response, next: NextF
     }
 
     logger.info('Escrow created', { id: done.escrowId, onchainId: onchainId.toString(), hash, total: done.total });
-    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.created', entityType: 'escrow', entityId: done.escrowId, detail: { workerId, totalXlm: done.total, milestones: milestones.length, txHash: hash } });
+    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.created', entityType: 'escrow', entityId: done.escrowId, detail: { workerId, total: done.total, tokenCode: token.code, milestones: milestones.length, txHash: hash } });
     res.status(201).json({ id: done.escrowId, onchainEscrowId: onchainId.toString(), txHash: hash });
   } catch (err) {
     next(err);
@@ -268,7 +282,7 @@ router.post('/:id/milestones/:idx/approve', recoveryHold(), async (req: Request,
 
   try {
     const escrowRes = await query(
-      `SELECT id, worker_id, onchain_escrow_id, status FROM escrows WHERE id = $1 AND enterprise_id = $2`,
+      `SELECT id, worker_id, onchain_escrow_id, status, token_code FROM escrows WHERE id = $1 AND enterprise_id = $2`,
       [id, ctx.ownerUserId],
     );
     const row = escrowRes.rows[0];
@@ -305,7 +319,7 @@ router.post('/:id/milestones/:idx/approve', recoveryHold(), async (req: Request,
 
     await notifyEscrow(
       row.worker_id, 'escrow_milestone_approved', 'Milestone approved',
-      `Milestone ${idx + 1} (${Number(ms.rows[0].amount)} XLM) is approved — claim it from your wallet.`, id,
+      `Milestone ${idx + 1} (${Number(ms.rows[0].amount)} ${row.token_code}) is approved — claim it from your wallet.`, id,
     );
     await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.milestone_approved', entityType: 'milestone', entityId: `${id}:${idx}`, detail: { txHash: hash } });
 
@@ -433,7 +447,7 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response, ne
 
   try {
     const escrowRes = await query(
-      `SELECT id, enterprise_id, onchain_escrow_id, status FROM escrows WHERE id = $1 AND worker_id = $2`,
+      `SELECT id, enterprise_id, onchain_escrow_id, status, token_code FROM escrows WHERE id = $1 AND worker_id = $2`,
       [id, workerId],
     );
     const row = escrowRes.rows[0];
@@ -470,9 +484,9 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response, ne
 
     await notifyEscrow(
       row.enterprise_id, 'escrow_milestone_claimed', 'Milestone claimed',
-      `Your worker claimed milestone ${idx + 1} (${Number(ms.rows[0].amount)} XLM).`, id,
+      `Your worker claimed milestone ${idx + 1} (${Number(ms.rows[0].amount)} ${row.token_code}).`, id,
     );
-    await audit({ actorId: workerId, actorRole: 'worker', action: 'escrow.milestone_claimed', entityType: 'milestone', entityId: `${id}:${idx}`, detail: { amountXlm: Number(ms.rows[0].amount), txHash: hash } });
+    await audit({ actorId: workerId, actorRole: 'worker', action: 'escrow.milestone_claimed', entityType: 'milestone', entityId: `${id}:${idx}`, detail: { amount: Number(ms.rows[0].amount), tokenCode: row.token_code, txHash: hash } });
 
     res.json({ txHash: hash });
   } catch (err) {
@@ -517,7 +531,7 @@ router.post('/:id/return-frozen', async (req: Request, res: Response, next: Next
   const { id } = req.params;
 
   try {
-    const r = await query(`SELECT onchain_escrow_id, status, frozen FROM escrows WHERE id = $1`, [id]);
+    const r = await query(`SELECT onchain_escrow_id, status, frozen, token_code FROM escrows WHERE id = $1`, [id]);
     const row = r.rows[0];
     if (!row) return res.status(404).json({ error: 'Escrow not found' });
     if (row.status !== 'active') return res.status(409).json({ error: 'Escrow is no longer active' });
@@ -532,8 +546,8 @@ router.post('/:id/return-frozen', async (req: Request, res: Response, next: Next
     await finalizeEscrowStatus(id);
 
     logger.warn('Frozen escrow returned to the enterprise', { id, hash, by: req.headers['x-user-id'] });
-    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'admin', action: 'escrow.returned_frozen', entityType: 'escrow', entityId: id, detail: { returnedXlm: Number(returnedStroops) / 1e7, txHash: hash } });
-    res.json({ returnedXlm: Number(returnedStroops) / 1e7, txHash: hash });
+    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'admin', action: 'escrow.returned_frozen', entityType: 'escrow', entityId: id, detail: { returned: fromStroops(returnedStroops), tokenCode: row.token_code, txHash: hash } });
+    res.json({ returned: Number(fromStroops(returnedStroops)), tokenCode: row.token_code, txHash: hash });
   } catch (err) {
     next(err);
   }
@@ -566,7 +580,7 @@ router.post('/:id/refund', async (req: Request, res: Response, next: NextFunctio
 
   try {
     const escrowRes = await query(
-      `SELECT id, worker_id, onchain_escrow_id, status, expires_at FROM escrows
+      `SELECT id, worker_id, onchain_escrow_id, status, expires_at, token_code FROM escrows
         WHERE id = $1 AND enterprise_id = $2`,
       [id, ctx.ownerUserId],
     );
@@ -588,8 +602,8 @@ router.post('/:id/refund', async (req: Request, res: Response, next: NextFunctio
     );
     await finalizeEscrowStatus(id);
 
-    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.refunded', entityType: 'escrow', entityId: id, detail: { refundedXlm: Number(refundedStroops) / 1e7, txHash: hash } });
-    res.json({ refundedXlm: Number(refundedStroops) / 1e7, txHash: hash });
+    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.refunded', entityType: 'escrow', entityId: id, detail: { refunded: fromStroops(refundedStroops), tokenCode: row.token_code, txHash: hash } });
+    res.json({ refunded: Number(fromStroops(refundedStroops)), tokenCode: row.token_code, txHash: hash });
   } catch (err) {
     next(err);
   }
@@ -621,8 +635,9 @@ router.get('/cashout-options', (_req: Request, res: Response) => {
 });
 
 // ── GET /escrows/summary ──────────────────────────────────────────────────────
-// Escrow money in one place, in XLM (the contract's unit); the dashboards convert it
-// to the viewer's display currency. Workers see their own, employers their company's.
+// Escrow money in one place, one row per token (USDC, and XLM for earlier escrows): amounts in different tokens are
+// never added together here. The dashboards convert each to the viewer's display currency before summing. Workers see
+// their own, employers their company's.
 
 router.get('/summary', async (req: Request, res: Response, next: NextFunction) => {
   const userId = req.headers['x-user-id'] as string | undefined;
@@ -644,27 +659,22 @@ router.get('/summary', async (req: Request, res: Response, next: NextFunction) =
     }
 
     const r = await query(
-      `SELECT
+      `SELECT e.token_code,
          COALESCE(SUM(m.amount) FILTER (WHERE m.status IN ('pending', 'approved')), 0) AS locked,
          COALESCE(SUM(m.amount) FILTER (WHERE m.status = 'claimed'), 0) AS claimed,
          COALESCE(SUM(m.amount) FILTER (WHERE m.status = 'refunded'), 0) AS refunded
        FROM escrow_milestones m JOIN escrows e ON e.id = m.escrow_id
-      WHERE ${column} = $1`,
+      WHERE ${column} = $1
+      GROUP BY e.token_code`,
       [scopeId],
     );
-    const row = r.rows[0] ?? {};
-    // Cash-outs (MoneyGram) come out of the worker's wallet; employers do not see them.
-    const wallet = role === 'worker'
-      ? Number((await query(
-          `SELECT COALESCE(SUM(xlm_spent), 0) AS spent FROM cashouts WHERE worker_id = $1 AND status IN ('pending', 'completed')`,
-          [userId],
-        )).rows[0]?.spent ?? 0)
-      : 0;
     res.json({
-      lockedXlm: Number(row.locked ?? 0),
-      claimedXlm: Number(row.claimed ?? 0),
-      refundedXlm: Number(row.refunded ?? 0),
-      cashedOutXlm: wallet,
+      totals: r.rows.map((row) => ({
+        tokenCode: row.token_code as string,
+        locked: Number(row.locked),
+        claimed: Number(row.claimed),
+        refunded: Number(row.refunded),
+      })),
     });
   } catch (err) {
     next(err);
@@ -709,7 +719,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
         onchainEscrowId: r.onchain_escrow_id,
         contractAddress: r.contract_address,
         tokenCode: r.token_code,
-        totalXlm: Number(r.total_amount),
+        total: Number(r.total_amount),
         status: r.status,
         frozen: r.frozen === true,
         expiresAt: r.expires_at,

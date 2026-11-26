@@ -84,6 +84,7 @@ impl World {
         let workers: Vec<Address> = (0..WORKERS).map(|_| Address::generate(&env)).collect();
         let contract_id = env.register(EscrowContract, (Address::generate(&env), Address::generate(&env)));
         let client = EscrowContractClient::new(&env, &contract_id);
+        client.set_token_allowed(&token_address, &true);
         for w in &workers {
             client.set_clearance(w, &CLEARED_UNTIL, &BytesN::from_array(&env, &[7u8; 32]));
         }
