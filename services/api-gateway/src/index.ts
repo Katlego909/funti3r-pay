@@ -122,7 +122,7 @@ app.use((req, _res, next) => {
 
 app.use(authMiddleware);
 // After auth, so the limit is per signed-in user.
-app.use(['/payouts', '/escrows', '/cashouts', '/schedules', '/compliance', '/wallets'], moneyLimiter);
+app.use(['/payouts', '/escrows', '/cashouts', '/schedules', '/compliance', '/wallets', '/admin'], moneyLimiter);
 
 
 // ── Own endpoints ─────────────────────────────────────────────────────────────

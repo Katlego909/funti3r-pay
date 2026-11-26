@@ -163,3 +163,43 @@ test('the /auth rate limit also covers the /api/auth calls the dashboard makes',
   await call('/api/auth/login/start', { method: 'POST' });
   assert.equal(authLimited, before + 1);
 });
+
+// [admin path, service, path the service sees]
+const ADMIN_ROUTES: [string, Name, string][] = [
+  ['/admin/search?q=ada', 'user', '/admin/search?q=ada'],
+  ['/admin/users/u1', 'user', '/admin/users/u1'],
+  ['/admin/companies/c1', 'user', '/admin/companies/c1'],
+  ['/admin/money/u1', 'payment', '/admin/money/u1'],
+  ['/admin/payments?status=failed', 'payment', '/admin/payments?status=failed'],
+  ['/admin/escrows', 'payment', '/admin/escrows'],
+  ['/admin/cashouts', 'payment', '/admin/cashouts'],
+  ['/admin/ops', 'payment', '/admin/ops'],
+  ['/admin/audit', 'payment', '/admin/audit'],
+  ['/api/admin/ops', 'payment', '/admin/ops'], // the dashboard-style /api prefix is stripped first
+  ['/admin/compliance/flagged', 'compliance', '/flagged'], // the compliance service's own routes
+];
+
+for (const [path, upstream, expected] of ADMIN_ROUTES) {
+  test(`admin ${path} reaches ${upstream}-service as ${expected}`, async () => {
+    const r = await call(path, { headers: { 'x-test-role': 'admin' } });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.reached, [upstream]);
+    assert.equal(r.seen[upstream][0].url, expected);
+  });
+}
+
+test('the admin console is refused to anyone but a platform admin, before reaching any service', async () => {
+  for (const role of ['worker', 'enterprise']) {
+    for (const path of ['/admin/users/u1', '/admin/ops', '/admin/compliance/flagged']) {
+      const r = await call(path, { headers: { 'x-test-role': role } });
+      assert.equal(r.status, 403, `${role} ${path}`);
+      assert.deepEqual(r.reached, [], `${role} ${path}`);
+    }
+  }
+});
+
+test('the internal sanctions screen stays unreachable through the admin console too', async () => {
+  const r = await call('/admin/compliance/screen', { method: 'POST', headers: { 'x-test-role': 'admin' } });
+  assert.equal(r.status, 404);
+  assert.deepEqual(r.reached, []);
+});
