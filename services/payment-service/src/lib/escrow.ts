@@ -276,6 +276,16 @@ async function readContract(method: string, args: xdr.ScVal[]): Promise<unknown>
   return scValToNative(sim.result.retval);
 }
 
+/** Read-only, for the admin console: who controls the contract, and whether the escrow token (USDC) is allowed. */
+export async function contractState(): Promise<{ address: string; admin: string; tokenAllowed: boolean }> {
+  const token = escrowToken();
+  const [admin, tokenAllowed] = await Promise.all([
+    readContract('get_admin', []),
+    readContract('is_token_allowed', [nativeToScVal(new Address(token.address), { type: 'address' })]),
+  ]);
+  return { address: contractAddress(), admin: String(admin), tokenAllowed: tokenAllowed === true };
+}
+
 /** Read-only: does the worker hold a live on-chain clearance? */
 export async function isCleared(workerPublic: string): Promise<boolean> {
   return (await readContract('is_cleared', [nativeToScVal(new Address(workerPublic), { type: 'address' })])) === true;

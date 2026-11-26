@@ -49,6 +49,7 @@ vi.mock('../lib/escrow.js', () => ({
   attestationHash: vi.fn(),
   createEscrow: vi.fn(),
   contractCallOutcome: vi.fn(),
+  contractState: vi.fn(),
   approveMilestone: vi.fn(),
   claimMilestone: vi.fn(),
   refundEscrow: vi.fn(),

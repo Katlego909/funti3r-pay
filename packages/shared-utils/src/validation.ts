@@ -13,6 +13,9 @@ export const uuidSchema = z.guid('Invalid UUID format');
 /** True for a well-formed UUID: check ids from a URL before they reach a uuid column (a malformed one is a 500 there). */
 export const isUuid = (value: unknown): value is string => uuidSchema.safeParse(value).success;
 
+/** Text for a SQL LIKE / ILIKE pattern, its own % and _ (and the escape) matched literally. */
+export const escapeLike = (text: string): string => text.replace(/[\\%_]/g, (c) => `\\${c}`);
+
 export const currencySchema = z
   .enum(['USD', 'NGN', 'KES', 'GHS', 'ZAR', 'XLM']);
 
