@@ -10,7 +10,9 @@
     "start": "node dist/index.js",
     "test": "vitest",
     "lint": "eslint src",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "e2e:sponsored-account": "node --env-file=../../.env.local --import tsx scripts/sponsored-account-e2e.ts",
+    "dry-run:mainnet": "node --env-file=../../.env.local --import tsx scripts/mainnet-dry-run.ts"
   },
   "dependencies": {
     "@funti3r/database": "workspace:*",

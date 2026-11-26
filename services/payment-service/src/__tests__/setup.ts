@@ -23,7 +23,9 @@ vi.mock('@funti3r/database', async (importOriginal) => {
   const recoveryHoldUntil = (userId: string, now?: number) => actual.recoveryHoldUntil(userId, now, query as never);
   // A transaction runs its statements on the mocked query too (no BEGIN/COMMIT: there is no real database).
   const transaction = vi.fn(async (fn: (client: { query: typeof query }) => unknown) => fn({ query }));
-  return { ...actual, query, notify, transaction, recoveryHold, recoveryHoldUntil, getJSON: vi.fn(noRedis), setJSON: vi.fn(noRedis) };
+  // No Postgres for the cluster-wide lock either: it simply runs the function.
+  const withAdvisoryLock = vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn());
+  return { ...actual, query, notify, transaction, withAdvisoryLock, recoveryHold, recoveryHoldUntil, getJSON: vi.fn(noRedis), setJSON: vi.fn(noRedis) };
 });
 
 vi.mock('axios');
@@ -87,6 +89,8 @@ vi.mock('../lib/stellar.js', () => ({
   ensureTrustline: vi.fn(),
   payExactWithXlm: vi.fn(),
   spendableXlm: vi.fn(),
+  activateAccount: vi.fn(async () => ({ created: false })),
+  sponsorPublicKey: vi.fn(() => null),
   balancesHeld: vi.fn(async () => []),
   createClaimableBalance: vi.fn(),
   getAccountBalance: vi.fn(),

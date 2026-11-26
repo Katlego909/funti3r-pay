@@ -44,6 +44,13 @@ groups:
         annotations:
           summary: "{{ $value }} cash-out(s) paid to MoneyGram but not acknowledged for over 15 minutes"
 
+      - alert: SponsorBalanceLow
+        expr: sponsor_xlm_available < 50
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "The account sponsor has {{ $value }} XLM left (about 1.5 XLM per new worker account): top it up before new workers cannot be paid"
+
       - alert: PaymentsStuck
         expr: payments_stuck > 0
         for: 5m
