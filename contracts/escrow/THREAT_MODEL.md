@@ -100,8 +100,20 @@ Re-run after the fixes: 0 critical. The remaining medium and enhancement items a
   account (planned before mainnet).
 - **G2. Any token accepted at `create`.** A malicious token contract can only affect escrows that use it (each escrow pays
   out of its own token), but an allowlist (e.g. USDC SAC only) would remove the class. Planned with the USDC change.
-- **G3. No property / fuzz tests yet.** Invariants to fuzz: contract balance per token equals the sum of open tranches; no
-  milestone is paid twice; refunds never touch Approved tranches. Planned next.
+- **G3. Closed: attack (property) tests.** `src/test_invariants.rs` runs random sequences of every money-moving and
+  permission-changing call (create, approve, claim, refund, freeze, return_frozen, clearance changes, the clock) across
+  several enterprises, workers and escrows. After every step it checks that:
+  - the contract holds exactly the unpaid tranches;
+  - each worker has received exactly their claimed tranches, so nothing is paid twice;
+  - no token is created or lost;
+  - claimed and refunded tranches never change;
+  - an escrow is active exactly while it still holds unpaid money;
+  - a refund never takes an approved tranche.
+
+  Targeted tests cover a tranche total that overflows i128, zero and negative tranches, every path to paying a claimed
+  tranche again, and one escrow draining another. As a check of the tests themselves, a deliberately broken `claim`
+  (tranche left claimable) was caught and shrunk to a minimal sequence. Runs in CI with `cargo test`; set PROPTEST_CASES
+  for a deeper run.
 - **G4. No test that `upgrade` keeps storage and rejects non-admins.**
 - **G5. No audit yet.** Application to the SCF Audit Bank is planned; mainnet deployment waits for the audit and its fixes.
 - **G6. Custodial keys.** See trust assumptions; keys move to a cloud key-management service before mainnet.
