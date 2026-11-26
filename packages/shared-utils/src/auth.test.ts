@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assertJwtConfigured } from './auth.js';
+import { assertJwtConfigured, signInRefusal } from './auth.js';
 
 // A failed check caches nothing, so these can run in one process in this order: refusals first, then a good secret.
 test('the placeholder secret from .env.example is refused outside the unit tests', () => {
@@ -25,4 +25,10 @@ test('a real secret is accepted', () => {
   process.env.NODE_ENV = 'production';
   process.env.JWT_SECRET = 'f3a9c1d27b8e4a6f90d1c2b3a4958677e0d1c2b3a49586';
   assert.doesNotThrow(() => assertJwtConfigured());
+});
+
+test('suspended and closed accounts cannot sign in or refresh; active ones can', () => {
+  assert.match(signInRefusal('suspended') ?? '', /suspended/);
+  assert.match(signInRefusal('closed') ?? '', /closed/);
+  assert.equal(signInRefusal('active'), null);
 });

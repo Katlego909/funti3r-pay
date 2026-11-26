@@ -61,3 +61,10 @@ export function extractToken(authHeader: string): string {
   }
   return parts[1];
 }
+
+/** Why an account may not sign in or keep a session, or null when it may. */
+export function signInRefusal(status: string | null | undefined): string | null {
+  if (status === 'suspended') return 'This account is suspended. Contact support.';
+  if (status === 'closed') return 'This account is closed';
+  return null;
+}
