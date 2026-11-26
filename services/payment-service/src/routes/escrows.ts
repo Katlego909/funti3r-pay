@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import type { Router as RouterType } from 'express';
 import { query, notify, recoveryHold } from '@funti3r/database';
-import { AppError, createLogger, decryptFromString, ExternalServiceError, parseBody } from '@funti3r/shared-utils';
+import { AppError, createLogger, decryptFromString, ExternalServiceError, parseBody, requireRole } from '@funti3r/shared-utils';
 import { audit } from '../lib/audit.js';
 import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker, NOT_ON_TEAM } from '../lib/company.js';
 import * as escrow from '../lib/escrow.js';
@@ -499,10 +499,7 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response, ne
 // Compliance hold: while frozen the contract blocks approve, claim and refund
 // for this escrow. Admin-only — same role gate as the KYC flagged list.
 
-router.post('/:id/freeze', async (req: Request, res: Response, next: NextFunction) => {
-  if (req.headers['x-user-role'] !== 'admin') {
-    return res.status(403).json({ error: 'Admin role required' });
-  }
+router.post('/:id/freeze', requireRole('admin'), async (req: Request, res: Response, next: NextFunction) => {
   const { id } = req.params;
   const frozen = (req.body as { frozen?: unknown })?.frozen;
   if (typeof frozen !== 'boolean') return res.status(400).json({ error: 'frozen (boolean) is required' });
@@ -525,10 +522,7 @@ router.post('/:id/freeze', async (req: Request, res: Response, next: NextFunctio
 // Resolves an upheld hold: only a frozen escrow can be resolved, and every tranche the
 // worker has not yet claimed goes back to the enterprise. Admin-only, like /freeze.
 
-router.post('/:id/return-frozen', async (req: Request, res: Response, next: NextFunction) => {
-  if (req.headers['x-user-role'] !== 'admin') {
-    return res.status(403).json({ error: 'Admin role required' });
-  }
+router.post('/:id/return-frozen', requireRole('admin'), async (req: Request, res: Response, next: NextFunction) => {
   const { id } = req.params;
 
   try {
@@ -558,10 +552,7 @@ router.post('/:id/return-frozen', async (req: Request, res: Response, next: Next
 // Compare every active escrow with the chain and repair the database to match.
 // { "repair": false } is a dry run that only reports the drift.
 
-router.post('/reconcile', async (req: Request, res: Response, next: NextFunction) => {
-  if (req.headers['x-user-role'] !== 'admin') {
-    return res.status(403).json({ error: 'Admin role required' });
-  }
+router.post('/reconcile', requireRole('admin'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const repair = (req.body as { repair?: unknown } | undefined)?.repair !== false;
     const report = await reconcileEscrows({ repair });

@@ -10,6 +10,9 @@ export const passwordSchema = z
 
 export const uuidSchema = z.guid('Invalid UUID format');
 
+/** True for a well-formed UUID: check ids from a URL before they reach a uuid column (a malformed one is a 500 there). */
+export const isUuid = (value: unknown): value is string => uuidSchema.safeParse(value).success;
+
 export const currencySchema = z
   .enum(['USD', 'NGN', 'KES', 'GHS', 'ZAR', 'XLM']);
 

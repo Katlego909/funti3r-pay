@@ -1,7 +1,6 @@
 import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { createLogger } from '@funti3r/shared-utils';
-import { requireRole } from './middleware/requireRole.js';
+import { createLogger, requireRole } from '@funti3r/shared-utils';
 
 const logger = createLogger('APIGateway');
 
@@ -63,6 +62,16 @@ export function mountProxyRoutes(app: express.Express, upstreams: Upstreams): vo
   // would let any signed-in user test arbitrary names against the sanctions list.
   app.all('/compliance/screen', (_req, res) => res.status(404).json({ error: 'Not found' }));
   app.all('/compliance*', proxy(upstreams.compliance, { '^/compliance': '' }));
+
+  // Platform admin console → the service that owns each area. Admin-only here, and again in each service (defence in
+  // depth: a service reached without the gateway still refuses). /admin/compliance strips its prefix, like /compliance,
+  // so the compliance service's own routes (flagged queue, approve/reject, sanctions refresh, KYC detail) serve it.
+  app.use('/admin', requireRole('admin'));
+  app.all(['/admin/search*', '/admin/users*', '/admin/companies*'], proxy(upstreams.user));
+  app.all(['/admin/money*', '/admin/payments*', '/admin/escrows*', '/admin/cashouts*', '/admin/ops*', '/admin/audit*'],
+    proxy(upstreams.payment));
+  app.all('/admin/compliance/screen', (_req, res) => res.status(404).json({ error: 'Not found' }));
+  app.all('/admin/compliance*', proxy(upstreams.compliance, { '^/admin/compliance': '' }));
 
   // Analytics → analytics-service
   // Event data spans every company, so it is for platform admins only.

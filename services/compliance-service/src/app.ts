@@ -1,5 +1,5 @@
 import express from 'express';
-import { createLogger, NotFoundError, ExternalServiceError, errorHandler, hasIdentity, requireGatewayIdentity, requestContext, registerHealth } from '@funti3r/shared-utils';
+import { createLogger, NotFoundError, ExternalServiceError, errorHandler, hasIdentity, requireGatewayIdentity, requireRole, requestContext, registerHealth } from '@funti3r/shared-utils';
 import { metrics } from './metrics.js';
 import { candidateBirthYearFromSubmission, candidateNamesFromSubmission } from './names.js';
 import type { Deps } from './deps.js';
@@ -134,8 +134,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
     }
   });
 
-  app.post('/sanctions/refresh', async (req, res, next) => {
-    if (req.headers['x-user-role'] !== 'admin') return res.status(403).json({ error: 'Admin role required' });
+  app.post('/sanctions/refresh', requireRole('admin'), async (req, res, next) => {
     try {
       res.json(await sanctions.refresh());
     } catch (err) {
@@ -256,10 +255,7 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
   // Registered ahead of the `/:userId` param route below so this literal path
   // isn't swallowed as a userId.
 
-  app.get('/flagged', async (req, res, next) => {
-    if (req.headers['x-user-role'] !== 'admin') {
-      return res.status(403).json({ error: 'Admin role required' });
-    }
+  app.get('/flagged', requireRole('admin'), async (req, res, next) => {
     try {
       const result = await query(
         `SELECT user_id, status, sanctions_matches, sanctions_checked_at, created_at

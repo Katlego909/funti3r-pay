@@ -29,6 +29,8 @@ import {
   stampIdentity,
   forwardedHeaders,
   getLogContext,
+  isUuid,
+  requireRole,
 } from '@funti3r/shared-utils';
 import { sendRecoveryEmail } from './lib/email.js';
 import { hasSessionFor } from './lib/sessionAuth.js';
@@ -37,6 +39,7 @@ import { decoyCredentialId } from './lib/loginDecoy.js';
 import { closeAccount, closureBlockers, type ClosureDeps } from './lib/accountClosure.js';
 import { acceptCompanyInvite, type CompanyInviteDeps } from './lib/companyInvites.js';
 import { metrics } from './metrics.js';
+import adminRouter from './routes/admin.js';
 import { initPostgres, runInitialMigrations, initRedis, getRedis, query, transaction, setJSON, getJSON, deleteKey, notify, recoveryHold, RECOVERY_HOLD_MS } from '@funti3r/database';
 import { UserRole } from '@funti3r/shared-types';
 
@@ -85,6 +88,9 @@ function parseBody(req: express.Request, res: express.Response, next: express.Ne
 app.use(parseBody);
 app.use(requireGatewayIdentity());
 app.use(requestContext('UserService', metrics.observeRequest));
+
+// The platform admin console's account and company routes: admins only (the gateway checks the same role first).
+app.use('/admin', requireRole('admin'), adminRouter);
 app.get('/metrics', metrics.handler);
 
 const RP_NAME = process.env.RP_NAME || 'Funti3r-Pay';
@@ -1157,7 +1163,7 @@ app.delete('/invites/:id', async (req, res, next) => {
   if (requesterRole !== 'enterprise') return res.status(403).json({ error: 'Enterprise role required' });
 
   // Guard the uuid cast — a malformed id would otherwise throw in pg and 500.
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.id)) {
+  if (!isUuid(req.params.id)) {
     return res.status(404).json({ error: 'Pending invite not found' });
   }
 
