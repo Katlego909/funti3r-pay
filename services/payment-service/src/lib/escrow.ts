@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto';
 import { AppError, createLogger, ExternalServiceError, stellarNetwork } from '@funti3r/shared-utils';
 import { withAdvisoryLock } from '@funti3r/database';
 import { forgetBalances } from './balanceCache.js';
-import { SubmitOutcomeUnknownError, type OnSigned } from './stellar.js';
+import { SubmitOutcomeUnknownError, feeEnvelopeFor, type OnSigned } from './stellar.js';
 import { toStroops } from './amounts.js';
 import { getCurrency } from './currencies.js';
 
@@ -133,12 +133,14 @@ async function invokeUnlocked(
     throw err;
   }
   prepared.sign(signer);
-  const hash = prepared.hash().toString('hex');
+  // A signer with no XLM of its own (a worker paid in USDC) has the fee paid by the platform sponsor (a fee bump).
+  const envelope = await feeEnvelopeFor(prepared, signer.publicKey());
+  const hash = envelope.hash().toString('hex');
   if (onSigned) await onSigned(hash, new Date(Number(prepared.timeBounds!.maxTime) * 1000));
 
   let sent;
   try {
-    sent = await server.sendTransaction(prepared);
+    sent = await server.sendTransaction(envelope);
   } catch (err) {
     throw new SubmitOutcomeUnknownError(hash, err); // the RPC may have taken it before the connection failed
   }

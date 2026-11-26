@@ -17,6 +17,7 @@ import cashoutsRouter from './routes/cashouts.js';
 import axios from 'axios';
 import { resolveCompanyContext, resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker, companyWorkerIds, ownerCompanyId, NOT_ON_TEAM } from './lib/company.js';
 import { closureBlockers } from './lib/accountClosure.js';
+import { activateWorkerAccount } from './lib/workerAccounts.js';
 import { batchVerdict, isMoneyMoved } from './lib/paymentStatus.js';
 
 const logger = createLogger('PaymentService');
@@ -343,18 +344,16 @@ async function executePayoutInner(opts: {
   let claimableXlm: string | null = null;
   let paymentStatus: 'completed' | 'pending_claim' = 'completed';
   try {
+    // The worker's account is created on first need, every reserve paid by the platform sponsor: they need no XLM.
+    const workerSecret = workerStoredSecret ? decryptFromString(workerStoredSecret) : null;
+    if (workerSecret) await activateWorkerAccount(workerSecret);
+
     if (def.kind === 'native') {
       // Direct native XLM payment.
       txHash = await stellar.sendPayment(sourceSecret, destination, String(amountNum), 'XLM', undefined, memoHash, recordIntent);
     } else {
-      // Issued asset (USDC or local currency).
-      // Try to auto-set up the trustline if we have the worker's secret (classic account).
-      // If the worker is a SmartWallet (passkey) user, workerStoredSecret is null —
-      // we'll attempt the path payment anyway; the contract may hold the trustline.
-      if (workerStoredSecret) {
-        const workerSecret = decryptFromString(workerStoredSecret);
-        await stellar.ensureTrustline(workerSecret, def.code, def.issuer!);
-      }
+      // Issued asset (USDC or local currency): the worker needs a trustline to it (sponsored when they hold no XLM).
+      if (workerSecret) await stellar.ensureTrustline(workerSecret, def.code, def.issuer!);
 
       try {
         const result = await stellar.payExactWithXlm(

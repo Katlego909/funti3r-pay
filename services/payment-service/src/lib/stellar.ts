@@ -3,6 +3,7 @@ import {
   Keypair,
   Asset,
   Claimant,
+  FeeBumpTransaction,
   Operation,
   TransactionBuilder,
   Transaction,
@@ -57,22 +58,92 @@ export class HorizonRejectedError extends ExternalServiceError {
  */
 export type OnSigned = (hash: string, maxTime: Date) => Promise<void>;
 
+// ── Fees and reserves ─────────────────────────────────────────────────────────
+
+/** The network's base reserve: each account entry, trustline or sponsorship locks this much XLM (0.5 XLM). */
+const BASE_RESERVE_STROOPS = 5_000_000n;
+/** Stellar's largest trustline limit (2^63 - 1 stroops); the maximum avoids running out on high-denomination currencies. */
+const MAX_TRUST_LIMIT = '922337203685';
+
+/** The fee bid per operation: ten times the network's current base fee, so a busy network does not delay a payment. */
+async function networkFee(): Promise<string> {
+  return String(Math.max((await horizon.fetchBaseFee()) * 10, 100));
+}
+
+/** XLM the account holds above its minimum balance and open-offer liabilities, in stroops (exact); 0 when none. */
+function freeNative(account: Horizon.AccountResponse): bigint {
+  const native = account.balances.find((b): b is Horizon.HorizonApi.BalanceLineNative => b.asset_type === 'native');
+  if (!native) return 0n;
+  const entries = 2n + BigInt(account.subentry_count) + BigInt(account.num_sponsoring ?? 0) - BigInt(account.num_sponsored ?? 0);
+  const free = toStroops(native.balance) - toStroops(native.selling_liabilities) - entries * BASE_RESERVE_STROOPS;
+  return free > 0n ? free : 0n;
+}
+
+/**
+ * The platform account that pays the reserves of the worker accounts it creates, and the fees of accounts that hold no
+ * XLM of their own (so a worker paid only in USDC can still claim and cash out). A dedicated key, never the contract
+ * admin or an employer's wallet.
+ */
+function sponsorKeypair(): Keypair {
+  const secret = process.env.STELLAR_SPONSOR_SECRET;
+  if (!secret) throw new AppError(503, 'Account sponsorship is not configured', 'sponsor_not_configured');
+  return Keypair.fromSecret(secret);
+}
+
+/** The sponsor's public key when one is configured (for monitoring its balance), else null. */
+export function sponsorPublicKey(): string | null {
+  return process.env.STELLAR_SPONSOR_SECRET ? Keypair.fromSecret(process.env.STELLAR_SPONSOR_SECRET).publicKey() : null;
+}
+
+/**
+ * What to submit for a signed transaction: the transaction itself when its source can pay its own fee, or a fee bump in
+ * which the sponsor pays it. The bump bids the inner transaction's whole fee per operation, which always meets the
+ * network's minimum (the inner per-operation inclusion fee); the network charges only what is due. A fee bump does not
+ * use the sponsor's sequence number, so it needs no lock on the sponsor.
+ */
+export function feeEnvelope(tx: Transaction, sourceFreeStroops: bigint): Transaction | FeeBumpTransaction {
+  if (sourceFreeStroops >= BigInt(tx.fee)) return tx;
+  return buildFeeBump(tx, sponsorKeypair(), NETWORK_PASSPHRASE);
+}
+
+/** The sponsor's fee bump around `tx`, signed. Pure, so the mainnet dry run builds exactly what production sends. */
+export function buildFeeBump(tx: Transaction, sponsor: Keypair, networkPassphrase: string): FeeBumpTransaction {
+  const bump = TransactionBuilder.buildFeeBumpTransaction(sponsor, tx.fee, tx, networkPassphrase);
+  bump.sign(sponsor);
+  return bump;
+}
+
+/** feeEnvelope for a source known only by its key (the escrow contract calls); an account not yet on chain has nothing. */
+export async function feeEnvelopeFor(tx: Transaction, sourcePublicKey: string): Promise<Transaction | FeeBumpTransaction> {
+  let free = 0n;
+  try {
+    free = freeNative(await horizon.loadAccount(sourcePublicKey));
+  } catch (err: any) {
+    if (err?.response?.status !== 404) throw err;
+  }
+  return feeEnvelope(tx, free);
+}
+
 /**
  * Submits a transaction and clears the cached balances of every account it touched, so the next balance read
  * (the wallet, the dashboard) shows the result of the user's own action instead of a figure up to 20 seconds old.
- * A Horizon answer (4xx) is a definite failure, rethrown as HorizonRejectedError; no answer is not.
+ * `sourceFreeStroops` is the source's spendable XLM: when it cannot cover the fee, the sponsor pays it (feeEnvelope).
+ * The hash recorded and returned is that of what was actually submitted. A Horizon answer (4xx) is a definite failure,
+ * rethrown as HorizonRejectedError; no answer is not.
  */
-async function submitAndRefresh(tx: Transaction, onSigned?: OnSigned) {
-  if (onSigned) await onSigned(tx.hash().toString('hex'), new Date(Number(tx.timeBounds!.maxTime) * 1000));
+async function submitAndRefresh(tx: Transaction, onSigned: OnSigned | undefined, sourceFreeStroops: bigint) {
+  const envelope = feeEnvelope(tx, sourceFreeStroops);
+  const hash = envelope.hash().toString('hex');
+  if (onSigned) await onSigned(hash, new Date(Number(tx.timeBounds!.maxTime) * 1000));
   let result;
   try {
-    result = await horizon.submitTransaction(tx);
+    result = await horizon.submitTransaction(envelope);
   } catch (err: any) {
     const status: number | undefined = err?.response?.status;
-    if (status === undefined || status >= 500) throw new SubmitOutcomeUnknownError(tx.hash().toString('hex'), err);
+    if (status === undefined || status >= 500) throw new SubmitOutcomeUnknownError(hash, err);
     throw new HorizonRejectedError(err?.response?.data?.extras?.result_codes ?? {}, err);
   }
-  await forgetBalances(...accountsTouchedBy(tx));
+  await forgetBalances(...accountsTouchedBy(envelope));
   return result;
 }
 
@@ -131,12 +202,8 @@ const FEE_BUFFER_XLM = 0.5;
  * fee buffer. Read live from Horizon, not the 20s balance cache — it gates real payments.
  */
 export async function spendableXlm(publicKey: string): Promise<number> {
-  const account: any = await horizon.loadAccount(publicKey);
-  const native = account.balances.find((b: Horizon.HorizonApi.BalanceLine) => b.asset_type === 'native');
-  if (!native) return 0;
-  const entries = 2 + Number(account.subentry_count ?? 0) + Number(account.num_sponsoring ?? 0) - Number(account.num_sponsored ?? 0);
-  const spendable = Number(native.balance) - Number((native as any).selling_liabilities ?? 0) - entries * 0.5 - FEE_BUFFER_XLM;
-  return Math.max(0, Math.floor(spendable * 1e7) / 1e7);
+  const free = Number(fromStroops(freeNative(await horizon.loadAccount(publicKey))));
+  return Math.max(0, Math.floor((free - FEE_BUFFER_XLM) * 1e7) / 1e7);
 }
 
 /**
@@ -193,11 +260,10 @@ async function sendPaymentUnlocked(
   });
 
   const account = await horizon.loadAccount(sourceKeypair.publicKey());
-  const fee = await horizon.fetchBaseFee();
   const asset = assetCode === 'XLM' ? Asset.native() : new Asset(assetCode, assetIssuer!);
 
   const builder = new TransactionBuilder(account, {
-    fee: String(Math.max(fee * 10, 100)),
+    fee: await networkFee(),
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
@@ -211,7 +277,7 @@ async function sendPaymentUnlocked(
     .build();
 
   tx.sign(sourceKeypair);
-  const result = await submitAndRefresh(tx, onSigned);
+  const result = await submitAndRefresh(tx, onSigned, freeNative(account));
   logger.info('Payment submitted', { hash: result.hash });
   return result.hash;
 }
@@ -235,6 +301,11 @@ export async function checkTrustline(
   }
 }
 
+/**
+ * Opens a trustline. An account that cannot lock the 0.5 XLM reserve itself (one the platform created, holding no XLM)
+ * has it sponsored: the sponsor co-signs a begin/end sponsoring pair around the trustline, and pays the fee too. The
+ * transaction stays the account's own (its sequence number, under its lock), so the sponsor needs no lock here.
+ */
 async function addTrustlineUnlocked(
   accountSecret: string,
   assetCode: string,
@@ -242,23 +313,35 @@ async function addTrustlineUnlocked(
 ): Promise<void> {
   const keypair = Keypair.fromSecret(accountSecret);
   const account = await horizon.loadAccount(keypair.publicKey());
-  const fee = await horizon.fetchBaseFee();
+  const fee = await networkFee();
+  const free = freeNative(account);
+  const changeTrust = Operation.changeTrust({ asset: new Asset(assetCode, assetIssuer), limit: MAX_TRUST_LIMIT });
+  const sponsored = free < BASE_RESERVE_STROOPS + BigInt(fee) * 3n;
 
-  const tx = new TransactionBuilder(account, {
-    fee: String(Math.max(fee * 10, 100)),
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(
-      // 922337203685 is Stellar's max trustline limit (2^63 - 1 stroops in XLM units).
-      // Using max avoids limit exhaustion for high-denomination local currencies (e.g. UGX).
-      Operation.changeTrust({ asset: new Asset(assetCode, assetIssuer), limit: '922337203685' }),
-    )
-    .setTimeout(60)
-    .build();
-
+  const builder = new TransactionBuilder(account, { fee, networkPassphrase: NETWORK_PASSPHRASE });
+  const sponsor = sponsored ? sponsorKeypair() : null;
+  if (sponsor) {
+    builder
+      .addOperation(Operation.beginSponsoringFutureReserves({ sponsoredId: keypair.publicKey(), source: sponsor.publicKey() }))
+      .addOperation(changeTrust)
+      .addOperation(Operation.endSponsoringFutureReserves({}));
+  } else {
+    builder.addOperation(changeTrust);
+  }
+  const tx = builder.setTimeout(60).build();
   tx.sign(keypair);
-  await submitAndRefresh(tx);
-  logger.info('Trustline established', { account: keypair.publicKey(), asset: assetCode });
+  if (sponsor) tx.sign(sponsor);
+
+  try {
+    await submitAndRefresh(tx, undefined, free);
+  } catch (err) {
+    // A trustline only prepares a payment: with no verdict it is a plain failure, retried by checking again first.
+    if (err instanceof SubmitOutcomeUnknownError) {
+      throw new ExternalServiceError('Stellar', 'Could not confirm the trustline was opened; try again shortly', 'trustline_unconfirmed', { cause: err });
+    }
+    throw err;
+  }
+  logger.info('Trustline established', { account: keypair.publicKey(), asset: assetCode, sponsored });
 }
 
 export async function ensureTrustline(
@@ -324,9 +407,8 @@ async function payExactWithXlmUnlocked(
   }
 
   const account = await horizon.loadAccount(sourceKeypair.publicKey());
-  const fee = await horizon.fetchBaseFee();
   const builder = new TransactionBuilder(account, {
-    fee: String(Math.max(fee * 10, 100)),
+    fee: await networkFee(),
     networkPassphrase: NETWORK_PASSPHRASE,
   });
   if (options.memo) builder.addMemo(options.memo);
@@ -351,7 +433,7 @@ async function payExactWithXlmUnlocked(
     .build();
 
   tx.sign(sourceKeypair);
-  const result = await submitAndRefresh(tx, options.onSigned);
+  const result = await submitAndRefresh(tx, options.onSigned, freeNative(account));
   logger.info('Cross-asset payout submitted', {
     hash: result.hash,
     destAmount,
@@ -380,10 +462,9 @@ async function createClaimableBalanceUnlocked(
 ): Promise<string> {
   const keypair = Keypair.fromSecret(sourceSecret);
   const account = await horizon.loadAccount(keypair.publicKey());
-  const fee = await horizon.fetchBaseFee();
 
   const builder = new TransactionBuilder(account, {
-    fee: String(Math.max(fee * 10, 100)),
+    fee: await networkFee(),
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
@@ -401,7 +482,7 @@ async function createClaimableBalanceUnlocked(
     .build();
 
   tx.sign(keypair);
-  const result = await submitAndRefresh(tx, onSigned);
+  const result = await submitAndRefresh(tx, onSigned, freeNative(account));
   logger.info('Claimable balance created', {
     claimant: claimantPublic,
     asset: asset.code || 'XLM',
@@ -409,6 +490,85 @@ async function createClaimableBalanceUnlocked(
     hash: result.hash,
   });
   return result.hash;
+}
+
+// ── Sponsored accounts ────────────────────────────────────────────────────────
+
+/**
+ * The transaction that creates `account` with no XLM of its own, plus its trustlines, every reserve paid by the sponsor
+ * (1 XLM for the account, 0.5 XLM per trustline). The sponsor is the source and pays the fee; both sign. Pure: it builds
+ * and signs, never submits, so the mainnet dry run uses exactly what production sends.
+ */
+export function buildSponsoredAccountTx(o: {
+  /** The sponsor's account (its sequence number): a Horizon response, or an Account for a dry run. */
+  sponsorAccount: ConstructorParameters<typeof TransactionBuilder>[0];
+  sponsor: Keypair;
+  account: Keypair;
+  trustlines: Array<{ code: string; issuer: string }>;
+  fee: string;
+  networkPassphrase: string;
+}): Transaction {
+  const id = o.account.publicKey();
+  const builder = new TransactionBuilder(o.sponsorAccount, { fee: o.fee, networkPassphrase: o.networkPassphrase })
+    .addOperation(Operation.beginSponsoringFutureReserves({ sponsoredId: id }))
+    .addOperation(Operation.createAccount({ destination: id, startingBalance: '0' }));
+  for (const t of o.trustlines) {
+    builder.addOperation(Operation.changeTrust({ asset: new Asset(t.code, t.issuer), limit: MAX_TRUST_LIMIT, source: id }));
+  }
+  const tx = builder.addOperation(Operation.endSponsoringFutureReserves({ source: id })).setTimeout(60).build();
+  tx.sign(o.sponsor, o.account);
+  return tx;
+}
+
+/** The XLM the sponsor locks for one sponsored account with `trustlines` trustlines. */
+export function sponsoredReserveXlm(trustlines: number): string {
+  return fromStroops(BASE_RESERVE_STROOPS * BigInt(2 + trustlines));
+}
+
+async function accountExists(publicKey: string): Promise<boolean> {
+  try {
+    await horizon.loadAccount(publicKey);
+    return true;
+  } catch (err: any) {
+    if (err?.response?.status === 404) return false;
+    throw err;
+  }
+}
+
+/**
+ * Makes sure the custodial account exists on chain, with the given trustlines. A missing account is created by the
+ * sponsor, which pays every reserve (the owner needs no XLM), under the sponsor's lock so two creations never collide;
+ * an existing one only gets any missing trustline (sponsored when it holds no XLM). Idempotent. A creation that gets no
+ * verdict is a plain failure: the next call checks the chain again before creating anything.
+ */
+export async function activateAccount(
+  accountSecret: string,
+  trustlines: Array<{ code: string; issuer: string }>,
+): Promise<{ created: boolean; hash?: string }> {
+  const account = Keypair.fromSecret(accountSecret);
+  const sponsor = sponsorKeypair();
+  let hash: string | null;
+  try {
+    hash = await withAdvisoryLock(`stellar:${sponsor.publicKey()}`, async () => {
+      if (await accountExists(account.publicKey())) return null;
+      const sponsorAccount = await horizon.loadAccount(sponsor.publicKey());
+      const tx = buildSponsoredAccountTx({
+        sponsorAccount, sponsor, account, trustlines, fee: await networkFee(), networkPassphrase: NETWORK_PASSPHRASE,
+      });
+      return (await submitAndRefresh(tx, undefined, freeNative(sponsorAccount))).hash;
+    });
+  } catch (err) {
+    if (err instanceof SubmitOutcomeUnknownError) {
+      throw new ExternalServiceError('Stellar', 'Could not confirm the account was created; try again shortly', 'account_activation_unconfirmed', { cause: err });
+    }
+    throw err;
+  }
+  if (hash) {
+    logger.info('Created a sponsored account', { account: account.publicKey(), trustlines: trustlines.map((t) => t.code), hash });
+    return { created: true, hash };
+  }
+  for (const t of trustlines) await ensureTrustline(accountSecret, t.code, t.issuer);
+  return { created: false };
 }
 
 // ── Serialized entry points (per source account) ──────────────────────────────

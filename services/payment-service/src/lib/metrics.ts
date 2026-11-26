@@ -13,6 +13,8 @@ export const jobRunsTotal = metrics.counter('scheduler_job_runs_total', 'Schedul
 /** Money in limbo, refreshed every minute from the database: these should sit at 0, and an alert fires when they do not. */
 export const stuckCashouts = metrics.gauge('cashouts_stuck', 'MoneyGram cash-outs paid but not acknowledged for over 15 minutes');
 export const stuckPayments = metrics.gauge('payments_stuck', 'Payments still initiated or processing after more than 10 minutes');
+/** The sponsor's spendable XLM: what is left to pay new worker accounts' reserves and fees for accounts with no XLM. */
+export const sponsorXlm = metrics.gauge('sponsor_xlm_available', 'Spendable XLM left on the account that sponsors worker accounts and fees');
 
 export const jobSeconds = metrics.histogram('scheduler_job_duration_seconds', 'Scheduled job duration in seconds', ['job'], [0.1, 0.5, 1, 5, 15, 60, 300]);
 

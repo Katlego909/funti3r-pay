@@ -147,8 +147,14 @@ currency each worker actually wants:
 **Auth & accounts**
 - **WebAuthn / passkey** registration & login (`@simplewebauthn`), plus a **dev login**
   (email-only, non-production) so local testing doesn't require a passkey.
-- Each user gets a **classic Stellar ed25519 account** at registration, auto-funded on testnet
-  via Friendbot. **Secret keys are encrypted at rest** (AES-256-GCM).
+- Each user gets a **classic Stellar ed25519 account** at registration. **Secret keys are encrypted at rest**
+  (AES-256-GCM).
+- **Workers need no XLM.** A worker's account is created the first time they are paid, by the platform's sponsor
+  account, which pays every reserve (sponsored reserves: 1 XLM for the account, 0.5 XLM for its USDC trustline). The
+  sponsor also pays the fees of accounts that hold no XLM (fee bumps), so a worker paid in USDC can still claim and cash
+  out. Same code on testnet and mainnet; `pnpm --filter @funti3r/payment-service e2e:sponsored-account` proves it on
+  testnet, and `dry-run:mainnet` builds and checks the mainnet transactions without submitting them. On testnet,
+  employer wallets are funded from Friendbot, standing in for the XLM an employer deposits on mainnet.
 
 **Compliance**
 - KYC submit/status/approve/reject, scoped to the worker's own company, with submissions **encrypted at rest** and

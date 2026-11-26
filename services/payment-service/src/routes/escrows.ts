@@ -12,7 +12,7 @@ import { moneygramConfigured } from '../lib/moneygram.js';
 import { requireCompliance, resolveEnterpriseSecret } from '../app.js';
 import { createEscrowBody } from '../lib/schemas.js';
 import { beginEscrowCreation, completeEscrowCreation, failEscrowCreation, recordCreationIntent } from '../lib/escrowCreation.js';
-import { SubmitOutcomeUnknownError, ensureAssetBalance, ensureTrustline } from '../lib/stellar.js';
+import { SubmitOutcomeUnknownError, activateAccount, ensureAssetBalance } from '../lib/stellar.js';
 import { fromStroops, toStroops } from '../lib/amounts.js';
 
 const router: RouterType = Router();
@@ -226,9 +226,10 @@ router.post('/', recoveryHold(), async (req: Request, res: Response, next: NextF
       const { secret, error } = await resolveEnterpriseSecret(ctx.ownerUserId);
       if (!secret) throw new AppError(400, error ?? 'Enterprise Stellar account is not set up');
 
-      // The worker must be able to receive the token when they claim; checked now, before any money is locked.
+      // The worker must be able to receive the token when they claim, so their account (sponsored, created on first
+      // need) and its trustline to the token are checked now, before any money is locked.
       if (worker.stellar_secret_key) {
-        await ensureTrustline(decryptFromString(worker.stellar_secret_key), token.code, token.issuer);
+        await activateAccount(decryptFromString(worker.stellar_secret_key), [{ code: token.code, issuer: token.issuer }]);
       }
       // The company wallet holds XLM: buy any USDC it is short of first. If that cannot be confirmed, nothing has been
       // locked yet, so it is a plain failure the employer can retry (any USDC bought simply stays in their wallet).

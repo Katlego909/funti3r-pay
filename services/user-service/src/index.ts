@@ -101,11 +101,12 @@ function hashRefreshToken(token: string): string {
 }
 
 /**
- * Fund a freshly-created account on the Stellar testnet via Friendbot so it
- * exists on-chain (a keypair alone does not — the account is created by its
- * first funding payment). Best-effort: never throws.
+ * Testnet only: fund a new EMPLOYER's wallet from Friendbot, standing in for the XLM an employer deposits themselves on
+ * mainnet. Workers are never funded here: payment-service creates their account the first time money is sent to them,
+ * with every reserve paid by the platform sponsor (lib/workerAccounts.ts), on testnet and mainnet alike.
+ * Best-effort: never throws.
  */
-async function fundTestnetAccount(publicKey: string): Promise<void> {
+async function fundTestnetEmployer(publicKey: string): Promise<void> {
   if (stellarNetwork().isMainnet) return;
   try {
     const res = await fetch(`https://friendbot.stellar.org/?addr=${publicKey}`);
@@ -390,8 +391,8 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
         replacesCredential = true;
       }
     } else {
-      // New user, create them with a classic Stellar ed25519 account.
-      // Workers receive payments to this address; enterprises get one too (harmless).
+      // New user, given a classic Stellar ed25519 keypair (custodial). Workers are paid to this address; employers fund
+      // their payouts from it.
       userId = randomUUID();
       const stellarKeypair = Keypair.random();
       // Encrypt the secret key at rest (AES-256-GCM via MASTER_ENCRYPTION_KEY).
@@ -401,9 +402,9 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
          VALUES ($1, $2, $3, $4, $5)`,
         [userId, email, session.role, stellarKeypair.publicKey(), encryptedSecret],
       );
-      // Create the account on-chain (testnet) so it exists and has a balance.
-      // Best-effort and awaited so the balance is ready on first dashboard load.
-      await fundTestnetAccount(stellarKeypair.publicKey());
+      // An employer's testnet wallet gets Friendbot XLM, awaited so the balance shows on first load. A worker's account
+      // is created later, sponsored, the first time they are paid.
+      if (session.role === 'enterprise') await fundTestnetEmployer(stellarKeypair.publicKey());
     }
 
     // Create credential

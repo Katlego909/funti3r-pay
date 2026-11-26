@@ -7,10 +7,10 @@ import { reconcileEscrows } from './lib/escrowReconcile.js';
 import { settleEscrowCreations } from './lib/escrowCreation.js';
 import { verifyRecentPayments } from './lib/paymentReconcile.js';
 import { syncPendingRamps } from './lib/rampsSync.js';
-import { findTransactionByMemoHash, payoutOutcome } from './lib/stellar.js';
+import { findTransactionByMemoHash, payoutOutcome, sponsorPublicKey, spendableXlm } from './lib/stellar.js';
 import { recordAllMissingEscrowPayments } from './lib/escrowAccounting.js';
 import { notifyPaymentSettled } from './lib/paymentNotifications.js';
-import { jobRunsTotal, jobSeconds, stuckCashouts, stuckPayments } from './lib/metrics.js';
+import { jobRunsTotal, jobSeconds, sponsorXlm, stuckCashouts, stuckPayments } from './lib/metrics.js';
 import { runBatchPayout } from './app.js';
 import { batchVerdict } from './lib/paymentStatus.js';
 
@@ -308,9 +308,18 @@ async function refreshStuckGauges(): Promise<void> {
   stuckPayments.set(payments.rows[0]?.n ?? 0);
 }
 
+/** How much the sponsor has left, for the low-balance alert. Without a sponsor configured there is nothing to watch. */
+async function refreshSponsorGauge(): Promise<void> {
+  const sponsor = sponsorPublicKey();
+  if (sponsor) sponsorXlm.set(await spendableXlm(sponsor));
+}
+
 export function startScheduler(): void {
   cron.schedule('* * * * *', () => {
     refreshStuckGauges().catch((err) => logger.warn('Could not refresh the stuck-money gauges', { error: String(err) }));
+  });
+  cron.schedule('*/5 * * * *', () => {
+    refreshSponsorGauge().catch((err) => logger.warn('Could not read the sponsor balance', { error: String(err) }));
   });
 
   // Check for due schedules every hour, on the hour.

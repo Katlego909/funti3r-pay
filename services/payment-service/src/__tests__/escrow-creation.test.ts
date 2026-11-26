@@ -48,7 +48,7 @@ beforeEach(() => {
   vi.mocked(escrow.contractCallOutcome).mockReset();
   vi.mocked(stellar.sendPayment).mockReset();
   vi.mocked(axios.get).mockReset().mockResolvedValue({ data: { status: 'verified' } });
-  vi.mocked(stellar.ensureTrustline).mockReset();
+  vi.mocked(stellar.activateAccount).mockReset().mockResolvedValue({ created: false });
   vi.mocked(stellar.ensureAssetBalance).mockReset().mockResolvedValue({ spentXlm: null });
 });
 
@@ -65,15 +65,17 @@ describe('POST /escrows write-ahead', () => {
     expect(res.body).toMatchObject({ id: ESCROW_ID, onchainEscrowId: '3' });
   });
 
-  it('buys any USDC the company wallet lacks, and opens the USDC trustline of the worker, before locking anything', async () => {
+  it('buys any USDC the company wallet lacks, and activates the account and USDC trustline of the worker, before locking anything', async () => {
     const order: string[] = [];
-    vi.mocked(stellar.ensureTrustline).mockReset().mockImplementation(async () => { order.push('worker-trustline'); });
+    vi.mocked(stellar.activateAccount).mockReset().mockImplementation(async () => { order.push('worker-account'); return { created: true }; });
     vi.mocked(stellar.ensureAssetBalance).mockReset().mockImplementation(async () => { order.push('fund'); return { spentXlm: '15.4' }; });
     vi.mocked(escrow.createEscrow).mockImplementation(async () => { order.push('lock'); return { escrowId: 3n, hash: 'tx-create' }; });
 
     const res = await request(app).post('/escrows').set(owner).send(body({ milestones: [{ amount: '25.5' }, { amount: 10 }] }));
     expect(res.status).toBe(201);
-    expect(order).toEqual(['worker-trustline', 'fund', 'lock']);
+    expect(order).toEqual(['worker-account', 'fund', 'lock']);
+    // The worker's account (created and sponsored if missing) must hold a USDC trustline before anything is locked.
+    expect(vi.mocked(stellar.activateAccount).mock.calls[0][1]).toEqual([{ code: 'USDC', issuer: process.env.STELLAR_USDC_ISSUER }]);
     const [, code, issuer, total] = vi.mocked(stellar.ensureAssetBalance).mock.calls[0];
     expect([code, issuer, total]).toEqual(['USDC', process.env.STELLAR_USDC_ISSUER, '35.5000000']); // exact, no float drift
   });
