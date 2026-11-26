@@ -1,6 +1,8 @@
 import express from 'express';
 import { createLogger, NotFoundError, ExternalServiceError, errorHandler, hasIdentity, requireGatewayIdentity, requireRole, requestContext, registerHealth } from '@funti3r/shared-utils';
-import { metrics } from './metrics.js';
+import { audit } from '@funti3r/database';
+import { maskForReview } from './kycMask.js';
+import { auditWriteFailures, metrics } from './metrics.js';
 import { candidateBirthYearFromSubmission, candidateNamesFromSubmission } from './names.js';
 import type { Deps } from './deps.js';
 import { canDecide, kycAccess, visibleUserIds } from './access.js';
@@ -271,6 +273,32 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
   // The user themself, a platform admin, or a member of a company that has this user as a worker.
   // Never another company: a submission holds ID, bank and tax numbers.
 
+  /** One person's KYC record as the API shows it, or null when they have none. */
+  async function kycRecord(targetUserId: string, masked: boolean) {
+    const result = await query(
+      `SELECT id, user_id, ${EFFECTIVE_STATUS} AS status, data, verified_at, created_at, updated_at, sanctions_status, sanctions_matches
+         FROM kyc_records WHERE user_id = $1`,
+      [targetUserId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const details = openDetails(row.data);
+    // Flatten the stored submission so the UI can read fields directly. Computed fields spread LAST: a submitter can
+    // put arbitrary keys (e.g. "status") in their own payload, and those must never override the real values.
+    return {
+      ...(masked ? maskForReview(details) : details),
+      masked,
+      id: row.id,
+      user_id: row.user_id,
+      status: toFrontendStatus(row.status),
+      verified_at: row.verified_at,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      sanctions_status: row.sanctions_status,
+      sanctions_matches: row.sanctions_matches,
+    };
+  }
+
   app.get('/:userId', async (req, res, next) => {
     const targetUserId = req.params.userId;
     try {
@@ -279,35 +307,40 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
       );
       if (!access) return res.status(403).json({ error: 'Not authorized to view this KYC record' });
 
-      const result = await query(
-        `SELECT id, user_id, ${EFFECTIVE_STATUS} AS status, data, verified_at, created_at, updated_at, sanctions_status, sanctions_matches
-           FROM kyc_records WHERE user_id = $1`,
-        [targetUserId],
-      );
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'No KYC record found' });
-      }
-
-      const row = result.rows[0];
-      // Flatten the stored submission payload so the UI can read fields directly.
-      // Computed fields spread LAST — a submitter can put arbitrary keys (e.g.
-      // "status") in their own submission payload; those must never override
-      // the real computed values.
-      res.json({
-        ...openDetails(row.data),
-        id: row.id,
-        user_id: row.user_id,
-        status: toFrontendStatus(row.status),
-        verified_at: row.verified_at,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-        sanctions_status: row.sanctions_status,
-        sanctions_matches: row.sanctions_matches,
-      });
+      // A platform admin sees identifying numbers masked; the full record takes an audited reveal (below).
+      const record = await kycRecord(targetUserId, access === 'admin');
+      if (!record) return res.status(404).json({ error: 'No KYC record found' });
+      res.json(record);
     } catch (err) {
       next(err);
     }
   });
+
+  /**
+   * A platform admin's deliberate look at someone's full KYC record, with a reason. Recorded in the audit trail BEFORE
+   * anything is shown: if the record of the reveal cannot be written, nothing is revealed.
+   */
+  app.post('/:userId/reveal', requireRole('admin'), async (req, res, next) => {
+    const targetUserId = req.params.userId;
+    const reason = (req.body as { reason?: unknown } | undefined)?.reason;
+    if (typeof reason !== 'string' || !reason.trim()) return res.status(400).json({ error: 'A reason is required' });
+    try {
+      const exists = await query('SELECT 1 FROM kyc_records WHERE user_id = $1', [targetUserId]);
+      if (!exists.rows.length) return res.status(404).json({ error: 'No KYC record found' });
+      const recorded = await audit(
+        {
+          actorId: asString(req.headers['x-user-id']), actorRole: 'admin', action: 'kyc.revealed', entityType: 'user',
+          entityId: targetUserId, detail: { reason: reason.trim().slice(0, 500) },
+        },
+        { run: query, onFailure: () => auditWriteFailures.inc() },
+      );
+      if (!recorded) return res.status(503).json({ error: 'Could not record the reveal; nothing was shown. Try again.' });
+      res.json(await kycRecord(targetUserId, false));
+    } catch (err) {
+      next(err);
+    }
+  });
+
 
   // ── The audit trail of one user's KYC (same access as the record itself) ────
 
