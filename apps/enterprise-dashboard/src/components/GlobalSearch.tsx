@@ -7,9 +7,8 @@ import {
   HiOutlineUsers,
   HiOutlineCommandLine,
 } from 'react-icons/hi2';
-import { api } from '../api/client.js';
+import { api, useAuthStore } from '@funti3r/web-core';
 import { listPayments, type Payment } from '../api/payments.js';
-import { useAuthStore } from '../store/authStore.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 
 interface WorkerResult { id: string; email: string; role: string; preferred_currency?: string }

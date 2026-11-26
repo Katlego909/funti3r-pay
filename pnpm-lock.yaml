@@ -67,9 +67,12 @@ importers:
       '@funti3r/shared-utils':
         specifier: workspace:*
         version: link:../../packages/shared-utils
-      '@simplewebauthn/browser':
-        specifier: ^14.0.0
-        version: 14.0.0
+      '@funti3r/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@funti3r/web-core':
+        specifier: workspace:*
+        version: link:../../packages/web-core
       '@stellar/stellar-sdk':
         specifier: ^16.3.1
         version: 16.3.1
@@ -228,6 +231,31 @@ importers:
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
+
+  packages/ui:
+    dependencies:
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+      react-icons:
+        specifier: ^5.7.0
+        version: 5.7.0(react@18.3.1)
+    devDependencies:
+      '@types/react':
+        specifier: ^18.2.0
+        version: 18.3.29
+
+  packages/web-core:
+    dependencies:
+      '@simplewebauthn/browser':
+        specifier: ^14.0.0
+        version: 14.0.0
+      axios:
+        specifier: '>=1.20.0'
+        version: 1.20.0
+      zustand:
+        specifier: ^4.4.0
+        version: 4.5.7(@types/react@18.3.29)(immer@11.1.21)(react@18.3.1)
 
   packages/webauthn: {}
 

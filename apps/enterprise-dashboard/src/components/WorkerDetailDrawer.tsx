@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
 import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
-import { api } from '../api/client.js';
+import { api } from '@funti3r/web-core';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
-import SlideOver, { Row, SectionTitle } from './SlideOver.js';
-import CopyButton from './CopyButton.js';
-import { StatusBadge } from './StatusBadge.js';
+import { SlideOver, Row, SectionTitle, CopyButton, StatusBadge } from '@funti3r/ui';
 import { CURRENCY_META } from '../lib/currencyMeta.js';
 import { EXPLORER } from '../lib/explorer.js';
 

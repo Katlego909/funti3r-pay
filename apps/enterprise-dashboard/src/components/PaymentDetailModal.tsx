@@ -2,15 +2,12 @@ import { useEffect, useState } from 'react';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { RAIL_LABELS } from './InsightsCharts.js';
 import { HiOutlineArrowTopRightOnSquare, HiOutlineArrowPath, HiOutlineArrowDownTray } from 'react-icons/hi2';
-import { api } from '../api/client.js';
+import { api, apiErrorMessage } from '@funti3r/web-core';
 import { initiatePayment } from '../api/payments.js';
 import { generatePayslip, formatCompanyLabel } from '../utils/export.js';
-import SlideOver, { Row } from './SlideOver.js';
-import CopyButton from './CopyButton.js';
-import { StatusBadge } from './StatusBadge.js';
+import { SlideOver, Row, CopyButton, StatusBadge } from '@funti3r/ui';
 import { currencyColor } from '../lib/currencyMeta.js';
 import { EXPLORER } from '../lib/explorer.js';
-import { apiErrorMessage } from '../api/errors.js';
 
 interface PaymentDetail {
   id: string;

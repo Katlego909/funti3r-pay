@@ -8,13 +8,12 @@ import {
   HiOutlineArrowPath,
 } from 'react-icons/hi2';
 import { toast } from 'sonner';
-import { useAuthStore } from '../store/authStore';
-import { api } from '../api/client.js';
+import { useAuthStore, api, apiErrorMessage } from '@funti3r/web-core';
 import {
   getPayoutCurrencies, getPreferredCurrency, setPreferredCurrency,
   type PayoutCurrency,
 } from '../api/payments.js';
-import CopyButton from '../components/CopyButton.js';
+import { CopyButton } from '@funti3r/ui';
 import EscrowTransactionsDrawer from '../components/EscrowTransactionsDrawer.js';
 import SubmitWorkModal from '../components/SubmitWorkModal.js';
 import {
@@ -26,7 +25,6 @@ import CashoutsTable from '../components/CashoutsTable.js';
 import WorkerMilestonesTable from '../components/WorkerMilestonesTable.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { EXPLORER } from '../lib/explorer.js';
-import { apiErrorMessage } from '../api/errors.js';
 
 interface WalletBalance {
   asset_type: string;

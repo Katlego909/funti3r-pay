@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { HiOutlineCheckCircle } from 'react-icons/hi2';
 import { toast } from 'sonner';
-import { requestRecoveryLink } from '../api/auth.js';
+import { requestRecoveryLink } from '@funti3r/web-core';
 
 export default function RecoveryStart() {
   const [email, setEmail] = useState('');

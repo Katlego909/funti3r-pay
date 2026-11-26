@@ -1,5 +1,5 @@
 import { isAxiosError } from 'axios';
-import { api } from './client.js';
+import { api } from '@funti3r/web-core';
 import { listAllPayments } from './payments.js';
 import { listEscrows, listWalletCashouts } from './escrows.js';
 

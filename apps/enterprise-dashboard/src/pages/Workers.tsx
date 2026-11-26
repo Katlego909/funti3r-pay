@@ -1,19 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { toast } from 'sonner';
-import { useAuthStore } from '../store/authStore.js';
+import { useAuthStore, api, apiErrorMessage } from '@funti3r/web-core';
 import { getKYCStatusBulk, getInvites, deleteInvite, type Worker, type KYCStatus, type WorkerInvite } from '../api/workers.js';
-import { api } from '../api/client.js';
 import WorkerDetailDrawer from '../components/WorkerDetailDrawer.js';
-import ConfirmDialog from '../components/ConfirmDialog.js';
-import Modal from '../components/Modal.js';
+import { ConfirmDialog, Modal, PageHeader, ExportButtons, StatusBadge, KycBadge } from '@funti3r/ui';
 import InviteLinkModal from '../components/InviteLinkModal.js';
-import PageHeader from '../components/PageHeader.js';
-import ExportButtons from '../components/ExportButtons.js';
-import { StatusBadge, KycBadge } from '../components/StatusBadge.js';
 import { exportWorkersCSV, exportWorkersPDF } from '../utils/export.js';
 import { EXPLORER } from '../lib/explorer.js';
-import { apiErrorMessage } from '../api/errors.js';
 
 interface WorkerRow extends Worker {
   kyc?: KYCStatus;

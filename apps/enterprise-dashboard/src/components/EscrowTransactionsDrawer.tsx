@@ -1,9 +1,7 @@
 import { useRef } from 'react';
 import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import type { Escrow } from '../api/escrows.js';
-import SlideOver, { Row, SectionTitle } from './SlideOver.js';
-import { StatusBadge } from './StatusBadge.js';
-import CopyButton from './CopyButton.js';
+import { SlideOver, Row, SectionTitle, StatusBadge, CopyButton } from '@funti3r/ui';
 import EscrowTransactions from './EscrowTransactions.js';
 import EscrowReviewLog from './EscrowReviewLog.js';
 import EscrowMoneyTrail from './EscrowMoneyTrail.js';

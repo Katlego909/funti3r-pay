@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useAuthStore } from '../store/authStore';
-import { api } from '../api/client.js';
-import { StatusBadge } from './StatusBadge.js';
-import { apiErrorMessage } from '../api/errors.js';
+import { useAuthStore, api, apiErrorMessage } from '@funti3r/web-core';
+import { StatusBadge } from '@funti3r/ui';
 
 interface KYCStatusData {
   id?: string;

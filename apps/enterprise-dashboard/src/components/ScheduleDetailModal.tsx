@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Schedule } from '../api/schedules.js';
-import SlideOver, { Row, SectionTitle } from './SlideOver.js';
-import { StatusBadge } from './StatusBadge.js';
+import { SlideOver, Row, SectionTitle, StatusBadge } from '@funti3r/ui';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string }
 

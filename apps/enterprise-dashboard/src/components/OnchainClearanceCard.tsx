@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getMyClearance, type OnchainClearance } from '../api/escrows.js';
-import { StatusBadge } from './StatusBadge.js';
+import { StatusBadge } from '@funti3r/ui';
 
 const line = { margin: '8px 0 0', fontSize: '0.88rem', color: 'var(--gray-600)' } as const;
 

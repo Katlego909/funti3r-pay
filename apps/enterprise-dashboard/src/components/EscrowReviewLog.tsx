@@ -1,5 +1,5 @@
 import type { Escrow } from '../api/escrows.js';
-import { StatusBadge } from './StatusBadge.js';
+import { StatusBadge } from '@funti3r/ui';
 
 const KIND: Record<string, ['completed' | 'failed' | 'pending', string]> = {
   submitted: ['pending', 'Work submitted'],

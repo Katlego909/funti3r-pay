@@ -2,9 +2,7 @@ import { useState, FormEvent } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { toast } from 'sonner';
-import { loginPasskey, devLogin } from '../api/auth.js';
-import { useAuthStore } from '../store/authStore.js';
-import { apiErrorMessage } from '../api/errors.js';
+import { loginPasskey, devLogin, useAuthStore, apiErrorMessage } from '@funti3r/web-core';
 
 // No passkey for this email here, the wrong passkey and a dismissed prompt all get the same message: the server
 // deliberately doesn't say which, as that would tell anyone whether an email has an account.

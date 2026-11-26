@@ -10,8 +10,7 @@ import {
   HiOutlineLockClosed,
 } from 'react-icons/hi2';
 import { exportAnalyticsCSV, exportAnalyticsPDF, formatCompanyLabel } from '../utils/export.js';
-import ExportButtons from '../components/ExportButtons.js';
-import { StatusBadge } from '../components/StatusBadge.js';
+import { ExportButtons, StatusBadge, statusClass } from '@funti3r/ui';
 import {
   getSummary,
   getRecentPayments,
@@ -22,12 +21,9 @@ import {
 import { getUserSummary } from '../api/workers.js';
 import { getEscrowSummary, type EscrowSummary } from '../api/escrows.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
-import { api } from '../api/client.js';
-import { useAuthStore } from '../store/authStore.js';
+import { api, useAuthStore } from '@funti3r/web-core';
 import InsightsCharts, { RAIL_LABELS } from '../components/InsightsCharts.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
-import { statusClass } from '../lib/status.js';
-import '../styles/Dashboard.css';
 import { EXPLORER } from '../lib/explorer.js';
 
 export default function Dashboard() {

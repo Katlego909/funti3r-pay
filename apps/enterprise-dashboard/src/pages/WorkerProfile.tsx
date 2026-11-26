@@ -1,7 +1,6 @@
-import { useAuthStore } from '../store/authStore.js';
+import { useAuthStore, logout } from '@funti3r/web-core';
 import { useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { logout } from '../api/auth.js';
 import { HiOutlineArrowRightOnRectangle, HiOutlineCheckCircle } from 'react-icons/hi2';
 import WalletInfo from '../components/WalletInfo.js';
 

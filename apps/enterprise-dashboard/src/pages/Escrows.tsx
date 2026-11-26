@@ -2,21 +2,16 @@ import { useEffect, useRef, useState, FormEvent } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { HiOutlineLockClosed, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { toast } from 'sonner';
-import { api } from '../api/client.js';
+import { api, apiErrorMessage } from '@funti3r/web-core';
 import { listEscrows, createEscrow, approveMilestone, refundEscrow, type Escrow, type CreateEscrowPayload } from '../api/escrows.js';
 import { isFinalPayoutError } from '../api/payments.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import EscrowMoneyTrail from '../components/EscrowMoneyTrail.js';
-import PageHeader from '../components/PageHeader.js';
-import Modal from '../components/Modal.js';
-import ConfirmDialog from '../components/ConfirmDialog.js';
-import SlideOver, { Row, SectionTitle } from '../components/SlideOver.js';
-import { StatusBadge } from '../components/StatusBadge.js';
+import { PageHeader, Modal, ConfirmDialog, SlideOver, Row, SectionTitle, StatusBadge } from '@funti3r/ui';
 import EscrowTransactions from '../components/EscrowTransactions.js';
 import EscrowReviewLog from '../components/EscrowReviewLog.js';
 import RejectWorkModal from '../components/RejectWorkModal.js';
 import { EXPLORER } from '../lib/explorer.js';
-import { apiErrorMessage } from '../api/errors.js';
 
 interface WorkerOption { id: string; email: string }
 /** Employers enter milestone amounts in USD; the XLM that gets locked is derived from the live price. */

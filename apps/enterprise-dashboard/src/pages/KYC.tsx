@@ -4,7 +4,7 @@ import { KYCForm } from '../components/KYCForm';
 import { KYCStatus } from '../components/KYCStatus';
 import { OnchainClearanceCard } from '../components/OnchainClearanceCard';
 import { FAQAccordion } from '../components/FAQAccordion';
-import PageHeader from '../components/PageHeader.js';
+import { PageHeader } from '@funti3r/ui';
 
 const REQUIREMENTS = [
   { title: 'Personal information', detail: 'Your full legal name, date of birth, and nationality for identity verification.' },

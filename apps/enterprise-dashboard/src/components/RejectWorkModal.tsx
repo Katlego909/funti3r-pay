@@ -1,8 +1,8 @@
 import { FormEvent, useState } from 'react';
 import { toast } from 'sonner';
-import Modal from './Modal.js';
+import { Modal } from '@funti3r/ui';
 import { rejectMilestone } from '../api/escrows.js';
-import { apiErrorMessage } from '../api/errors.js';
+import { apiErrorMessage } from '@funti3r/web-core';
 
 interface Props {
   target: { escrowId: string; idx: number; title: string } | null;

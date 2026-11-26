@@ -1,13 +1,12 @@
-import { useAuthStore } from '../store/authStore.js';
+import { useAuthStore, logout } from '@funti3r/web-core';
 import { useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { logout } from '../api/auth.js';
 import {
   HiOutlineArrowRightOnRectangle,
   HiOutlineShieldCheck,
 } from 'react-icons/hi2';
 import WalletInfo from '../components/WalletInfo.js';
-import { StatusBadge } from '../components/StatusBadge.js';
+import { StatusBadge } from '@funti3r/ui';
 
 export default function Profile() {
   const user = useAuthStore((s) => s.user);

@@ -3,9 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { HiOutlineCheckCircle, HiOutlineExclamationCircle } from 'react-icons/hi2';
 import { toast } from 'sonner';
-import { verifyRecoveryToken, registerPasskey } from '../api/auth.js';
-import { useAuthStore } from '../store/authStore.js';
-import { apiErrorMessage } from '../api/errors.js';
+import { verifyRecoveryToken, registerPasskey, useAuthStore, apiErrorMessage } from '@funti3r/web-core';
 
 type Stage = 'verifying' | 'enroll' | 'done' | 'error';
 

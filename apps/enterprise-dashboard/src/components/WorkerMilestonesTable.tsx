@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import type { Escrow } from '../api/escrows.js';
-import { StatusBadge } from './StatusBadge.js';
+import { StatusBadge, ExportButtons } from '@funti3r/ui';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { buildMilestoneRows, inTab, type MilestoneRow, type MilestoneTab } from '../lib/workerMilestones.js';
-import ExportButtons from './ExportButtons.js';
 import { exportMilestonesCSV, exportMilestonesPDF, type ExportMilestone } from '../utils/export.js';
 
 export interface SubmitTarget {
