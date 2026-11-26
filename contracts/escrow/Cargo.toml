@@ -11,3 +11,5 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+# Attack (property) tests: random operation sequences checked against the money invariants. Test-only, not in the Wasm.
+proptest = "1.11"
