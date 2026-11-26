@@ -25,7 +25,9 @@ vi.mock('@funti3r/database', async (importOriginal) => {
   const transaction = vi.fn(async (fn: (client: { query: typeof query }) => unknown) => fn({ query }));
   // No Postgres for the cluster-wide lock either: it simply runs the function.
   const withAdvisoryLock = vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn());
-  return { ...actual, query, notify, transaction, withAdvisoryLock, recoveryHold, recoveryHoldUntil, getJSON: vi.fn(noRedis), setJSON: vi.fn(noRedis) };
+  // The real audit writer, writing through the mocked query, so tests can see the audit rows a route writes.
+  const audit = (e: Parameters<typeof actual.audit>[0], o: Parameters<typeof actual.audit>[1] = {}) => actual.audit(e, { ...o, run: query as never });
+  return { ...actual, query, notify, transaction, withAdvisoryLock, audit, recoveryHold, recoveryHoldUntil, getJSON: vi.fn(noRedis), setJSON: vi.fn(noRedis) };
 });
 
 vi.mock('axios');
