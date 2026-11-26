@@ -1,5 +1,8 @@
 import type { Request, Response, NextFunction } from 'express';
-import { verifyToken, stampIdentity, getLogContext } from '@funti3r/shared-utils';
+import { verifyToken, stampIdentity, getLogContext, signInRefusal, createLogger } from '@funti3r/shared-utils';
+import { accountStatus as readAccountStatus } from './accountStatus.js';
+
+const logger = createLogger('APIGateway');
 
 // The only auth endpoints reachable before a JWT exists. Explicit and
 // exhaustive on purpose — unlike a `startsWith('/auth/')` prefix check, this
@@ -39,22 +42,49 @@ function isPublic(path: string, method: string): boolean {
   return false;
 }
 
-export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
-  if (isPublic(req.path, req.method)) return next();
+/**
+ * Verifies the access token, then checks the account is still allowed in: a suspended, closed or deleted account is
+ * refused here on every request, so no service keeps serving it until its token expires. When the status cannot be
+ * read the request is refused (fail closed), never let through.
+ */
+export function createAuthMiddleware(accountStatus: (userId: string) => Promise<string | null> = readAccountStatus) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    if (isPublic(req.path, req.method)) return next();
 
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing or malformed Authorization header' });
-    return;
-  }
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Missing or malformed Authorization header' });
+      return;
+    }
 
-  try {
-    const token = authHeader.slice(7);
-    const payload = verifyToken(token);
-    // Forward user identity to downstream services. x-company-id is always
-    // set-or-cleared (never left as whatever the client sent) so a caller
-    // can't spoof company scope by attaching their own header when their
-    // JWT carries no companyId.
+    let payload: ReturnType<typeof verifyToken>;
+    try {
+      payload = verifyToken(authHeader.slice(7));
+    } catch {
+      res.status(401).json({ error: 'Invalid or expired token' });
+      return;
+    }
+
+    let status: string | null;
+    try {
+      status = await accountStatus(payload.userId);
+    } catch (err) {
+      logger.error('Account status check failed', { error: String(err) });
+      res.status(503).json({ error: 'Service temporarily unavailable' });
+      return;
+    }
+    if (status === null) {
+      res.status(401).json({ error: 'Invalid or expired token' });
+      return;
+    }
+    const refusal = signInRefusal(status);
+    if (refusal) {
+      res.status(403).json({ error: refusal, code: `ACCOUNT_${status.toUpperCase()}` });
+      return;
+    }
+
+    // Forward user identity to downstream services. x-company-id is always set-or-cleared (never left as whatever the
+    // client sent) so a caller can't spoof company scope by attaching their own header when their JWT has no companyId.
     req.headers['x-user-id'] = payload.userId;
     req.headers['x-user-role'] = payload.role;
     req.headers['x-user-email'] = payload.email;
@@ -69,7 +99,5 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     const log = getLogContext();
     if (log) { log.userId = payload.userId; log.role = payload.role; }
     next();
-  } catch {
-    res.status(401).json({ error: 'Invalid or expired token' });
-  }
+  };
 }

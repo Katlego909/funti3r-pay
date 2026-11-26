@@ -31,10 +31,11 @@ import {
   getLogContext,
   isUuid,
   requireRole,
+  signInRefusal,
 } from '@funti3r/shared-utils';
 import { sendRecoveryEmail } from './lib/email.js';
 import { hasSessionFor } from './lib/sessionAuth.js';
-import { allowedOrigin, rpOrigins, selfRegisterRole, signInRefusal } from './lib/authPolicy.js';
+import { allowedOrigin, rpOrigins, selfRegisterRole } from './lib/authPolicy.js';
 import { decoyCredentialId } from './lib/loginDecoy.js';
 import { closeAccount, closureBlockers, type ClosureDeps } from './lib/accountClosure.js';
 import { acceptCompanyInvite, type CompanyInviteDeps } from './lib/companyInvites.js';

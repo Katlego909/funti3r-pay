@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { allowedOrigin, rpOrigins, selfRegisterRole, signInRefusal } from './authPolicy.js';
+import { allowedOrigin, rpOrigins, selfRegisterRole } from './authPolicy.js';
 
 test('nobody can register as a platform admin', () => {
   assert.equal(selfRegisterRole('admin'), null);
@@ -26,10 +26,4 @@ test('a passkey request is only accepted from one of our origins', () => {
   assert.equal(allowedOrigin('https://admin.funti3r.xyz', origins), 'https://admin.funti3r.xyz');
   assert.equal(allowedOrigin('https://evil.example', origins), null);
   assert.equal(allowedOrigin(undefined, origins), 'https://pay.funti3r.xyz'); // none named: the default
-});
-
-test('suspended and closed accounts cannot sign in or refresh; active ones can', () => {
-  assert.match(signInRefusal('suspended') ?? '', /suspended/);
-  assert.match(signInRefusal('closed') ?? '', /closed/);
-  assert.equal(signInRefusal('active'), null);
 });

@@ -7,7 +7,7 @@ import { mountProxyRoutes, stripApiPrefix } from './routes.js';
 import { randomUUID } from 'node:crypto';
 import { createLogger, errorHandler, installProcessHandlers, assertInternalAuthConfigured, assertJwtConfigured, stripIdentity, requestContext, createMetrics } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, getRedis } from '@funti3r/database';
-import { authMiddleware } from './middleware/auth.js';
+import { createAuthMiddleware } from './middleware/auth.js';
 
 const logger = createLogger('APIGateway');
 installProcessHandlers(logger);
@@ -120,7 +120,7 @@ app.use((req, _res, next) => {
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
-app.use(authMiddleware);
+app.use(createAuthMiddleware());
 // After auth, so the limit is per signed-in user.
 app.use(['/payouts', '/escrows', '/cashouts', '/schedules', '/compliance', '/wallets', '/admin'], moneyLimiter);
 
