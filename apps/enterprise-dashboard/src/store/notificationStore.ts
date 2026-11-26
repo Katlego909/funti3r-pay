@@ -32,6 +32,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     }
   },
 
+  // 
   markRead: async (id: string) => {
     // Optimistic update
     set((s) => ({
@@ -47,6 +48,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     }
   },
 
+  // Mark all notifications as read
   markAllRead: async () => {
     const now = new Date().toISOString();
     set((s) => ({
