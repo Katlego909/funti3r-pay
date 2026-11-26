@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { registerPasskey } from '../api/auth';
+import { registerPasskey } from '@funti3r/web-core';
 
 export function AuthComponent() {
   const [status, setStatus] = useState<string>('Ready');

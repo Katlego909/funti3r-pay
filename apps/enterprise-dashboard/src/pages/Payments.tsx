@@ -5,18 +5,11 @@ import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMar
 import { toast } from 'sonner';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
 import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, isFinalPayoutError, type Payment, type BatchResult } from '../api/payments.js';
-import { api } from '../api/client.js';
-import { useAuthStore } from '../store/authStore.js';
+import { api, useAuthStore, apiErrorMessage } from '@funti3r/web-core';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
-import Modal from '../components/Modal.js';
-import PageHeader from '../components/PageHeader.js';
-import ExportButtons from '../components/ExportButtons.js';
-import CopyButton from '../components/CopyButton.js';
-import { StatusBadge } from '../components/StatusBadge.js';
-import { STATUS_TABS } from '../lib/status.js';
+import { Modal, PageHeader, ExportButtons, CopyButton, StatusBadge, STATUS_TABS } from '@funti3r/ui';
 import { CURRENCY_META } from '../lib/currencyMeta.js';
 import { EXPLORER } from '../lib/explorer.js';
-import { apiErrorMessage } from '../api/errors.js';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string; stellar_public_key?: string }
 interface BatchRow { workerId: string; amountUsd: string }

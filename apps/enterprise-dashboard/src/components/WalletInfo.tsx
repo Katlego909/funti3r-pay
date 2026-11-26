@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
 import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
-import { useAuthStore } from '../store/authStore.js';
-import { api } from '../api/client.js';
-import CopyButton from './CopyButton.js';
-import { StatusBadge } from './StatusBadge.js';
+import { useAuthStore, api } from '@funti3r/web-core';
+import { CopyButton, StatusBadge } from '@funti3r/ui';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import './WalletInfo.css';
 import { EXPLORER, IS_MAINNET } from '../lib/explorer.js';

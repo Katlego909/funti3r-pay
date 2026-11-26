@@ -2,18 +2,13 @@ import { useEffect, useState, FormEvent } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { HiOutlineClock, HiOutlinePause, HiOutlinePlay, HiOutlineTrash } from 'react-icons/hi2';
 import { toast } from 'sonner';
-import { api } from '../api/client.js';
-import { useAuthStore } from '../store/authStore.js';
+import { api, useAuthStore, apiErrorMessage } from '@funti3r/web-core';
 import {
   listSchedules, createSchedule, updateScheduleStatus, deleteSchedule,
   type Schedule, type ScheduleItem,
 } from '../api/schedules.js';
 import ScheduleDetailModal from '../components/ScheduleDetailModal.js';
-import ConfirmDialog from '../components/ConfirmDialog.js';
-import Modal from '../components/Modal.js';
-import PageHeader from '../components/PageHeader.js';
-import { StatusBadge } from '../components/StatusBadge.js';
-import { apiErrorMessage } from '../api/errors.js';
+import { ConfirmDialog, Modal, PageHeader, StatusBadge } from '@funti3r/ui';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string }
 interface ScheduleRow { workerId: string; amountUsd: string }

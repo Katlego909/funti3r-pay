@@ -1,8 +1,8 @@
 import { FormEvent, useState } from 'react';
 import { toast } from 'sonner';
-import Modal from './Modal.js';
+import { Modal } from '@funti3r/ui';
 import { submitMilestoneWork } from '../api/escrows.js';
-import { apiErrorMessage } from '../api/errors.js';
+import { apiErrorMessage } from '@funti3r/web-core';
 
 const FIELD_STYLE = {
   width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 8,

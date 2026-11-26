@@ -1,4 +1,4 @@
-import { api } from './client.js';
+import { api } from '@funti3r/web-core';
 
 export interface Worker {
   id: string;

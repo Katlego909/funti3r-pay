@@ -1,9 +1,8 @@
 import { FormEvent, ReactNode, useState } from 'react';
 import { HiCheck, HiOutlineClipboard } from 'react-icons/hi2';
 import { toast } from 'sonner';
-import Modal from './Modal.js';
-import CopyButton from './CopyButton.js';
-import { apiErrorMessage } from '../api/errors.js';
+import { Modal, CopyButton } from '@funti3r/ui';
+import { apiErrorMessage } from '@funti3r/web-core';
 
 interface InviteLinkModalProps {
   open: boolean;

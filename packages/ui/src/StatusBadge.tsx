@@ -1,5 +1,5 @@
 import { CSSProperties, ReactNode } from 'react';
-import { statusClass } from '../lib/status.js';
+import { statusClass } from './status.js';
 
 type Variant = 'completed' | 'failed' | 'pending';
 

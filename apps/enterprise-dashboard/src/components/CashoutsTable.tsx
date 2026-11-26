@@ -1,9 +1,7 @@
 import { useState } from 'react';
 import type { WalletCashout } from '../api/escrows.js';
-import { StatusBadge } from './StatusBadge.js';
-import CopyButton from './CopyButton.js';
+import { StatusBadge, CopyButton, ExportButtons } from '@funti3r/ui';
 import CashoutReceiptDrawer from './CashoutReceiptDrawer.js';
-import ExportButtons from './ExportButtons.js';
 import { exportCashoutsCSV, exportCashoutsPDF } from '../utils/export.js';
 
 const NOT_YET = <span style={{ color: '#9ca3af', fontSize: '0.78rem' }}>Not yet</span>;

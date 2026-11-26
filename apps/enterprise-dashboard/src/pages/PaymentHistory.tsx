@@ -9,16 +9,11 @@ import {
 } from 'react-icons/hi2';
 import { listPayments, listAllPayments, type Payment } from '../api/payments.js';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
-import { useAuthStore } from '../store/authStore.js';
+import { useAuthStore, apiErrorMessage } from '@funti3r/web-core';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
-import PageHeader from '../components/PageHeader.js';
-import ExportButtons from '../components/ExportButtons.js';
+import { PageHeader, ExportButtons, StatusBadge, STATUS_TABS } from '@funti3r/ui';
 import IncomeStatementButton from '../components/IncomeStatementButton.js';
-import { StatusBadge } from '../components/StatusBadge.js';
-import { STATUS_TABS } from '../lib/status.js';
-import '../styles/Dashboard.css';
 import { EXPLORER } from '../lib/explorer.js';
-import { apiErrorMessage } from '../api/errors.js';
 
 export default function PaymentHistory() {
   const dc = useDisplayCurrency();

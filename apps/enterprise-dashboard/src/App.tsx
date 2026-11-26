@@ -20,18 +20,17 @@ import {
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { toast } from 'sonner';
 import { useNotificationStore } from './store/notificationStore.js';
-import { useAuthStore } from './store/authStore.js';
-import { logout } from './api/auth.js';
+import { useAuthStore, logout } from '@funti3r/web-core';
 import GlobalSearch from './components/GlobalSearch.js';
 import { Toaster } from 'sonner';
 import ErrorBoundary from './components/ErrorBoundary.js';
 // Shared styles (tables, cards, landing/legal layout) that several pages use without importing them themselves. They
 // used to arrive as a side effect of importing Dashboard/Landing/HelpCenter here, so they stay global and in this
 // order — before App.css, as before — now that those pages load on demand.
-import './styles/Dashboard.css';
+import '@funti3r/ui/dashboard.css';
 import './styles/Landing.css';
 import './styles/HelpCenter.css';
-import './App.css';
+import '@funti3r/ui/app.css';
 
 // Each page is its own chunk, so a visitor downloads only the screen they open (charts, PDF and the long legal
 // pages stay out of the first load).

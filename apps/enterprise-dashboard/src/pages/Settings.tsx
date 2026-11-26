@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import { Helmet } from 'react-helmet-async';
 import { toast } from 'sonner';
-import { useAuthStore } from '../store/authStore.js';
-import { api } from '../api/client.js';
+import { useAuthStore, api, apiErrorMessage, logout } from '@funti3r/web-core';
 import { getCompanyMembers, getCompanyInvites, removeCompanyMember, type CompanyMember, type CompanyInvite } from '../api/company.js';
 import {
   HiOutlineUser,
@@ -16,11 +15,9 @@ import {
   HiOutlineTrash,
   HiOutlineArrowDownTray,
 } from 'react-icons/hi2';
-import ConfirmDialog from '../components/ConfirmDialog.js';
+import { ConfirmDialog } from '@funti3r/ui';
 import InviteLinkModal from '../components/InviteLinkModal.js';
-import { apiErrorMessage } from '../api/errors.js';
 import { collectMyData, getClosureBlockers, closeAccount } from '../api/account.js';
-import { logout } from '../api/auth.js';
 import { exportJSON } from '../utils/export.js';
 
 const card: React.CSSProperties = {

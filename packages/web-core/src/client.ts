@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { useAuthStore } from '../store/authStore.js';
+import { useAuthStore } from './authStore.js';
 
 // Development talks to the gateway directly; the built app is served next to a proxy that forwards /api to it.
 const BASE_URL = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? '/api' : 'http://localhost:3000');

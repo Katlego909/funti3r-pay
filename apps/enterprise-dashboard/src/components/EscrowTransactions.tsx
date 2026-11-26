@@ -1,6 +1,6 @@
 import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import type { Escrow } from '../api/escrows.js';
-import CopyButton from './CopyButton.js';
+import { CopyButton } from '@funti3r/ui';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import type { DisplayCurrency } from '../lib/displayCurrency.js';
 

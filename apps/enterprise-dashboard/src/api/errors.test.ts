@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AxiosError, AxiosHeaders } from 'axios';
-import { apiErrorMessage } from './errors.js';
+import { apiErrorMessage } from '@funti3r/web-core';
 
 function apiError(status: number, data: unknown) {
   const config = { headers: new AxiosHeaders() };

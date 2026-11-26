@@ -1,8 +1,6 @@
 import { useState } from 'react';
-import { useAuthStore } from '../store/authStore';
-import { api } from '../api/client.js';
+import { useAuthStore, api, apiErrorMessage } from '@funti3r/web-core';
 import { CountrySelect } from './CountrySelect.js';
-import { apiErrorMessage } from '../api/errors.js';
 
 interface KYCFormData {
   identity: {

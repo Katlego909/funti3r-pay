@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { HiOutlineDocumentText, HiOutlineXMark, HiOutlineArrowDownTray, HiOutlineCalendar } from 'react-icons/hi2';
 import { listAllPayments, getFxRates, getXlmPrice, type Payment } from '../api/payments.js';
-import { apiErrorMessage } from '../api/errors.js';
+import { apiErrorMessage } from '@funti3r/web-core';
 import { makeDisplayCurrency } from '../lib/displayCurrency.js';
 import { EXPLORER, IS_MAINNET } from '../lib/explorer.js';
 import { generateIncomeStatement } from '../utils/export.js';
+import '../styles/IncomeStatement.css';
 
 /** YYYY-MM-DD of a date in the viewer's own timezone (toISOString would shift it to UTC, a day early east of GMT). */
 const localDay = (d: Date) =>

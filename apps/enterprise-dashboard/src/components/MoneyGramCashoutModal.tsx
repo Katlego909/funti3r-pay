@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import Modal from './Modal.js';
+import { Modal } from '@funti3r/ui';
 import MoneyGramWidget, { type DepositPayload } from './MoneyGramWidget.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { startMoneyGramCashout, submitMoneyGramDeposit, type MoneyGramSession } from '../api/escrows.js';
-import { apiErrorMessage } from '../api/errors.js';
+import { apiErrorMessage } from '@funti3r/web-core';
 
 const centered = {
   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, textAlign: 'center',
