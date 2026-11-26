@@ -6,8 +6,11 @@ and compliance checkpoints pass.
 
 ## What it does
 
-An enterprise locks funds (any SEP-41 token — native XLM via its SAC on
-testnet, USDC on mainnet) in N milestone tranches for one worker.
+An enterprise locks funds in N milestone tranches for one worker, in a token the
+admin has allowlisted (`set_token_allowed`): the platform allows the USDC Stellar
+Asset Contract, so a milestone is worth the same dollars when claimed as when
+funded. A fresh deploy allows no token; escrows funded earlier in native XLM keep
+paying out in it.
 
 ```
 create ──► per milestone:  Pending ──approve (enterprise)──► Approved ──claim (worker)──► Claimed
@@ -82,7 +85,7 @@ Requires Rust ≥ 1.91, the `wasm32v1-none` target, and `stellar-cli` ≥ 25.2.
 
 ```bash
 cd contracts
-cargo test -p funti3r-escrow                       # 40 unit tests
+cargo test -p funti3r-escrow                       # 49 tests, incl. attack (property) tests of the money invariants
 stellar contract build --package funti3r-escrow    # -> target/wasm32v1-none/release/funti3r_escrow.wasm
 sha256sum target/wasm32v1-none/release/funti3r_escrow.wasm
 ```
