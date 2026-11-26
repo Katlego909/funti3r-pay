@@ -4,6 +4,7 @@ import { query, tryWithAdvisoryLock } from '@funti3r/database';
 import { createLogger } from '@funti3r/shared-utils';
 import { nextRunDate } from './lib/scheduling.js';
 import { reconcileEscrows } from './lib/escrowReconcile.js';
+import { settleEscrowCreations } from './lib/escrowCreation.js';
 import { verifyRecentPayments } from './lib/paymentReconcile.js';
 import { syncPendingRamps } from './lib/rampsSync.js';
 import { findTransactionByMemoHash, payoutOutcome } from './lib/stellar.js';
@@ -11,6 +12,7 @@ import { recordAllMissingEscrowPayments } from './lib/escrowAccounting.js';
 import { notifyPaymentSettled } from './lib/paymentNotifications.js';
 import { jobRunsTotal, jobSeconds, stuckCashouts, stuckPayments } from './lib/metrics.js';
 import { runBatchPayout } from './app.js';
+import { batchVerdict } from './lib/paymentStatus.js';
 
 const logger = createLogger('Scheduler');
 
@@ -259,19 +261,15 @@ async function reconcileStuckPayments(): Promise<void> {
     }
 
     for (const batch of staleBatches.rows) {
-      const batchCounts = countsByBatch.get(batch.id) ?? [];
-      // pending_claim moved the money too (a claimable balance), as the batch route counts it.
-      const completed = batchCounts
-        .filter((r) => r.status === 'completed' || r.status === 'pending_claim')
-        .reduce((n, r) => n + Number(r.count), 0);
-      const failedOrMissing = Number(batch.payment_count) - completed;
-      const batchStatus = failedOrMissing === 0 ? 'completed' : completed === 0 ? 'failed' : 'partial';
+      // The query above excludes batches with payments still awaiting the chain, so the verdict is final here.
+      const statuses = (countsByBatch.get(batch.id) ?? []).flatMap((r) => Array<string>(Number(r.count)).fill(r.status));
+      const v = batchVerdict(statuses, Number(batch.payment_count));
 
       await query(
         `UPDATE payment_batches SET status = $1, updated_at = NOW() WHERE id = $2 AND status = 'processing'`,
-        [batchStatus, batch.id],
+        [v.status, batch.id],
       );
-      logger.warn('Reconciled stale processing batch', { batchId: batch.id, status: batchStatus, completed, failedOrMissing });
+      logger.warn('Reconciled stale processing batch', { batchId: batch.id, status: v.status, moved: v.movedCount, failedOrMissing: v.failedCount });
     }
   }
 }
@@ -322,9 +320,12 @@ export function startScheduler(): void {
   cron.schedule('*/2 * * * *', singleton('reconcileStuckPayments', reconcileStuckPayments));
 
   // Keep the escrows mirror in line with the contract (chain is the source of
-  // truth): every 5 minutes, and once shortly after boot.
+  // truth): every 5 minutes, and once shortly after boot. Creations left pending are settled first, so an escrow the
+  // chain confirmed is recorded (and then reconciled) in the same run.
   const runEscrowReconcile = singleton('reconcileEscrows', () =>
-    reconcileEscrows()
+    settleEscrowCreations()
+      .then((c) => { if (c.completed || c.failed) logger.warn('Settled pending escrow creations', c); })
+      .then(() => reconcileEscrows())
       // Claimed milestones must all be in the books, even if recording one failed earlier.
       .then(async (r) => {
         await recordAllMissingEscrowPayments();

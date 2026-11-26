@@ -20,7 +20,6 @@ const PUBLIC_PATHS = new Set([
   '/health',
   '/status',
   ...PUBLIC_AUTH_ENDPOINTS.map((p) => `/auth${p}`),
-  ...PUBLIC_AUTH_ENDPOINTS.map((p) => `/api/auth${p}`),
 ]);
 
 // GET /invites/:token (and its company-invite equivalent) is a read-only
@@ -31,9 +30,7 @@ const PUBLIC_PATHS = new Set([
 // real session.
 const PUBLIC_GET_PATTERNS = [
   /^\/invites\/[^/]+$/,
-  /^\/api\/invites\/[^/]+$/,
   /^\/company\/invites\/[^/]+$/,
-  /^\/api\/company\/invites\/[^/]+$/,
 ];
 
 function isPublic(path: string, method: string): boolean {

@@ -14,14 +14,14 @@ export interface QueryHandler {
  * Routes the mocked `query()` by matching against the SQL text, so tests read
  * as "when the code runs this kind of query, return this" rather than a
  * brittle positional sequence tied to executePayout's internal call order.
- * Always includes HANDLER_ENTERPRISE_MEMBERSHIP last, so every route test
+ * Always includes HANDLER_ENTERPRISE_MEMBERSHIP and HANDLER_TEAM_WORKERS last, so every route test
  * gets a working company-context resolution (ENTERPRISE_ID/ADMIN_ID/MEMBER_ID)
  * without having to repeat it in every test's handler list. Unmatched queries
  * return `{ rows: [] }` (safe default for UPDATE/INSERT calls whose return
  * value isn't inspected).
  */
 export function createQueryMock(handlers: QueryHandler[]) {
-  const allHandlers = [...handlers, HANDLER_ENTERPRISE_MEMBERSHIP];
+  const allHandlers = [...handlers, HANDLER_ENTERPRISE_MEMBERSHIP, HANDLER_TEAM_WORKERS];
   // Cast to `any`: app code only ever reads `.rows` off the real pg QueryResult,
   // so faking its other fields (command/rowCount/oid/fields) everywhere would
   // be pure noise with no test value.
@@ -56,6 +56,22 @@ export const HANDLER_ENTERPRISE_MEMBERSHIP: QueryHandler = {
     if (userId === MEMBER_ID) return { rows: [{ company_id: COMPANY_ID, company_role: 'member', owner_user_id: ENTERPRISE_ID }] };
     return { rows: [] };
   },
+};
+
+/**
+ * Mocks company.ts companyWorkerIds: every worker asked about is on COMPANY_ID's team, so tests that are not about
+ * the payee check keep passing. Put HANDLER_NOT_ON_TEAM first in a test's handler list to take someone off the team.
+ */
+export const HANDLER_TEAM_WORKERS: QueryHandler = {
+  match: /SELECT worker_id FROM enterprise_workers/,
+  handler: (params) => ({
+    rows: params[0] === COMPANY_ID ? ((params[1] as string[]) ?? []).map((worker_id) => ({ worker_id })) : [],
+  }),
+};
+
+export const HANDLER_NOT_ON_TEAM: QueryHandler = {
+  match: /SELECT worker_id FROM enterprise_workers/,
+  handler: () => ({ rows: [] }),
 };
 
 /** A worker row with a classic Stellar account (not a SmartWallet/passkey user). */

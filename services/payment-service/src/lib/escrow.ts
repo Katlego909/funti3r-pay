@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto';
 import { AppError, createLogger, ExternalServiceError, stellarNetwork } from '@funti3r/shared-utils';
 import { withAdvisoryLock } from '@funti3r/database';
 import { forgetBalances } from './balanceCache.js';
+import { SubmitOutcomeUnknownError, type OnSigned } from './stellar.js';
 
 const logger = createLogger('EscrowService');
 
@@ -53,14 +54,8 @@ export function xlmToStroops(amountXlm: string | number): bigint {
   return BigInt(whole) * 10_000_000n + BigInt(frac.padEnd(7, '0') || '0');
 }
 
-async function pollTransaction(txHash: string): Promise<rpc.Api.GetTransactionResponse> {
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 2000));
-    const status = await server.getTransaction(txHash);
-    if (status.status !== rpc.Api.GetTransactionStatus.NOT_FOUND) return status;
-  }
-  throw new Error(`Transaction ${txHash} not confirmed after 60s`);
-}
+/** How long the SDK's pollTransaction waits for a verdict: 30 checks, 2s apart, the 60s time bound the tx carries. */
+const POLL = { attempts: 30, sleepStrategy: () => 2000 };
 
 /** Mirror of the contract's `Error` enum (contracts/escrow/src/lib.rs). */
 export const CONTRACT_ERRORS: Record<number, string> = {
@@ -102,11 +97,19 @@ function contractErrorCode(text: string): number | undefined {
   return m ? Number(m[1]) : undefined;
 }
 
-/** Simulate, assemble, sign as `signer` (also the source account), submit, poll. */
+/**
+ * Simulate, assemble, sign as `signer` (also the source account), submit, poll.
+ *
+ * `onSigned` gets the signed hash and time bound just BEFORE submission (write-ahead, same contract as stellar.ts
+ * OnSigned); if it throws, nothing is sent. A submission that gets no verdict (the RPC is unreachable, or the
+ * transaction is still unconfirmed when polling stops) throws SubmitOutcomeUnknownError: it may still land until its
+ * time bound, so the caller must not treat it as failed. A definite rejection throws an AppError.
+ */
 async function invokeUnlocked(
   signerSecret: string,
   method: string,
   args: ReturnType<typeof nativeToScVal>[],
+  onSigned?: OnSigned,
 ): Promise<{ hash: string; returnValue: unknown }> {
   const signer = Keypair.fromSecret(signerSecret);
   const account = await server.getAccount(signer.publicKey());
@@ -130,23 +133,56 @@ async function invokeUnlocked(
     throw err;
   }
   prepared.sign(signer);
+  const hash = prepared.hash().toString('hex');
+  if (onSigned) await onSigned(hash, new Date(Number(prepared.timeBounds!.maxTime) * 1000));
 
-  const sent = await server.sendTransaction(prepared);
+  let sent;
+  try {
+    sent = await server.sendTransaction(prepared);
+  } catch (err) {
+    throw new SubmitOutcomeUnknownError(hash, err); // the RPC may have taken it before the connection failed
+  }
   if (sent.status === 'ERROR') {
     throw new ExternalServiceError('Stellar', 'The Stellar network rejected the escrow transaction', 'escrow_submit_failed', { cause: new Error(`Escrow ${method} submit failed: ${JSON.stringify(sent.errorResult)}`) });
   }
-  const result = await pollTransaction(sent.hash);
+  if (sent.status === 'TRY_AGAIN_LATER') {
+    // Not queued: the node refused it for now, so nothing can land.
+    throw new ExternalServiceError('Stellar', 'The Stellar network is busy; try again shortly', 'escrow_try_again_later');
+  }
+  // PENDING, or DUPLICATE (this exact transaction was already submitted): either way, wait for its verdict.
+  let result;
+  try {
+    result = await server.pollTransaction(hash, POLL);
+  } catch (err) {
+    throw new SubmitOutcomeUnknownError(hash, err);
+  }
+  if (result.status === rpc.Api.GetTransactionStatus.NOT_FOUND) {
+    throw new SubmitOutcomeUnknownError(hash, new Error(`Escrow ${method} not confirmed while polling`));
+  }
   if (result.status !== rpc.Api.GetTransactionStatus.SUCCESS) {
     const code = contractErrorCode(JSON.stringify(result, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)));
     if (code !== undefined) throw new EscrowContractError(code, method);
     throw new ExternalServiceError('Stellar', 'The escrow transaction failed on-chain', 'escrow_failed', { cause: new Error(`Escrow ${method} failed on-chain: ${result.status}`) });
   }
-  const returnValue =
-    'returnValue' in result && result.returnValue ? scValToNative(result.returnValue) : undefined;
-  logger.info('Escrow contract call succeeded', { method, hash: sent.hash });
+  const returnValue = result.returnValue ? scValToNative(result.returnValue) : undefined;
+  logger.info('Escrow contract call succeeded', { method, hash });
   // The signer is the account whose balance moved (it funded, was paid, or was refunded): drop its cached figure.
   await forgetBalances(signer.publicKey());
-  return { hash: sent.hash, returnValue };
+  return { hash, returnValue };
+}
+
+/**
+ * The chain's verdict on a contract transaction by its hash, with its return value when it succeeded. Final once the
+ * transaction's time bound has passed. Throws if the RPC cannot answer, so a caller never mistakes "could not check"
+ * for "missing".
+ */
+export async function contractCallOutcome(
+  hash: string,
+): Promise<{ found: false } | { found: true; successful: boolean; returnValue?: unknown }> {
+  const r = await server.getTransaction(hash);
+  if (r.status === rpc.Api.GetTransactionStatus.NOT_FOUND) return { found: false };
+  if (r.status !== rpc.Api.GetTransactionStatus.SUCCESS) return { found: true, successful: false };
+  return { found: true, successful: true, returnValue: r.returnValue ? scValToNative(r.returnValue) : undefined };
 }
 
 function complianceSecret(): string {
@@ -165,8 +201,9 @@ function invoke(
   signerSecret: string,
   method: string,
   args: ReturnType<typeof nativeToScVal>[],
+  onSigned?: OnSigned,
 ): Promise<{ hash: string; returnValue: unknown }> {
-  return withAdvisoryLock(`stellar:${Keypair.fromSecret(signerSecret).publicKey()}`, () => invokeUnlocked(signerSecret, method, args));
+  return withAdvisoryLock(`stellar:${Keypair.fromSecret(signerSecret).publicKey()}`, () => invokeUnlocked(signerSecret, method, args, onSigned));
 }
 
 export function complianceAuthorityPublic(): string {
@@ -268,12 +305,16 @@ export interface OnchainEscrow {
   frozen: boolean;
 }
 
-/** Enterprise funds a new escrow; returns the on-chain escrow id + tx hash. */
+/**
+ * Enterprise funds a new escrow; returns the on-chain escrow id + tx hash. `onSigned` records the hash before it is
+ * submitted (see invokeUnlocked): the money is locked the moment this lands, so the caller must be able to find it.
+ */
 export async function createEscrow(
   enterpriseSecret: string,
   workerPublic: string,
   amountsXlm: Array<string | number>,
   expiryUnix: number,
+  onSigned?: OnSigned,
 ): Promise<{ escrowId: bigint; hash: string }> {
   const enterprise = Keypair.fromSecret(enterpriseSecret).publicKey();
   const { hash, returnValue } = await invoke(enterpriseSecret, 'create', [
@@ -282,7 +323,7 @@ export async function createEscrow(
     nativeToScVal(new Address(nativeTokenAddress()), { type: 'address' }),
     nativeToScVal(amountsXlm.map(xlmToStroops), { type: 'i128' }),
     nativeToScVal(BigInt(expiryUnix), { type: 'u64' }),
-  ]);
+  ], onSigned);
   return { escrowId: returnValue as bigint, hash };
 }
 

@@ -1,10 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import type { Router as RouterType } from 'express';
-import { query } from '@funti3r/database';
-import { createLogger, decryptFromString, ExternalServiceError, parseBody } from '@funti3r/shared-utils';
+import { query, notify, recoveryHold } from '@funti3r/database';
+import { AppError, createLogger, decryptFromString, ExternalServiceError, parseBody } from '@funti3r/shared-utils';
 import { audit } from '../lib/audit.js';
-import { recoveryHold } from '../lib/recoveryHold.js';
-import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from '../lib/company.js';
+import { resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker, NOT_ON_TEAM } from '../lib/company.js';
 import * as escrow from '../lib/escrow.js';
 import { recordEscrowPaymentSafely } from '../lib/escrowAccounting.js';
 import { ensureCleared, screenEmployer } from '../lib/clearance.js';
@@ -12,6 +11,8 @@ import { reconcileEscrows } from '../lib/escrowReconcile.js';
 import { moneygramConfigured } from '../lib/moneygram.js';
 import { requireCompliance, resolveEnterpriseSecret } from '../app.js';
 import { createEscrowBody } from '../lib/schemas.js';
+import { beginEscrowCreation, completeEscrowCreation, failEscrowCreation, recordCreationIntent } from '../lib/escrowCreation.js';
+import { SubmitOutcomeUnknownError } from '../lib/stellar.js';
 
 const router: RouterType = Router();
 const logger = createLogger('EscrowsRoute');
@@ -64,17 +65,8 @@ async function workerPublicKey(workerId: string): Promise<string | undefined> {
   return r.rows[0]?.stellar_public_key;
 }
 
-async function notify(userId: string, type: string, title: string, body: string, escrowId: string) {
-  try {
-    await query(
-      `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
-       VALUES ($1, $2, $3, $4, 'escrow', $5)`,
-      [userId, type, title, body, escrowId],
-    );
-  } catch (err) {
-    logger.warn('Failed to emit escrow notification', { escrowId, type, error: String(err) });
-  }
-}
+const notifyEscrow = (userId: string, type: string, title: string, body: string, escrowId: string) =>
+  notify({ userId, type, title, body, entityType: 'escrow', entityId: escrowId });
 
 // ── Milestone review trail ────────────────────────────────────────────────────
 
@@ -183,13 +175,13 @@ async function finalizeEscrowStatus(escrowId: string): Promise<void> {
 
 // ── POST /escrows — create + fund on-chain ────────────────────────────────────
 
-router.post('/', recoveryHold, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/', recoveryHold(), async (req: Request, res: Response, next: NextFunction) => {
   const ctx = await requireCompanyWrite(req, res);
   if (!ctx) return;
 
   const body = parseBody(createEscrowBody, req.body, res);
   if (!body) return;
-  const { workerId, milestones, expiresAt } = body;
+  const { workerId, milestones, expiresAt, idempotencyKey } = body;
   for (const m of milestones) {
     if (!m.amountXlm || Number(m.amountXlm) <= 0) {
       return res.status(400).json({ error: 'Each milestone requires a positive amountXlm' });
@@ -201,8 +193,7 @@ router.post('/', recoveryHold, async (req: Request, res: Response, next: NextFun
   }
 
   try {
-    // Worker must exist, hold a Stellar account, and — when the company is
-    // formalized — belong to it. Same KYC gate as payouts.
+    // Worker must exist, hold a Stellar account and belong to the company. Same KYC gate as payouts.
     const workerRes = await query(
       `SELECT stellar_public_key, email FROM users WHERE id = $1 AND role = 'worker' AND status IS DISTINCT FROM 'closed'`,
       [workerId],
@@ -211,59 +202,57 @@ router.post('/', recoveryHold, async (req: Request, res: Response, next: NextFun
     if (!worker?.stellar_public_key) {
       return res.status(404).json({ error: 'Worker Stellar account not found' });
     }
-    if (ctx.companyId && !(await isCompanyWorker(ctx.companyId, workerId))) {
-      return res.status(403).json({ error: 'Worker is not part of your team' });
+    if (!(await isCompanyWorker(ctx.companyId, workerId))) {
+      return res.status(403).json({ error: NOT_ON_TEAM });
     }
-    await requireCompliance(workerId);
-
-    // The contract enforces the gate; this brings its clearance in line with
-    // the current KYC + sanctions verdict first. The funding company is screened too.
-    await screenEmployer(ctx.ownerUserId);
-    await ensureCleared(workerId, worker.stellar_public_key);
-
-    const { secret, error } = await resolveEnterpriseSecret(ctx.ownerUserId);
-    if (!secret) return res.status(400).json({ error });
-
-    const amounts = milestones.map((m) => String(m.amountXlm));
-    const { escrowId: onchainId, hash } = await escrow.createEscrow(
-      secret,
-      worker.stellar_public_key,
-      amounts,
-      expiry,
-    );
-
-    const total = amounts.reduce((s, a) => s + Number(a), 0);
-    const ins = await query<{ id: string }>(
-      `INSERT INTO escrows (enterprise_id, worker_id, contract_address, onchain_escrow_id,
-                            token_code, total_amount, status, expires_at, create_tx_hash)
-       VALUES ($1, $2, $3, $4, 'XLM', $5, 'active', $6, $7)
-       RETURNING id`,
-      [
-        ctx.ownerUserId, workerId, process.env.ESCROW_CONTRACT_ADDRESS,
-        onchainId.toString(), total, new Date(expiry * 1000).toISOString(), hash,
-      ],
-    );
-    const id = ins.rows[0].id;
-
-    const values: unknown[] = [];
-    const placeholders = milestones.map((m, i) => {
-      values.push(id, i, m.description ?? null, String(m.amountXlm));
-      const base = i * 4;
-      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
+    const specs = milestones.map((m) => ({ description: m.description, amountXlm: String(m.amountXlm) }));
+    const begun = await beginEscrowCreation({
+      enterpriseId: ctx.ownerUserId, workerId, milestones: specs, expiresAt: new Date(expiry * 1000), idempotencyKey,
     });
-    await query(
-      `INSERT INTO escrow_milestones (escrow_id, idx, description, amount) VALUES ${placeholders.join(', ')}`,
-      values,
-    );
+    if (begun.kind === 'mismatch') return res.status(422).json({ error: 'Idempotency key already used for a different escrow' });
+    if (begun.kind === 'in_progress') return res.status(409).json({ error: 'This escrow is already being created' });
+    if (begun.kind === 'done') {
+      return res.status(201).json({ id: begun.escrowId, onchainEscrowId: begun.onchainEscrowId, txHash: begun.txHash, replayed: true });
+    }
 
-    await notify(
-      workerId, 'escrow_created', 'New milestone escrow',
-      `Your employer locked ${total} XLM across ${milestones.length} milestone(s) for you.`, id,
-    );
+    let onchainId: bigint;
+    let hash: string;
+    try {
+      await requireCompliance(workerId);
+      // The contract enforces the gate; this brings its clearance in line with
+      // the current KYC + sanctions verdict first. The funding company is screened too.
+      await screenEmployer(ctx.ownerUserId);
+      await ensureCleared(workerId, worker.stellar_public_key);
 
-    logger.info('Escrow created', { id, onchainId: onchainId.toString(), hash, total });
-    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.created', entityType: 'escrow', entityId: id, detail: { workerId, totalXlm: total, milestones: milestones.length, txHash: hash } });
-    res.status(201).json({ id, onchainEscrowId: onchainId.toString(), txHash: hash });
+      const { secret, error } = await resolveEnterpriseSecret(ctx.ownerUserId);
+      if (!secret) throw new AppError(400, error ?? 'Enterprise Stellar account is not set up');
+
+      ({ escrowId: onchainId, hash } = await escrow.createEscrow(
+        secret, worker.stellar_public_key, specs.map((m) => m.amountXlm), expiry, recordCreationIntent(begun.creationId),
+      ));
+    } catch (err) {
+      if (err instanceof SubmitOutcomeUnknownError) {
+        // The money may be locked already: never fail it here. The reconciler records it, or fails it, from the chain.
+        logger.warn('Escrow creation submitted without a verdict; awaiting the chain', { creationId: begun.creationId, txHash: err.txHash });
+        return res.status(202).json({ creationId: begun.creationId, status: 'submitted', txHash: err.txHash });
+      }
+      // Everything else means nothing landed: refused before signing, or rejected by the network or the contract.
+      await failEscrowCreation(begun.creationId, err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+
+    let done;
+    try {
+      done = await completeEscrowCreation(begun.creationId, onchainId, hash);
+    } catch (err) {
+      // The escrow exists on chain; the creation keeps its hash, so the reconciler writes the rows after the time bound.
+      logger.error('Escrow funded but not recorded yet; the reconciler will record it', { creationId: begun.creationId, hash, error: String(err) });
+      return res.status(202).json({ creationId: begun.creationId, status: 'submitted', txHash: hash });
+    }
+
+    logger.info('Escrow created', { id: done.escrowId, onchainId: onchainId.toString(), hash, total: done.total });
+    await audit({ actorId: req.headers['x-user-id'] as string | undefined, actorRole: 'enterprise', action: 'escrow.created', entityType: 'escrow', entityId: done.escrowId, detail: { workerId, totalXlm: done.total, milestones: milestones.length, txHash: hash } });
+    res.status(201).json({ id: done.escrowId, onchainEscrowId: onchainId.toString(), txHash: hash });
   } catch (err) {
     next(err);
   }
@@ -271,7 +260,7 @@ router.post('/', recoveryHold, async (req: Request, res: Response, next: NextFun
 
 // ── POST /escrows/:id/milestones/:idx/approve ─────────────────────────────────
 
-router.post('/:id/milestones/:idx/approve', recoveryHold, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/milestones/:idx/approve', recoveryHold(), async (req: Request, res: Response, next: NextFunction) => {
   const ctx = await requireCompanyWrite(req, res);
   if (!ctx) return;
   const { id } = req.params;
@@ -314,7 +303,7 @@ router.post('/:id/milestones/:idx/approve', recoveryHold, async (req: Request, r
       : null;
     await recordReviewEvent(id, idx, 'approved', req.headers['x-user-id'] as string | undefined, 'enterprise', approveNote);
 
-    await notify(
+    await notifyEscrow(
       row.worker_id, 'escrow_milestone_approved', 'Milestone approved',
       `Milestone ${idx + 1} (${Number(ms.rows[0].amount)} XLM) is approved — claim it from your wallet.`, id,
     );
@@ -368,7 +357,7 @@ router.post('/:id/milestones/:idx/submit', async (req: Request, res: Response, n
     }
 
     await recordReviewEvent(id, idx, 'submitted', workerId, 'worker', parsed.note || null, parsed.links);
-    await notify(
+    await notifyEscrow(
       row.enterprise_id, 'escrow_work_submitted', 'Work submitted for review',
       `Your worker submitted milestone ${idx + 1} for review.`, id,
     );
@@ -423,7 +412,7 @@ router.post('/:id/milestones/:idx/reject', async (req: Request, res: Response, n
     }
 
     await recordReviewEvent(id, idx, 'rejected', req.headers['x-user-id'] as string | undefined, 'enterprise', reason);
-    await notify(
+    await notifyEscrow(
       row.worker_id, 'escrow_work_rejected', 'Changes requested',
       `Milestone ${idx + 1} was sent back: ${reason.slice(0, 140)}`, id,
     );
@@ -479,7 +468,7 @@ router.post('/:id/milestones/:idx/claim', async (req: Request, res: Response, ne
     // The worker has now really received this money: put it in the books (Total Received, history).
     await recordEscrowPaymentSafely(id, idx);
 
-    await notify(
+    await notifyEscrow(
       row.enterprise_id, 'escrow_milestone_claimed', 'Milestone claimed',
       `Your worker claimed milestone ${idx + 1} (${Number(ms.rows[0].amount)} XLM).`, id,
     );

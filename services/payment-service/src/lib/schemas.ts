@@ -7,6 +7,13 @@ const amountLike = z.union([z.number(), z.string().max(40)]);
 const memo = z.string().max(200);
 /** Clients mint these (UUIDs or short tokens); capped so a key cannot be used to smuggle a payload. */
 const idempotencyKey = z.string().min(1).max(128);
+/** An amount above zero, as a number or a numeric string; parsed to a number. */
+const positiveAmount = amountLike
+  .transform((v) => Number(v))
+  .refine((n) => Number.isFinite(n) && n > 0, 'must be a positive number');
+
+/** The most payments one batch (or one scheduled run, which is a batch) may make. */
+export const MAX_BATCH_ITEMS = 100;
 
 export const payoutBody = z.object({
   workerId: id,
@@ -18,9 +25,16 @@ export const payoutBody = z.object({
 });
 
 export const batchPayoutBody = z.object({
-  // More than 100 is refused by the route with its own message; the schema just keeps the array bounded.
-  items: z.array(z.object({ workerId: id, amountUsd: amountLike, memo: memo.optional() })).max(1000),
+  items: z.array(z.object({ workerId: id, amountUsd: positiveAmount, memo: memo.optional() })).min(1).max(MAX_BATCH_ITEMS),
   idempotencyKey: idempotencyKey.optional(),
+});
+
+export const createScheduleBody = z.object({
+  name: z.string().trim().min(1, 'name is required').max(120),
+  frequency: z.enum(['weekly', 'biweekly', 'monthly']),
+  runDay: z.string().trim().min(1, 'runDay is required').max(20),
+  timezone: z.string().max(64).default('UTC'),
+  items: z.array(z.object({ workerId: id, amountUsd: positiveAmount, memo: memo.optional() })).min(1).max(MAX_BATCH_ITEMS),
 });
 
 export const createEscrowBody = z.object({
@@ -30,4 +44,5 @@ export const createEscrowBody = z.object({
     amountXlm: amountLike,
   })).min(1).max(50),
   expiresAt: z.string().max(40),
+  idempotencyKey: idempotencyKey.optional(),
 });

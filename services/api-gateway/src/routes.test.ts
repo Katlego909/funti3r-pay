@@ -8,7 +8,7 @@ process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'j'.repeat(40);
 process.env.INTERNAL_AUTH_SECRET = 'i'.repeat(40);
 
-const { mountProxyRoutes } = await import('./routes.js');
+const { mountProxyRoutes, stripApiPrefix } = await import('./routes.js');
 
 interface Seen { method: string; url: string; headers: http.IncomingHttpHeaders; body: string }
 type Name = 'user' | 'payment' | 'compliance' | 'analytics';
@@ -17,6 +17,7 @@ const seen: Record<Name, Seen[]> = { user: [], payment: [], compliance: [], anal
 const upstreamServers: http.Server[] = [];
 const urls = {} as Record<Name, string>;
 let gateway: http.Server;
+let authLimited = 0;
 let gatewayUrl: string;
 
 function listen(server: http.Server): Promise<string> {
@@ -41,6 +42,9 @@ before(async () => {
   }
 
   const app = express();
+  app.use(stripApiPrefix);
+  // Stand-in for the gateway's authLimiter, mounted on /auth only: it must also see the dashboard's /api/auth calls.
+  app.use('/auth', (_req, _res, next) => { authLimited++; next(); });
   // Stand-in for stripIdentity + authMiddleware: the identity the real middleware would have set from a verified token.
   app.use((req, _res, next) => {
     req.headers['x-user-id'] = 'user-1';
@@ -92,11 +96,6 @@ const ROUTES: [string, Name, string][] = [
   ['/api/cashouts', 'payment', '/cashouts'],
   ['/compliance/kyc/status', 'compliance', '/kyc/status'],
   ['/api/compliance/kyc/status', 'compliance', '/kyc/status'],
-  // The stripped auth routes are rebuilt under /auth before proxying.
-  ['/login/start', 'user', '/auth/login/start'],
-  ['/register/finish', 'user', '/auth/register/finish'],
-  ['/refresh/x', 'user', '/auth/refresh/x'],
-  ['/logout/x', 'user', '/auth/logout/x'],
 ];
 
 for (const [path, upstream, expected] of ROUTES) {
@@ -157,4 +156,10 @@ test('an upstream that is down gives 503, not a hang or a crash', async () => {
   assert.equal(res.status, 503);
   server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
+});
+
+test('the /auth rate limit also covers the /api/auth calls the dashboard makes', async () => {
+  const before = authLimited;
+  await call('/api/auth/login/start', { method: 'POST' });
+  assert.equal(authLimited, before + 1);
 });

@@ -414,8 +414,10 @@ export async function findTransactionByMemoHash(
   for (let pages = 1; page.records.length > 0; pages++) {
     for (const tx of page.records) {
       if (new Date(tx.created_at) < since) return null;
-      // Horizon lists only successful transactions here unless asked for failed ones.
-      if (tx.memo_type === 'hash' && tx.memo === wanted) {
+      // Horizon lists only successful transactions here unless asked for failed ones. The account's history also holds
+      // transactions others sent TO it; only one it signed itself can be the payout, or anyone who knows the payment id
+      // could mark it paid by sending the employer a dust payment with the same memo.
+      if (tx.source_account === account && tx.memo_type === 'hash' && tx.memo === wanted) {
         const ops = await horizon.operations().forTransaction(tx.hash).call();
         return { hash: tx.hash, claimable: ops.records.some((op) => op.type === 'create_claimable_balance') };
       }

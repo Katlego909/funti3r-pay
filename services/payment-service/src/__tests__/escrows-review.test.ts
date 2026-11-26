@@ -124,7 +124,7 @@ describe('submit work', () => {
     expect(res.body).toEqual({ reviewStatus: 'submitted' });
     expect(events()).toEqual([[ESCROW_ID, 0, 'submitted', WORKER_ID, 'worker', 'Designs attached', JSON.stringify(['https://figma.com/file/1'])]]);
     const [n] = notifications();
-    expect(n).toEqual([ENTERPRISE_ID, 'escrow_work_submitted', 'Work submitted for review', expect.stringContaining('milestone 1'), ESCROW_ID]);
+    expect(n).toEqual([ENTERPRISE_ID, 'escrow_work_submitted', 'Work submitted for review', expect.stringContaining('milestone 1'), 'escrow', ESCROW_ID]);
   });
 
   it('lets the worker resubmit after the employer sent it back', async () => {
@@ -178,7 +178,7 @@ describe('reject work', () => {
     expect(res.body).toEqual({ reviewStatus: 'rejected' });
     expect(events()).toEqual([[ESCROW_ID, 0, 'rejected', ENTERPRISE_ID, 'enterprise', 'Logo is missing', '[]']]);
     const [n] = notifications();
-    expect(n).toEqual([WORKER_ID, 'escrow_work_rejected', 'Changes requested', expect.stringContaining('Logo is missing'), ESCROW_ID]);
+    expect(n).toEqual([WORKER_ID, 'escrow_work_rejected', 'Changes requested', expect.stringContaining('Logo is missing'), 'escrow', ESCROW_ID]);
     expect(escrow.approveMilestone).not.toHaveBeenCalled();
   });
 });

@@ -34,8 +34,9 @@ import { sendRecoveryEmail } from './lib/email.js';
 import { hasSessionFor } from './lib/sessionAuth.js';
 import { decoyCredentialId } from './lib/loginDecoy.js';
 import { closeAccount, closureBlockers, type ClosureDeps } from './lib/accountClosure.js';
+import { acceptCompanyInvite, type CompanyInviteDeps } from './lib/companyInvites.js';
 import { metrics } from './metrics.js';
-import { initPostgres, runInitialMigrations, initRedis, getRedis, query, transaction, setJSON, getJSON, deleteKey } from '@funti3r/database';
+import { initPostgres, runInitialMigrations, initRedis, getRedis, query, transaction, setJSON, getJSON, deleteKey, notify, recoveryHold, RECOVERY_HOLD_MS } from '@funti3r/database';
 import { UserRole } from '@funti3r/shared-types';
 
 const logger = createLogger('UserService');
@@ -205,18 +206,12 @@ async function acceptWorkerInvite(token: string, workerId: string): Promise<bool
   const enterpriseUserId = inv.rows[0].enterprise_id;
   await linkWorkerToInviter(enterpriseUserId, workerId);
 
-  // Notify the enterprise that their invited worker has joined
-  try {
-    const workerRow = await query('SELECT email FROM users WHERE id = $1', [workerId]);
-    const workerEmail = workerRow.rows[0]?.email ?? 'A worker';
-    await query(
-      `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
-       VALUES ($1, 'worker_joined', 'New worker joined', $2, 'worker', $3)`,
-      [enterpriseUserId, `${workerEmail} accepted your invite and joined your team.`, workerId],
-    );
-  } catch (notifErr) {
-    logger.warn('Failed to emit worker_joined notification', { error: String(notifErr) });
-  }
+  const workerRow = await query('SELECT email FROM users WHERE id = $1', [workerId]);
+  await notify({
+    userId: enterpriseUserId, type: 'worker_joined', title: 'New worker joined',
+    body: `${workerRow.rows[0]?.email ?? 'A worker'} accepted your invite and joined your team.`,
+    entityType: 'worker', entityId: workerId,
+  });
 
   return true;
 }
@@ -242,77 +237,7 @@ async function resolveActiveMembership(userId: string): Promise<{ companyId: str
   return { companyId: r.rows[0].company_id, companyRole: r.rows[0].company_role, ownerUserId: r.rows[0].owner_user_id };
 }
 
-/**
- * Marks a pending, unexpired company invite as accepted and adds the user to
- * enterprise_members. Diverges from acceptWorkerInvite's "mark accepted, then
- * link" order: linking a worker is unconditionally idempotent (ON CONFLICT DO
- * NOTHING can't fail), but joining a company CAN legitimately fail — the v1
- * "no company-switcher" partial unique index forbids a second active
- * membership. So this checks BEFORE consuming the token: if the token were
- * marked accepted first and the join then failed, it would strand the
- * invitee with a dead link and no way to retry short of a brand-new invite.
- * The whole thing runs in one transaction so a lost race (23505 from a
- * concurrent accept) rolls back the invite-accepted UPDATE too, leaving the
- * token usable for a genuine retry.
- */
-async function acceptCompanyInvite(
-  token: string,
-  userId: string,
-): Promise<'accepted' | 'invalid' | 'already_member'> {
-  return transaction(async (client) => {
-    const invRes = await client.query(
-      `SELECT id, enterprise_id, company_role, invited_by
-         FROM enterprise_member_invites
-        WHERE token = $1 AND status = 'pending' AND expires_at > NOW()
-        FOR UPDATE`,
-      [token],
-    );
-    if (!invRes.rows.length) return 'invalid';
-    const { id: inviteId, enterprise_id: companyId, company_role: companyRole, invited_by: inviterId } = invRes.rows[0];
-
-    // Must check BEFORE consuming the token — see doc comment above. This
-    // catches ANY existing active membership, even in a different company
-    // than the one this invite is for — that's the intended v1 boundary.
-    const activeRes = await client.query(
-      `SELECT 1 FROM enterprise_members WHERE user_id = $1 AND status = 'active'`,
-      [userId],
-    );
-    if (activeRes.rows.length) return 'already_member';
-
-    await client.query(`UPDATE enterprise_member_invites SET status = 'accepted' WHERE id = $1`, [inviteId]);
-
-    try {
-      // ON CONFLICT DO UPDATE (not DO NOTHING) so re-inviting a previously
-      // removed member (status='removed') reactivates their existing row
-      // instead of hitting the UNIQUE(enterprise_id, user_id) violation a
-      // bare INSERT would throw.
-      await client.query(
-        `INSERT INTO enterprise_members (enterprise_id, user_id, company_role, status)
-         VALUES ($1, $2, $3, 'active')
-         ON CONFLICT (enterprise_id, user_id) DO UPDATE
-           SET status = 'active', company_role = EXCLUDED.company_role, updated_at = NOW()`,
-        [companyId, userId, companyRole],
-      );
-    } catch (err: any) {
-      if (err?.code === '23505') return 'already_member'; // lost a race; transaction rolls back the UPDATE above too
-      throw err;
-    }
-
-    try {
-      const joined = await client.query('SELECT email FROM users WHERE id = $1', [userId]);
-      const joinedEmail = joined.rows[0]?.email ?? 'A teammate';
-      await client.query(
-        `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
-         VALUES ($1, 'member_joined', 'New team member joined', $2, 'enterprise_member', $3)`,
-        [inviterId, `${joinedEmail} accepted your invite and joined your company.`, userId],
-      );
-    } catch (notifErr) {
-      logger.warn('Failed to emit member_joined notification', { error: String(notifErr) });
-    }
-
-    return 'accepted';
-  });
-}
+const companyInviteDeps: CompanyInviteDeps = { query, transaction, notify };
 
 // ── Health ────────────────────────────────────────────────────────────────────
 
@@ -528,7 +453,7 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     let companyInviteError: string | undefined;
     if (companyInviteToken && session.role === 'enterprise') {
       try {
-        const result = await acceptCompanyInvite(companyInviteToken, userId);
+        const result = await acceptCompanyInvite(companyInviteToken, userId, companyInviteDeps);
         companyInviteLinked = result === 'accepted';
         if (result === 'already_member') {
           companyInviteError = 'already_member';
@@ -1311,7 +1236,8 @@ app.post('/invites/:token/accept', async (req, res, next) => {
 
 // ── Company invites ───────────────────────────────────────────────────────────
 
-app.post('/company/invites', async (req, res, next) => {
+// Held after an email recovery: an invited admin could move money at once, with no hold of their own.
+app.post('/company/invites', recoveryHold(), async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string;
   if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -1448,7 +1374,7 @@ app.post('/company/invites/:token/accept', async (req, res, next) => {
   if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
 
   try {
-    const result = await acceptCompanyInvite(req.params.token, requesterId);
+    const result = await acceptCompanyInvite(req.params.token, requesterId, companyInviteDeps);
     if (result === 'invalid') return res.status(410).json({ error: 'Invite expired or already used' });
     if (result === 'already_member') return res.status(409).json({ error: 'This account already belongs to a company' });
     return res.json({ ok: true });
@@ -1494,7 +1420,8 @@ app.get('/company/members', async (req, res, next) => {
 // conventions: owners can remove anyone but themselves/other owners, admins
 // can remove members but not other admins (prevents admins removing each
 // other). Self-removal ("leave a company") is a distinct feature, not this one.
-app.delete('/company/members/:userId', async (req, res, next) => {
+// Held too: whoever took over the inbox must not be able to remove the admins who would notice.
+app.delete('/company/members/:userId', recoveryHold(), async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string;
   if (!requesterId) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -1605,8 +1532,6 @@ app.patch('/notifications/:id/read', async (req, res, next) => {
 // ── Account recovery (magic link) ────────────────────────────────────────────
 
 const RECOVERY_TTL_SEC = 15 * 60; // 15 minutes
-// Must match payment-service lib/recoveryHold.ts, which enforces it.
-const RECOVERY_HOLD_MS = 48 * 60 * 60 * 1000;
 
 /**
  * POST /auth/recovery/start
@@ -1679,7 +1604,7 @@ const recoveryVerifyHandler = async (req: express.Request, res: express.Response
     await deleteKey(`recovery:${tokenHash}`);
 
     // Recorded before any session exists, so a failed write issues no session. payment-service holds money
-    // movements for RECOVERY_HOLD_MS after this (lib/recoveryHold.ts); the same 48h is reported to the user here.
+    // movements for RECOVERY_HOLD_MS after this (@funti3r/database recoveryHold); the same 48h is reported to the user here.
     const recovered = await query<{ recovered_at: Date }>(
       'UPDATE users SET recovered_at = NOW() WHERE id = $1 RETURNING recovered_at',
       [session.userId],

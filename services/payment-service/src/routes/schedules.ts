@@ -1,10 +1,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import type { Router as RouterType } from 'express';
-import { query } from '@funti3r/database';
-import { createLogger } from '@funti3r/shared-utils';
-import { resolveCompanyContextOrSelf, canMoveMoney } from '../lib/company.js';
+import { query, transaction, recoveryHold } from '@funti3r/database';
+import { createLogger, parseBody } from '@funti3r/shared-utils';
+import { resolveCompanyContextOrSelf, canMoveMoney, companyWorkerIds, ownerCompanyId, NOT_ON_TEAM } from '../lib/company.js';
+import { createScheduleBody } from '../lib/schemas.js';
 import { nextRunDate } from '../lib/scheduling.js';
-import { recoveryHold } from '../lib/recoveryHold.js';
 
 const router: RouterType = Router();
 const logger = createLogger('SchedulesRoute');
@@ -90,31 +90,13 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 
 // ── POST /schedules ───────────────────────────────────────────────────────────
 
-router.post('/', recoveryHold, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/', recoveryHold(), async (req: Request, res: Response, next: NextFunction) => {
   const enterpriseId = await requireCompanyWrite(req, res);
   if (!enterpriseId) return;
 
-  const { name, frequency, runDay, timezone = 'UTC', items } = req.body as {
-    name: string;
-    frequency: string;
-    runDay: string;
-    timezone?: string;
-    items: Array<{ workerId: string; amountUsd: number; memo?: string }>;
-  };
-
-  if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
-  if (!['weekly', 'biweekly', 'monthly'].includes(frequency)) {
-    return res.status(400).json({ error: 'frequency must be weekly, biweekly, or monthly' });
-  }
-  if (!runDay?.trim()) return res.status(400).json({ error: 'runDay is required' });
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'items must be a non-empty array' });
-  }
-  for (const item of items) {
-    if (!item.workerId || !item.amountUsd || item.amountUsd <= 0) {
-      return res.status(400).json({ error: 'Each item requires workerId and a positive amountUsd' });
-    }
-  }
+  const body = parseBody(createScheduleBody, req.body, res);
+  if (!body) return;
+  const { name, frequency, runDay, timezone, items } = body;
 
   let nextRunAt: Date;
   try {
@@ -124,27 +106,35 @@ router.post('/', recoveryHold, async (req: Request, res: Response, next: NextFun
   }
 
   try {
-    const scheduleRes = await query<{ id: string }>(
-      `INSERT INTO payment_schedules
-         (enterprise_id, name, frequency, run_day, timezone, next_run_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id`,
-      [enterpriseId, name.trim(), frequency, runDay.trim(), timezone, nextRunAt.toISOString()],
-    );
-    const scheduleId = scheduleRes.rows[0].id;
+    // Every payee must be on the team now; each run checks again, as people can leave in between.
+    const workerIds = [...new Set(items.map((i) => i.workerId))];
+    const team = await companyWorkerIds(await ownerCompanyId(enterpriseId), workerIds);
+    if (workerIds.some((w) => !team.has(w))) return res.status(403).json({ error: NOT_ON_TEAM });
 
-    // One multi-row INSERT instead of one INSERT per item.
-    const values: unknown[] = [];
-    const placeholders = items.map((item, i) => {
-      const base = i * 4;
-      values.push(scheduleId, item.workerId, item.amountUsd, item.memo ?? null);
-      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
+    // One transaction, so a failure can never leave a schedule without its items (it would fail every run).
+    const scheduleId = await transaction(async (client) => {
+      const scheduleRes = await client.query<{ id: string }>(
+        `INSERT INTO payment_schedules
+           (enterprise_id, name, frequency, run_day, timezone, next_run_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id`,
+        [enterpriseId, name, frequency, runDay, timezone, nextRunAt.toISOString()],
+      );
+      const id = scheduleRes.rows[0].id;
+      // One multi-row INSERT instead of one INSERT per item.
+      const values: unknown[] = [];
+      const placeholders = items.map((item, i) => {
+        const base = i * 4;
+        values.push(id, item.workerId, item.amountUsd, item.memo ?? null);
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
+      });
+      await client.query(
+        `INSERT INTO payment_schedule_items (schedule_id, worker_id, amount_usd, memo)
+         VALUES ${placeholders.join(', ')}`,
+        values,
+      );
+      return id;
     });
-    await query(
-      `INSERT INTO payment_schedule_items (schedule_id, worker_id, amount_usd, memo)
-       VALUES ${placeholders.join(', ')}`,
-      values,
-    );
 
     logger.info('Schedule created', { scheduleId, enterpriseId, name, frequency, nextRunAt });
     res.status(201).json({ scheduleId, nextRunAt });
@@ -155,7 +145,7 @@ router.post('/', recoveryHold, async (req: Request, res: Response, next: NextFun
 
 // ── PATCH /schedules/:id ──────────────────────────────────────────────────────
 
-router.patch('/:id', recoveryHold, async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/:id', recoveryHold(), async (req: Request, res: Response, next: NextFunction) => {
   const enterpriseId = await requireCompanyWrite(req, res);
   if (!enterpriseId) return;
 
