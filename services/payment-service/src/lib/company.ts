@@ -41,12 +41,31 @@ export function canMoveMoney(role: string): boolean {
   return role === 'owner' || role === 'admin';
 }
 
+/**
+ * The ids in `workerIds` that are active workers of `companyId` (enterprises.id), in one query. None without a
+ * company: an owner who never set one up cannot have invited anyone (inviting requires membership).
+ */
+export async function companyWorkerIds(companyId: string | null, workerIds: string[]): Promise<Set<string>> {
+  if (!companyId || workerIds.length === 0) return new Set();
+  const r = await query<{ worker_id: string }>(
+    `SELECT worker_id FROM enterprise_workers WHERE enterprise_id = $1 AND worker_id = ANY($2::uuid[]) AND status = 'active'`,
+    [companyId, workerIds],
+  );
+  return new Set(r.rows.map((row) => row.worker_id));
+}
+
 /** True if workerId is an active worker of companyId (enterprises.id). */
 export async function isCompanyWorker(companyId: string | null, workerId: string): Promise<boolean> {
-  if (!companyId) return false;
-  const r = await query(
-    `SELECT 1 FROM enterprise_workers WHERE enterprise_id = $1 AND worker_id = $2 AND status = 'active'`,
-    [companyId, workerId],
-  );
-  return r.rows.length > 0;
+  return (await companyWorkerIds(companyId, [workerId])).has(workerId);
 }
+
+/**
+ * The company paying from the owner's wallet. Payments are recorded against the owner's user id, so this is how a
+ * payout (from a route or from the scheduler) knows whose team its payee must be on.
+ */
+export async function ownerCompanyId(ownerUserId: string): Promise<string | null> {
+  return (await resolveCompanyContext(ownerUserId))?.companyId ?? null;
+}
+
+/** The refusal for paying someone who is not on the paying company's team. */
+export const NOT_ON_TEAM = 'This person is not on your team. Add them to your team first';

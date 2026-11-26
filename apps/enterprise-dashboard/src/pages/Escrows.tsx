@@ -1,10 +1,10 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useRef, useState, FormEvent } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { HiOutlineLockClosed, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { toast } from 'sonner';
 import { api } from '../api/client.js';
-import { listEscrows, createEscrow, approveMilestone, refundEscrow, type Escrow } from '../api/escrows.js';
-import { getXlmPrice } from '../api/payments.js';
+import { listEscrows, createEscrow, approveMilestone, refundEscrow, type Escrow, type CreateEscrowPayload } from '../api/escrows.js';
+import { getXlmPrice, isFinalPayoutError } from '../api/payments.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import EscrowMoneyTrail from '../components/EscrowMoneyTrail.js';
 import PageHeader from '../components/PageHeader.js';
@@ -183,6 +183,8 @@ export default function Escrows() {
   // Create form
   const [formOpen, setFormOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  /** The escrow last sent and the form it came from; reused only for a retry of that same form. */
+  const pendingCreateRef = useRef<{ formKey: string; payload: CreateEscrowPayload } | null>(null);
   const [workerId, setWorkerId] = useState('');
   const [rows, setRows] = useState<MilestoneRow[]>([{ description: '', amountUsd: '' }]);
   const [expiresAt, setExpiresAt] = useState('');
@@ -235,19 +237,37 @@ export default function Escrows() {
       return;
     }
     setSubmitting(true);
+    // A retry of the same form resends the exact payload it first sent, with the same key, so the server replays it
+    // instead of locking the money twice. The XLM amounts are priced once: a fresh price would make it a different
+    // escrow. Changing the form starts a new escrow, with a new key.
+    const formKey = JSON.stringify({ workerId, rows, expiresAt });
+    if (pendingCreateRef.current?.formKey !== formKey) {
+      pendingCreateRef.current = {
+        formKey,
+        payload: {
+          workerId,
+          milestones: rows.map((r) => ({
+            description: r.description || undefined,
+            amountXlm: Number((Number(r.amountUsd) / xlmUsd).toFixed(7)),
+          })),
+          expiresAt: new Date(`${expiresAt}T23:59:59`).toISOString(),
+          idempotencyKey: crypto.randomUUID(),
+        },
+      };
+    }
     try {
-      const { txHash } = await createEscrow({
-        workerId,
-        milestones: rows.map((r) => ({
-          description: r.description || undefined,
-          amountXlm: Number((Number(r.amountUsd) / xlmUsd).toFixed(7)),
-        })),
-        expiresAt: new Date(`${expiresAt}T23:59:59`).toISOString(),
-      });
-      toast.success(`Escrow funded on-chain (${txHash.slice(0, 8)}…)`);
+      const result = await createEscrow(pendingCreateRef.current.payload);
+      if (result.status === 'submitted') {
+        toast.info('Escrow sent — waiting for the Stellar network to confirm it. It appears here once confirmed.');
+      } else {
+        toast.success(`Escrow funded on-chain (${result.txHash.slice(0, 8)}…)`);
+      }
+      pendingCreateRef.current = null;
       closeForm();
       load();
     } catch (err: any) {
+      // A definite refusal means nothing was locked: the next try is a new escrow. Otherwise keep the key for a retry.
+      if (isFinalPayoutError(err)) pendingCreateRef.current = null;
       toast.error(apiErrorMessage(err, 'Failed to create escrow'));
     } finally {
       setSubmitting(false);

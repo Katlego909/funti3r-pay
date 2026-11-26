@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
-import { query } from '@funti3r/database';
+import { query, recoveryHoldUntil, RECOVERY_HOLD_MS } from '@funti3r/database';
 import * as stellar from '../lib/stellar.js';
 import app from '../app.js';
-import { recoveryHoldUntil, RECOVERY_HOLD_MS } from '../lib/recoveryHold.js';
 import { createQueryMock, ENTERPRISE_ID, WORKER_ID } from './helpers.js';
 
 const NOW = Date.parse('2026-11-13T12:00:00Z');

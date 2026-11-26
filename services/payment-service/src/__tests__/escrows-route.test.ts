@@ -20,15 +20,27 @@ const HANDLER_WORKER_LOOKUP = {
   handler: () => ({ rows: [{ stellar_public_key: 'GDESTWORKERPUBLICKEYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', email: 'worker@test.com' }] }),
 };
 
-const HANDLER_COMPANY_WORKER = {
-  match: /FROM enterprise_workers WHERE enterprise_id/,
-  handler: () => ({ rows: [{ '?column?': 1 }] }),
-};
-
 const HANDLER_SECRET = {
   match: /^SELECT stellar_secret_key FROM users/,
   handler: () => ({ rows: [{ stellar_secret_key: 'SFAKESECRETXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX' }] }),
 };
+
+/** The write-ahead creation row (lib/escrowCreation.ts): remembers what was inserted and reads it back. */
+function creationStore() {
+  let row: Record<string, unknown> | undefined;
+  return [
+    {
+      match: /INSERT INTO escrow_creations/,
+      handler: (p: unknown[]) => {
+        row = { id: CREATION_ID, enterprise_id: p[0], worker_id: p[1], contract_address: p[2], milestones: JSON.parse(p[3] as string), expires_at: p[4], status: 'pending', escrow_id: null };
+        return { rows: [{ id: CREATION_ID }] };
+      },
+    },
+    { match: /SELECT \* FROM escrow_creations WHERE id = \$1 FOR UPDATE/, handler: () => ({ rows: row ? [row] : [] }) },
+    { match: /UPDATE escrow_creations SET tx_hash/, handler: () => ({ rows: [{ id: CREATION_ID }] }) },
+  ];
+}
+const CREATION_ID = '77777777-7777-4777-8777-777777777777';
 
 const HANDLER_ESCROW_INSERT = {
   match: /INSERT INTO escrows/,
@@ -109,7 +121,7 @@ describe('POST /escrows — authorization and validation', () => {
 
   it('creates on-chain then mirrors escrow + milestones into the DB (admin allowed)', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([
-      HANDLER_WORKER_LOOKUP, HANDLER_COMPANY_WORKER, HANDLER_SECRET, HANDLER_ESCROW_INSERT,
+      HANDLER_WORKER_LOOKUP, HANDLER_SECRET, HANDLER_ESCROW_INSERT, ...creationStore(),
     ]));
     vi.mocked(escrow.createEscrow).mockResolvedValue({ escrowId: 0n, hash: 'tx-escrow-create' });
 
@@ -134,7 +146,7 @@ describe('POST /escrows — authorization and validation', () => {
 
   it('502s with a plain message when the contract call fails on-chain', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([
-      HANDLER_WORKER_LOOKUP, HANDLER_COMPANY_WORKER, HANDLER_SECRET,
+      HANDLER_WORKER_LOOKUP, HANDLER_SECRET, ...creationStore(),
     ]));
     vi.mocked(escrow.createEscrow).mockRejectedValue(
       new ExternalServiceError('Stellar', 'The escrow transaction failed on-chain', 'escrow_failed'),
@@ -148,7 +160,7 @@ describe('POST /escrows — authorization and validation', () => {
 
   it('500s without leaking the message when an unexpected error escapes', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([
-      HANDLER_WORKER_LOOKUP, HANDLER_COMPANY_WORKER, HANDLER_SECRET,
+      HANDLER_WORKER_LOOKUP, HANDLER_SECRET, ...creationStore(),
     ]));
     vi.mocked(escrow.createEscrow).mockRejectedValue(new Error('connect ECONNREFUSED 10.0.0.5:5432'));
 
@@ -228,7 +240,7 @@ describe('compliance gate', () => {
   });
 
   it('403s escrow creation and never touches the chain when the worker is blocked', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_LOOKUP, HANDLER_COMPANY_WORKER, HANDLER_SECRET]));
+    vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_LOOKUP, HANDLER_SECRET, ...creationStore()]));
     vi.mocked(ensureCleared).mockRejectedValue(new ComplianceBlockedError('Worker is blocked pending compliance review (sanctions match)'));
 
     const res = await request(app).post('/escrows').set(enterpriseHeaders).send(body());
@@ -238,7 +250,7 @@ describe('compliance gate', () => {
   });
 
   it('403s escrow creation and never touches the chain when the funding company is sanctioned', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_LOOKUP, HANDLER_COMPANY_WORKER, HANDLER_SECRET]));
+    vi.mocked(query).mockImplementation(createQueryMock([HANDLER_WORKER_LOOKUP, HANDLER_SECRET, ...creationStore()]));
     vi.mocked(screenEmployer).mockRejectedValueOnce(new ComplianceBlockedError('Your company is blocked pending compliance review (sanctions match)'));
 
     const res = await request(app).post('/escrows').set(enterpriseHeaders).send(body());

@@ -3,7 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
-import { mountProxyRoutes } from './routes.js';
+import { mountProxyRoutes, stripApiPrefix } from './routes.js';
 import { randomUUID } from 'node:crypto';
 import { createLogger, errorHandler, installProcessHandlers, assertInternalAuthConfigured, assertJwtConfigured, stripIdentity, requestContext, createMetrics } from '@funti3r/shared-utils';
 import { initPostgres, initRedis, getRedis } from '@funti3r/database';
@@ -50,6 +50,8 @@ app.use((req, _res, next) => {
 });
 // Access log + request metrics for every request, including ones the auth or rate limits turn away.
 app.use(requestContext('APIGateway', metrics.observeRequest));
+// Before the limiters, the auth check and the proxies: each knows a route only by its real path (see routes.ts).
+app.use(stripApiPrefix);
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 // Every limiter counts in Redis, so a limit holds across gateway instances instead of multiplying with them. If Redis
@@ -119,8 +121,7 @@ app.use((req, _res, next) => {
 
 app.use(authMiddleware);
 // After auth, so the limit is per signed-in user.
-app.use(['/payouts', '/api/payouts', '/escrows', '/api/escrows', '/cashouts', '/api/cashouts', '/schedules', '/api/schedules',
-  '/compliance', '/api/compliance', '/wallets', '/api/wallets'], moneyLimiter);
+app.use(['/payouts', '/escrows', '/cashouts', '/schedules', '/compliance', '/wallets'], moneyLimiter);
 
 
 // ── Own endpoints ─────────────────────────────────────────────────────────────

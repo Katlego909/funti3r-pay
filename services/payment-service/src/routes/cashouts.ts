@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import type { Router as RouterType } from 'express';
-import { query } from '@funti3r/database';
+import { query, recoveryHold } from '@funti3r/database';
 import { AppError, createLogger, decryptFromString } from '@funti3r/shared-utils';
 import { Memo } from '@stellar/stellar-sdk';
 import { HorizonRejectedError, SubmitOutcomeUnknownError, payExactWithXlm, spendableXlm, type OnSigned } from '../lib/stellar.js';
@@ -13,7 +13,6 @@ import { awaitRampsAcknowledgement } from '../lib/rampsSync.js';
 import { ensureCleared } from '../lib/clearance.js';
 import { cashoutsTotal } from '../lib/metrics.js';
 import { audit } from '../lib/audit.js';
-import { recoveryHold } from '../lib/recoveryHold.js';
 
 // ── MoneyGram cash-out from the worker's wallet ───────────────────────────────
 // 1) POST /cashouts/moneygram/session  opens a MoneyGram widget session. KYC, the amount, the
@@ -40,7 +39,7 @@ async function workerPublicKey(workerId: string): Promise<string | undefined> {
   return r.rows[0]?.stellar_public_key;
 }
 
-router.post('/moneygram/session', recoveryHold, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/moneygram/session', recoveryHold(), async (req: Request, res: Response, next: NextFunction) => {
   const workerId = requireWorker(req, res);
   if (!workerId) return;
   if (!moneygramConfigured()) return res.status(400).json({ error: 'MoneyGram cash-out is not configured' });
@@ -66,7 +65,7 @@ router.post('/moneygram/session', recoveryHold, async (req: Request, res: Respon
   }
 });
 
-router.post('/moneygram/deposit', recoveryHold, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/moneygram/deposit', recoveryHold(), async (req: Request, res: Response, next: NextFunction) => {
   const workerId = requireWorker(req, res);
   if (!workerId) return;
   if (!moneygramConfigured()) return res.status(400).json({ error: 'MoneyGram cash-out is not configured' });

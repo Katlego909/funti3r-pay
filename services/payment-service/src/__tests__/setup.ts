@@ -15,7 +15,15 @@ vi.mock('@funti3r/database', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@funti3r/database')>();
   // No Redis in unit tests: the shared caches (FX prices) fall back to process memory instead of a real server.
   const noRedis = () => Promise.reject(new Error('Redis is not available in unit tests'));
-  return { ...actual, query: vi.fn(), getJSON: vi.fn(noRedis), setJSON: vi.fn(noRedis) };
+  const query = vi.fn();
+  // The real notify, but saving through the mocked query, so tests can see the notifications a route sends.
+  const notify = (n: Parameters<typeof actual.notify>[0]) => actual.notify(n, query as never);
+  // Same for the recovery hold: the real check, reading recovered_at through the mocked query.
+  const recoveryHold = () => actual.recoveryHold(query as never);
+  const recoveryHoldUntil = (userId: string, now?: number) => actual.recoveryHoldUntil(userId, now, query as never);
+  // A transaction runs its statements on the mocked query too (no BEGIN/COMMIT: there is no real database).
+  const transaction = vi.fn(async (fn: (client: { query: typeof query }) => unknown) => fn({ query }));
+  return { ...actual, query, notify, transaction, recoveryHold, recoveryHoldUntil, getJSON: vi.fn(noRedis), setJSON: vi.fn(noRedis) };
 });
 
 vi.mock('axios');
@@ -36,6 +44,7 @@ vi.mock('../lib/escrow.js', () => ({
   revokeClearance: vi.fn(),
   attestationHash: vi.fn(),
   createEscrow: vi.fn(),
+  contractCallOutcome: vi.fn(),
   approveMilestone: vi.fn(),
   claimMilestone: vi.fn(),
   refundEscrow: vi.fn(),

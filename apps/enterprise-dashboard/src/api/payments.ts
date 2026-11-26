@@ -112,9 +112,11 @@ export interface BatchResult {
   batchId: string;
   status: 'completed' | 'partial' | 'failed' | 'processing';
   totalRequested: number;
+  /** Payments whose money moved, including those held as a claimable balance (counted again in pendingClaimCount). */
   completedCount: number;
   failedCount: number;
   submittedCount: number;
+  pendingClaimCount: number;
   results: BatchItemResult[];
 }
 

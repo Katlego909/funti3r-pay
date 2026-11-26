@@ -5,7 +5,7 @@ import { ComplianceBlockedError } from './lib/clearance.js';
 import { metrics, payoutsTotal } from './lib/metrics.js';
 import { audit } from './lib/audit.js';
 import { payoutBody, batchPayoutBody } from './lib/schemas.js';
-import { query, getRedis } from '@funti3r/database';
+import { query, getRedis, notify, recoveryHold } from '@funti3r/database';
 import * as stellar from './lib/stellar.js';
 import { notifyPaymentSettled } from './lib/paymentNotifications.js';
 import { Asset } from '@stellar/stellar-sdk';
@@ -15,9 +15,9 @@ import schedulesRouter from './routes/schedules.js';
 import escrowsRouter from './routes/escrows.js';
 import cashoutsRouter from './routes/cashouts.js';
 import axios from 'axios';
-import { resolveCompanyContext, resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker } from './lib/company.js';
-import { recoveryHold } from './lib/recoveryHold.js';
+import { resolveCompanyContext, resolveCompanyContextOrSelf, canMoveMoney, isCompanyWorker, companyWorkerIds, ownerCompanyId, NOT_ON_TEAM } from './lib/company.js';
 import { closureBlockers } from './lib/accountClosure.js';
+import { batchVerdict, isMoneyMoved } from './lib/paymentStatus.js';
 
 const logger = createLogger('PaymentService');
 const COMPLIANCE_SERVICE_URL = process.env.COMPLIANCE_SERVICE_URL || 'http://localhost:3003';
@@ -206,6 +206,8 @@ async function executePayoutInner(opts: {
    *  (mirrors requireCompliance's two distinct messages: not-verified vs.
    *  compliance-service-unavailable) — undefined means verified. */
   precomputed?: {
+    /** Whether the payee is an active worker of the paying company. */
+    onTeam: boolean;
     complianceError?: string;
     worker: {
       stellar_public_key?: string; stellar_secret_key?: string; email?: string;
@@ -239,7 +241,7 @@ async function executePayoutInner(opts: {
       if (row.payload_hash !== payloadHash) {
         return { ...base, error: 'Idempotency key already used for a different payment request', httpStatus: 422 };
       }
-      if (row.status === 'completed' || row.status === 'pending_claim') {
+      if (isMoneyMoved(row.status)) {
         return {
           ...base, paymentId: row.id, status: row.status, stellarTxHash: row.stellar_tx_hash ?? undefined,
           ...(row.fee_paid_xlm ? { sourceAmountXlm: row.fee_paid_xlm } : {}),
@@ -264,6 +266,12 @@ async function executePayoutInner(opts: {
       }
     }
   }
+
+  // Only the paying company's own workers are payees (also enforced for escrows and schedules).
+  const onTeam = precomputed
+    ? precomputed.onTeam
+    : await isCompanyWorker(await ownerCompanyId(enterpriseId), workerId);
+  if (!onTeam) return { ...base, error: NOT_ON_TEAM, httpStatus: 403 };
 
   // KYC gate (auto-approves on testnet).
   if (precomputed) {
@@ -413,15 +421,11 @@ async function executePayoutInner(opts: {
     );
     logger.error('Stellar payment failed', { paymentId, detail });
 
-    try {
-      await query(
-        `INSERT INTO notifications (user_id, type, title, body, entity_type, entity_id)
-         VALUES ($1, 'payment_failed', 'Payment failed', $2, 'payment', $3)`,
-        [enterpriseId, `Payment of ${amountNum} ${asset} to ${workerEmail} failed: ${detail.slice(0, 120)}`, paymentId],
-      );
-    } catch (notifErr) {
-      logger.warn('Failed to emit payment_failed notification', { paymentId, error: String(notifErr) });
-    }
+    await notify({
+      userId: enterpriseId, type: 'payment_failed', title: 'Payment failed',
+      body: `Payment of ${amountNum} ${asset} to ${workerEmail} failed: ${detail.slice(0, 120)}`,
+      entityType: 'payment', entityId: paymentId,
+    });
 
     // The full detail is stored and logged above; the caller gets it only when it is safe to show: Horizon's result
     // codes and our own client-facing messages are, anything else (a SQL or network error) is not.
@@ -484,7 +488,7 @@ export async function executePayout(opts: Parameters<typeof executePayoutInner>[
  *  - USD:    { workerId, amountUsd }             → employer sends USD; the worker
  *            receives their PREFERRED currency, converted at the live FX rate.
  */
-app.post('/payouts', recoveryHold, async (req, res, next) => {
+app.post('/payouts', recoveryHold(), async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
   if (requesterRole !== 'enterprise' || !requesterId) return res.status(403).json({ error: 'Enterprise role required' });
@@ -589,13 +593,10 @@ export async function runBatchPayout(
            FROM payments WHERE batch_id = $1 ORDER BY created_at`,
         [row.id],
       );
-      // pending_claim moved the money too (a claimable balance); submitted is still awaiting the chain's answer.
-      const cachedCompleted = cached.rows.filter((r: any) => r.status === 'completed' || r.status === 'pending_claim');
-      const cachedFailed = cached.rows.filter((r: any) => r.status === 'failed');
-      const cachedSubmitted = cached.rows.filter((r: any) => r.status === 'submitted' || r.status === 'initiated');
-      return reply(cachedFailed.length === 0 && cachedSubmitted.length === 0 ? 201 : 207, {
+      const v = batchVerdict(cached.rows.map((r: { status: string }) => r.status), normalized.length);
+      return reply(v.failedCount === 0 && v.awaitingCount === 0 ? 201 : 207, {
         batchId: row.id, status: row.status, totalRequested,
-        completedCount: cachedCompleted.length, failedCount: cachedFailed.length, submittedCount: cachedSubmitted.length,
+        completedCount: v.movedCount, failedCount: v.failedCount, submittedCount: v.awaitingCount, pendingClaimCount: v.pendingClaimCount,
         results: cached.rows,
       });
     }
@@ -648,6 +649,7 @@ export async function runBatchPayout(
     [workerIds],
   );
   const workerById = new Map(workersRes.rows.map((w) => [w.id, w]));
+  const team = await companyWorkerIds(await ownerCompanyId(enterpriseId), workerIds);
 
   // Execute sequentially (shared source account → strictly ordered sequence
   // numbers). Each item resolves its OWN destination currency from the
@@ -668,6 +670,7 @@ export async function runBatchPayout(
           enterpriseId, sourceSecret: secret!, workerId: item.workerId,
           amountNum, asset, memo: item.memo, batchId,
           precomputed: {
+            onTeam: team.has(item.workerId),
             complianceError: complianceErrorByWorker[item.workerId],
             worker,
           },
@@ -683,32 +686,29 @@ export async function runBatchPayout(
     await query(`UPDATE payment_batches SET heartbeat_at = NOW() WHERE id = $1`, [batchId]);
   }
 
-  const completed = results.filter((r) => r.status === 'completed');
-  const failed = results.filter((r) => r.status === 'failed');
-  const submitted = results.filter((r) => r.status === 'submitted');
-  // With payments still awaiting their on-chain verdict the batch stays 'processing'; the watchdog finalizes it once
-  // they are settled (scheduler.ts).
-  const batchStatus = submitted.length > 0 ? 'processing'
-    : failed.length === 0 ? 'completed' : completed.length === 0 ? 'failed' : 'partial';
+  const v = batchVerdict(results.map((r) => r.status));
 
-  // Sum USD (not raw amounts, which can now be in different currencies per item).
-  const completedUsdTotal = normalized.reduce(
-    (sum, item, i) => (results[i].status === 'completed' ? sum + item.amountUsd : sum),
+  // Sum USD (not raw amounts, which can be in different currencies per item). A claimable balance moved money too.
+  const movedUsdTotal = normalized.reduce(
+    (sum, item, i) => (isMoneyMoved(results[i].status) ? sum + item.amountUsd : sum),
     0,
   );
+  // With payments still awaiting their on-chain verdict the batch stays 'processing'; the watchdog finalizes it once
+  // they are settled (scheduler.ts).
   await query(
     `UPDATE payment_batches SET status = $1, total_amount = $2, updated_at = NOW() WHERE id = $3`,
-    [batchStatus, completedUsdTotal, batchId],
+    [v.status, movedUsdTotal, batchId],
   );
 
-  logger.info('Batch payout finished', { batchId, status: batchStatus, completed: completed.length, failed: failed.length, submitted: submitted.length });
-  return reply(failed.length === 0 && submitted.length === 0 ? 201 : 207, {
+  logger.info('Batch payout finished', { batchId, status: v.status, moved: v.movedCount, failed: v.failedCount, submitted: v.awaitingCount });
+  return reply(v.failedCount === 0 && v.awaitingCount === 0 ? 201 : 207, {
     batchId,
-    status: batchStatus,
+    status: v.status,
     totalRequested,
-    completedCount: completed.length,
-    failedCount: failed.length,
-    submittedCount: submitted.length,
+    completedCount: v.movedCount,
+    failedCount: v.failedCount,
+    submittedCount: v.awaitingCount,
+    pendingClaimCount: v.pendingClaimCount,
     results,
   });
 }
@@ -721,7 +721,7 @@ export async function runBatchPayout(
  * just per-item. Payments execute sequentially (one Stellar source account →
  * one sequence number), but each item's destination currency is independent.
  */
-app.post('/payouts/batch', recoveryHold, async (req, res, next) => {
+app.post('/payouts/batch', recoveryHold(), async (req, res, next) => {
   const requesterId = req.headers['x-user-id'] as string | undefined;
   const requesterRole = req.headers['x-user-role'] as string | undefined;
   if (requesterRole !== 'enterprise' || !requesterId) return res.status(403).json({ error: 'Enterprise role required' });
@@ -733,24 +733,9 @@ app.post('/payouts/batch', recoveryHold, async (req, res, next) => {
   const body = parseBody(batchPayoutBody, req.body, res);
   if (!body) return;
   const { items, idempotencyKey } = body;
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'items must be a non-empty array' });
-  }
-  if (items.length > 100) {
-    return res.status(400).json({ error: 'A batch may contain at most 100 payments' });
-  }
-
-  // Validate every item up front. Each worker receives their own preferred
-  // currency (resolved per-item below, same as the single-payout USD mode)
-  // — no shared currency for the whole batch.
-  const normalized: BatchItem[] = [];
-  for (const it of items) {
-    const amountUsd = Number(it.amountUsd);
-    if (!it.workerId || !Number.isFinite(amountUsd) || amountUsd <= 0) {
-      return res.status(400).json({ error: 'Each item needs a workerId and a positive amountUsd' });
-    }
-    normalized.push({ workerId: it.workerId, amountUsd, memo: it.memo });
-  }
+  // The schema has checked every item (1-100 of them, each a real id and a positive amount). Each worker receives
+  // their own preferred currency, resolved per item. The fixed field order keeps the idempotency payload hash stable.
+  const normalized: BatchItem[] = items.map((it) => ({ workerId: it.workerId, amountUsd: it.amountUsd, memo: it.memo }));
 
   try {
     const r = await runBatchPayout(enterpriseId, normalized, idempotencyKey);

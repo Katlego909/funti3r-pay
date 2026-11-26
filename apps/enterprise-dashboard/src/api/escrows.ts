@@ -58,12 +58,24 @@ export async function getMyClearance(): Promise<OnchainClearance> {
   return data;
 }
 
-export async function createEscrow(payload: {
+export interface CreateEscrowPayload {
   workerId: string;
   milestones: Array<{ description?: string; amountXlm: number }>;
   expiresAt: string;
-}): Promise<{ id: string; onchainEscrowId: string; txHash: string }> {
-  const { data } = await api.post('/escrows', payload);
+  /** Same key on a retry of the same escrow: the server replays it instead of locking the money twice. */
+  idempotencyKey: string;
+}
+
+/**
+ * 201: funded and recorded. 202 (`status: 'submitted'`): sent, but the network has not confirmed it yet; the escrow
+ * appears in the list once it does (the server settles it from the chain within a few minutes).
+ */
+export type CreateEscrowResult =
+  | { status?: undefined; id: string; onchainEscrowId: string; txHash: string; replayed?: boolean }
+  | { status: 'submitted'; creationId: string; txHash: string };
+
+export async function createEscrow(payload: CreateEscrowPayload): Promise<CreateEscrowResult> {
+  const { data } = await api.post<CreateEscrowResult>('/escrows', payload);
   return data;
 }
 

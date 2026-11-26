@@ -179,7 +179,7 @@ export default function Payments() {
       setBatchResult(result);
       loadPayments();
       if (result.failedCount === 0 && result.submittedCount === 0) {
-        toast.success(`Batch complete — ${result.completedCount} payment(s) sent`);
+        toast.success(`Batch complete — ${result.completedCount} payment(s) sent${result.pendingClaimCount > 0 ? ` (${result.pendingClaimCount} to claim)` : ''}`);
       } else {
         toast.warning(`Batch ${result.status} — ${result.completedCount} sent, ${result.submittedCount} confirming, ${result.failedCount} failed`);
       }
@@ -365,6 +365,7 @@ export default function Payments() {
               <div>
                 <p style={{ fontWeight: 600 }}>
                   Batch {batchResult.status} — {batchResult.completedCount} sent
+                  {batchResult.pendingClaimCount > 0 && ` (${batchResult.pendingClaimCount} to claim)`}
                   {batchResult.submittedCount > 0 && `, ${batchResult.submittedCount} confirming`}, {batchResult.failedCount} failed
                 </p>
                 <div className="table-responsive" style={{ marginTop: '0.5rem' }}>

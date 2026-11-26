@@ -99,7 +99,7 @@ export default function RecoveryVerify() {
             </p>
             {moneyHeldUntil && (
               <p className="auth-subtitle" role="note">
-                For your security, sending and cashing out money is paused until{' '}
+                For your security, sending and cashing out money and changing your team are paused until{' '}
                 <strong>{new Date(moneyHeldUntil).toLocaleString()}</strong>. You can still view your account and receive
                 payments.
               </p>
