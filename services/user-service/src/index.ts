@@ -32,6 +32,7 @@ import {
 } from '@funti3r/shared-utils';
 import { sendRecoveryEmail } from './lib/email.js';
 import { hasSessionFor } from './lib/sessionAuth.js';
+import { allowedOrigin, rpOrigins, selfRegisterRole, signInRefusal } from './lib/authPolicy.js';
 import { decoyCredentialId } from './lib/loginDecoy.js';
 import { closeAccount, closureBlockers, type ClosureDeps } from './lib/accountClosure.js';
 import { acceptCompanyInvite, type CompanyInviteDeps } from './lib/companyInvites.js';
@@ -88,7 +89,8 @@ app.get('/metrics', metrics.handler);
 
 const RP_NAME = process.env.RP_NAME || 'Funti3r-Pay';
 const RP_ID = process.env.RP_ID || 'localhost';
-const RP_ORIGIN = process.env.RP_ORIGIN || 'http://localhost:3100';
+/** Where passkeys may be created and used: the dashboard and the admin console (see lib/authPolicy.ts). */
+const RP_ORIGINS = rpOrigins();
 const REFRESH_TOKEN_TTL_SEC = 60 * 60 * 24 * 7; // 7 days
 const LOGIN_SESSION_EXPIRED = 'Authentication session expired. Please start again.';
 const CHALLENGE_TTL_SEC = 600; // 10 minutes
@@ -263,6 +265,30 @@ function registerAuthRoute(path: string, handler: express.RequestHandler, { bare
   app.post(`/api/auth/${path}`, handler);
 }
 
+// ── Sessions ──────────────────────────────────────────────────────────────────
+
+/**
+ * Signs an account in: a short-lived access token, plus a rotating refresh token in an httpOnly cookie. The only place
+ * a session is made (register, login, dev sign-in, recovery, refresh), so one rule holds everywhere: role, email and
+ * company come from the database, never from a request or a cached session, and a suspended or closed account gets
+ * no session at all. The refresh session stores just the user id.
+ */
+async function issueSession(
+  res: express.Response,
+  userId: string,
+): Promise<{ accessToken: string; userId: string; email: string; role: UserRole; companyId: string | null }> {
+  const user = (await query('SELECT email, role, status FROM users WHERE id = $1', [userId])).rows[0];
+  if (!user) throw new AuthenticationError('Account not found');
+  const refusal = signInRefusal(user.status);
+  if (refusal) throw new AuthenticationError(refusal);
+  const companyId = (await resolveActiveCompanyId(userId)) ?? null;
+  const accessToken = generateToken(userId, user.email, user.role, companyId ?? undefined);
+  const refreshToken = randomBytes(64).toString('hex');
+  await setJSON(`refresh:${hashRefreshToken(refreshToken)}`, { userId }, REFRESH_TOKEN_TTL_SEC);
+  setRefreshCookie(res, refreshToken);
+  return { accessToken, userId, email: user.email, role: user.role, companyId };
+}
+
 // ── Registration ──────────────────────────────────────────────────────────────
 
 /**
@@ -272,10 +298,15 @@ function registerAuthRoute(path: string, handler: express.RequestHandler, { bare
  */
 const registerStartHandler = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
   try {
-    const { email, role = 'worker' } = req.body;
+    const { email } = req.body;
+    // Anyone may sign up as an employer or a worker, never as a platform admin (granted by hand: scripts/grant-admin.ts).
+    const role = selfRegisterRole(req.body?.role);
 
     if (!email) {
       return res.status(400).json({ error: 'Email is required' });
+    }
+    if (!role) {
+      return res.status(400).json({ error: 'Role must be enterprise or worker' });
     }
 
     const options = await generateRegistrationOptions({
@@ -337,7 +368,8 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
       return res.status(400).json({ error: 'Registration session expired. Please start again.' });
     }
 
-    const clientOrigin = origin || req.headers.origin || RP_ORIGIN;
+    const clientOrigin = allowedOrigin(origin || req.headers.origin, RP_ORIGINS);
+    if (!clientOrigin) return res.status(400).json({ error: 'Passkeys cannot be created from this site' });
     let verification: Awaited<ReturnType<typeof verifyRegistrationResponse>>;
     try {
       verification = await verifyRegistrationResponse({
@@ -375,22 +407,22 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
     let userId: string;
     let replacesCredential = false;
     if (existingUserRow.rows.length > 0) {
-      // User exists, check if they already have a credential for this origin
       userId = existingUserRow.rows[0].id;
+      // Adding or replacing a passkey on an existing account needs someone already signed in as that account (e.g. via
+      // a recovery link, on a new or reset device). This route is public, and registration accepts a passkey made by
+      // any client, so without that check anyone who knows an email could add their own passkey (on another of our
+      // origins, say) and sign in as that person.
+      if (!hasSessionFor(req, userId)) {
+        return res.status(409).json({ error: 'This email already has an account. Sign in, or recover access by email.' });
+      }
       const existingCredentialRow = await query(
         `SELECT id FROM user_credentials WHERE user_id = $1 AND origin = $2`,
         [userId, clientOrigin],
       );
-      if (existingCredentialRow.rows.length > 0) {
-        // Only someone already signed in as this user (e.g. via a recovery link, on a new or reset device) may
-        // replace the passkey for this origin. This route is public, so without that check anyone who knows an
-        // email could take the account over.
-        if (!hasSessionFor(req, userId)) {
-          return res.status(409).json({ error: 'You already have a credential registered for this browser/origin' });
-        }
-        replacesCredential = true;
-      }
+      replacesCredential = existingCredentialRow.rows.length > 0;
     } else {
+      // Checked again here, not only at register/start: the role must never be anything anyone may not choose.
+      if (!selfRegisterRole(session.role)) return res.status(400).json({ error: 'Role must be enterprise or worker' });
       // New user, given a classic Stellar ed25519 keypair (custodial). Workers are paid to this address; employers fund
       // their payouts from it.
       userId = randomUUID();
@@ -470,23 +502,9 @@ const registerFinishHandler = async (req: express.Request, res: express.Response
 
     await deleteKey(`reg:${email}`);
 
-    const companyId = await resolveActiveCompanyId(userId);
-    const accessToken = generateToken(userId, email, session.role, companyId ?? undefined);
-    const refreshToken = randomBytes(64).toString('hex');
-    await setJSON(
-      `refresh:${hashRefreshToken(refreshToken)}`,
-      { userId, email, role: session.role, companyId },
-      REFRESH_TOKEN_TTL_SEC,
-    );
-
-    setRefreshCookie(res, refreshToken);
-
+    // The session carries the account's role from the database: an existing user adding a passkey keeps theirs.
     res.status(201).json({
-      accessToken,
-      userId,
-      email,
-      role: session.role,
-      companyId,
+      ...(await issueSession(res, userId)),
       ...(inviteLinked !== undefined ? { inviteLinked } : {}),
       ...(companyInviteLinked !== undefined ? { companyInviteLinked } : {}),
       ...(companyInviteError !== undefined ? { companyInviteError } : {}),
@@ -511,7 +529,8 @@ const loginStartHandler = async (req: express.Request, res: express.Response, ne
     const { email, origin } = req.body as { email: string; origin?: string };
     if (!email) throw new ValidationError('email is required');
 
-    const clientOrigin = origin || req.headers.origin as string || RP_ORIGIN;
+    const clientOrigin = allowedOrigin(origin || req.headers.origin, RP_ORIGINS);
+    if (!clientOrigin) return res.status(400).json({ error: 'Passkeys cannot be used from this site' });
 
     const userRow = await query(
       `SELECT u.id, uc.credential_id, uc.transports
@@ -570,10 +589,11 @@ const loginFinishHandler = async (req: express.Request, res: express.Response, n
     };
     if (!email || !credential) throw new ValidationError('email and credential are required');
 
-    const clientOrigin = origin || req.headers.origin || RP_ORIGIN;
+    const clientOrigin = allowedOrigin(origin || req.headers.origin, RP_ORIGINS);
+    if (!clientOrigin) return res.status(400).json({ error: 'Passkeys cannot be used from this site' });
 
     const userRow = await query(
-      `SELECT u.id, u.role, uc.credential_id, uc.public_key, uc.counter, uc.transports
+      `SELECT u.id, uc.credential_id, uc.public_key, uc.counter, uc.transports
          FROM users u
          JOIN user_credentials uc ON uc.user_id = u.id
         WHERE u.email = $1 AND uc.origin = $2`,
@@ -586,7 +606,7 @@ const loginFinishHandler = async (req: express.Request, res: express.Response, n
       throw new AuthenticationError('Passkey verification failed');
     }
 
-    const { id: userId, role, credential_id, public_key, counter } =
+    const { id: userId, credential_id, public_key, counter } =
       userRow.rows[0];
 
     const session = await getJSON<{ challenge: string }>(`auth:${userId}`);
@@ -625,17 +645,7 @@ const loginFinishHandler = async (req: express.Request, res: express.Response, n
 
     await deleteKey(`auth:${userId}`);
 
-    const companyId = await resolveActiveCompanyId(userId);
-    const accessToken = generateToken(userId, email, role, companyId ?? undefined);
-    const refreshToken = randomBytes(64).toString('hex');
-    await setJSON(
-      `refresh:${hashRefreshToken(refreshToken)}`,
-      { userId, email, role, companyId },
-      REFRESH_TOKEN_TTL_SEC,
-    );
-
-    setRefreshCookie(res, refreshToken);
-    res.json({ accessToken, userId, email, role, companyId });
+    res.json(await issueSession(res, userId)); // refuses a suspended or closed account
   } catch (err) {
     next(err);
   }
@@ -659,25 +669,12 @@ const devLoginHandler = async (req: express.Request, res: express.Response, next
     const { email } = req.body as { email: string };
     if (!email) throw new ValidationError('email is required');
 
-    const result = await query(
-      'SELECT id, email, role FROM users WHERE email = $1',
-      [email],
-    );
+    const result = await query('SELECT id FROM users WHERE email = $1', [email]);
     if (result.rows.length === 0) throw new NotFoundError('User');
 
-    const { id: userId, role } = result.rows[0];
-    const companyId = await resolveActiveCompanyId(userId);
-    const accessToken = generateToken(userId, email, role, companyId ?? undefined);
-    const refreshToken = randomBytes(64).toString('hex');
-    await setJSON(
-      `refresh:${hashRefreshToken(refreshToken)}`,
-      { userId, email, role, companyId },
-      REFRESH_TOKEN_TTL_SEC,
-    );
-    setRefreshCookie(res, refreshToken);
-
-    logger.info('dev-login: signed in without passkey', { userId, email, role });
-    res.json({ accessToken, userId, email, role, companyId });
+    const signedIn = await issueSession(res, result.rows[0].id);
+    logger.info('dev-login: signed in without passkey', { userId: signedIn.userId, email, role: signedIn.role });
+    res.json(signedIn);
   } catch (err) {
     if (err instanceof NotFoundError) return res.status(404).json({ error: 'No account with that email' });
     next(err);
@@ -697,31 +694,15 @@ const refreshHandler = async (req: express.Request, res: express.Response, next:
     const token: string | undefined = req.cookies?.refresh_token;
     if (!token) throw new AuthenticationError('No refresh token');
 
-    const session = await getJSON<{ userId: string; email: string; role: UserRole; companyId?: string | null }>(
-      `refresh:${hashRefreshToken(token)}`,
-    );
+    const session = await getJSON<{ userId: string }>(`refresh:${hashRefreshToken(token)}`);
     if (!session) throw new AuthenticationError('Refresh token expired or invalid');
 
-    // A closed account keeps no sessions: other devices lose access at their next refresh (access tokens last 15m).
-    const owner = (await query('SELECT status FROM users WHERE id = $1', [session.userId])).rows[0];
-    if (!owner || owner.status === 'closed') {
-      await deleteKey(`refresh:${hashRefreshToken(token)}`);
-      throw new AuthenticationError('This account is closed');
-    }
-
-    const accessToken = generateToken(session.userId, session.email, session.role, session.companyId ?? undefined);
-
-    // Rotate refresh token
+    // Rotate: the old token is spent whatever happens next. The new session is minted from the database, so a role
+    // change (an admin granted or revoked), a suspension or a closure takes effect at the next refresh, within one
+    // access-token lifetime (15 minutes), on every device.
     await deleteKey(`refresh:${hashRefreshToken(token)}`);
-    const newRefresh = randomBytes(64).toString('hex');
-    await setJSON(
-      `refresh:${hashRefreshToken(newRefresh)}`,
-      session,
-      REFRESH_TOKEN_TTL_SEC,
-    );
-    setRefreshCookie(res, newRefresh);
-
-    res.json({ accessToken, companyId: session.companyId ?? null });
+    const { accessToken, companyId } = await issueSession(res, session.userId);
+    res.json({ accessToken, companyId });
   } catch (err) {
     next(err);
   }
@@ -1614,26 +1595,9 @@ const recoveryVerifyHandler = async (req: express.Request, res: express.Response
     if (!recoveredAt) return res.status(410).json({ error: 'Link has expired or already been used' });
     const moneyHeldUntil = new Date(new Date(recoveredAt).getTime() + RECOVERY_HOLD_MS).toISOString();
 
-    const companyId = await resolveActiveCompanyId(session.userId);
-    const accessToken = generateToken(session.userId, session.email, session.role, companyId ?? undefined);
-    const refreshToken = randomBytes(64).toString('hex');
-    await setJSON(
-      `refresh:${hashRefreshToken(refreshToken)}`,
-      { userId: session.userId, email: session.email, role: session.role, companyId },
-      REFRESH_TOKEN_TTL_SEC,
-    );
-
-    setRefreshCookie(res, refreshToken);
-
+    const signedIn = await issueSession(res, session.userId); // refuses a suspended or closed account
     logger.info('recovery/verify: session issued', { userId: session.userId });
-    return res.json({
-      accessToken,
-      userId: session.userId,
-      email: session.email,
-      role: session.role,
-      companyId,
-      moneyHeldUntil,
-    });
+    return res.json({ ...signedIn, moneyHeldUntil });
   } catch (err) {
     next(err);
   }

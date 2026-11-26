@@ -10,7 +10,8 @@
     "start": "node dist/index.js",
     "test": "node --import tsx --test src/**/*.test.ts",
     "lint": "eslint src",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "grant-admin": "node --env-file=../../.env.local --import tsx scripts/grant-admin.ts"
   },
   "dependencies": {
     "@funti3r/database": "workspace:*",

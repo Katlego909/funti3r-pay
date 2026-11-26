@@ -26,8 +26,9 @@ const ANALYTICS_URL   = process.env.ANALYTICS_SERVICE_URL  || 'http://localhost:
 // used both for CORS and for the returnTo redirect allowlist below, so the
 // two controls can't drift out of sync with each other.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS?.split(',') ?? [
-  'http://localhost:3100',
+  'http://localhost:3100', // the dashboard
   'http://localhost:3102',
+  'http://localhost:3200', // the admin console
 ]).map((o) => o.trim());
 
 // ── Security & basics ─────────────────────────────────────────────────────────
