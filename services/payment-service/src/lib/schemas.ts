@@ -12,6 +12,14 @@ const positiveAmount = amountLike
   .transform((v) => Number(v))
   .refine((n) => Number.isFinite(n) && n > 0, 'must be a positive number');
 
+/**
+ * A positive amount kept as an exact decimal string (at most 7 places, Stellar's precision), for token math that must
+ * not pass through a float: escrow tranches become i128 stroops.
+ */
+const positiveDecimal = amountLike
+  .transform((v) => String(v).trim())
+  .refine((v) => /^\d+(\.\d{1,7})?$/.test(v) && Number(v) > 0, 'must be a positive amount with at most 7 decimal places');
+
 /** The most payments one batch (or one scheduled run, which is a batch) may make. */
 export const MAX_BATCH_ITEMS = 100;
 
@@ -41,7 +49,8 @@ export const createEscrowBody = z.object({
   workerId: id,
   milestones: z.array(z.object({
     description: z.string().max(200).optional(),
-    amountXlm: amountLike,
+    /** In the escrow's token (USDC: dollars). */
+    amount: positiveDecimal,
   })).min(1).max(50),
   expiresAt: z.string().max(40),
   idempotencyKey: idempotencyKey.optional(),

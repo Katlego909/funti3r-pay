@@ -63,7 +63,7 @@ ordering and timing, every account they hold keys for, and can deploy contracts 
 |---|---|
 | All privileged functions require appropriate authorization | Done |
 | Initialization only once (`__constructor`) | Done |
-| External contract calls validated / allowlisted | **Gap**: `create` accepts any `token` address (see G2) |
+| External contract calls validated / allowlisted | Yes: `create` accepts only admin-allowlisted tokens (see G2) |
 | Arithmetic checked; input signs and ranges validated | Done (checked arithmetic on every sum and counter, `amount > 0`, milestone count ≤ 50, `overflow-checks = true` in release) |
 | Storage keys typed and collision-free | Done (`DataKey` enum) |
 | Critical TTLs extended proactively | Done for writes; **gap**: no TTL monitoring yet |
@@ -98,8 +98,10 @@ Re-run after the fixes: 0 critical. The remaining medium and enhancement items a
 
 - **G1. Single-key admin.** The two-step handover exists, but the admin is still one key until it is moved to a multisig
   account (planned before mainnet).
-- **G2. Any token accepted at `create`.** A malicious token contract can only affect escrows that use it (each escrow pays
-  out of its own token), but an allowlist (e.g. USDC SAC only) would remove the class. Planned with the USDC change.
+- **G2. Closed: token allowlist.** `create` refuses any token the admin has not allowed (`set_token_allowed`, admin-only,
+  emits `TokenAllowlistChanged`) with `TokenNotAllowed`, before any money moves. A fresh deploy allows nothing; the
+  platform allows only the USDC Stellar Asset Contract. The list lives in instance storage, so it cannot be archived out
+  from under `create`. Removing a token stops new escrows in it while existing ones still pay out and refund.
 - **G3. Closed: attack (property) tests.** `src/test_invariants.rs` runs random sequences of every money-moving and
   permission-changing call (create, approve, claim, refund, freeze, return_frozen, clearance changes, the clock) across
   several enterprises, workers and escrows. After every step it checks that:

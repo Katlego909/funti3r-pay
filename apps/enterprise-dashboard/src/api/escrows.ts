@@ -3,7 +3,8 @@ import { api } from './client.js';
 export interface EscrowMilestone {
   idx: number;
   description: string | null;
-  amountXlm: number;
+  /** In the escrow's token (see Escrow.tokenCode). */
+  amount: number;
   status: 'pending' | 'approved' | 'claimed' | 'refunded';
   approvedAt: string | null;
   claimedAt: string | null;
@@ -29,8 +30,9 @@ export interface Escrow {
   workerEmail: string;
   onchainEscrowId: string;
   contractAddress: string;
+  /** What the escrow locked: USDC for new escrows, XLM for earlier ones. Every amount on it is in this token. */
   tokenCode: string;
-  totalXlm: number;
+  total: number;
   status: 'active' | 'completed' | 'refunded';
   /** Compliance hold: the contract blocks approve, claim and refund. */
   frozen: boolean;
@@ -60,7 +62,8 @@ export async function getMyClearance(): Promise<OnchainClearance> {
 
 export interface CreateEscrowPayload {
   workerId: string;
-  milestones: Array<{ description?: string; amountXlm: number }>;
+  /** In USDC, so each milestone is its dollar value. */
+  milestones: Array<{ description?: string; amount: string }>;
   expiresAt: string;
   /** Same key on a retry of the same escrow: the server replays it instead of locking the money twice. */
   idempotencyKey: string;
@@ -89,7 +92,7 @@ export async function claimMilestone(escrowId: string, idx: number): Promise<str
   return data.txHash;
 }
 
-export async function refundEscrow(escrowId: string): Promise<{ refundedXlm: number; txHash: string }> {
+export async function refundEscrow(escrowId: string): Promise<{ refunded: number; tokenCode: string; txHash: string }> {
   const { data } = await api.post(`/escrows/${escrowId}/refund`);
   return data;
 }
@@ -113,7 +116,8 @@ export interface MoneyGramSession {
   widgetUrl: string;
   publicKey: string;
   walletAddress: string;
-  /** The most XLM this cash-out can spend: what the wallet can spare right now. */
+  /** What the wallet can spare right now: its USDC is sent as is, its XLM converted for whatever USDC lacks. */
+  maxUsdc: number;
   maxXlm: number;
 }
 
@@ -164,12 +168,12 @@ export async function listWalletCashouts(): Promise<WalletCashout[]> {
   return data.cashouts;
 }
 
-/** Escrow money in XLM (the contract's unit); convert with useDisplayCurrency before showing. */
+/**
+ * Escrow money, one row per token (USDC, and XLM for earlier escrows). Never add rows together as they are: convert
+ * each with useDisplayCurrency first.
+ */
 export interface EscrowSummary {
-  lockedXlm: number;
-  claimedXlm: number;
-  refundedXlm: number;
-  cashedOutXlm: number;
+  totals: Array<{ tokenCode: string; locked: number; claimed: number; refunded: number }>;
 }
 
 export async function getEscrowSummary(): Promise<EscrowSummary> {

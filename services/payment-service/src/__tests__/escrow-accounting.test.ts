@@ -29,7 +29,7 @@ describe('recordEscrowPayment', () => {
 
     const [sql, params] = payments()[0] as [string, unknown[]];
     expect(params).toEqual([ESCROW_ID, 0]);
-    expect(sql).toMatch(/'XLM', 'completed'/);               // the contract pays XLM; the worker has it
+    expect(sql).toMatch(/e\.token_code, 'completed'/);     // booked in the escrow's own token (USDC, or XLM for older ones)
     expect(sql).toMatch(/'escrow:' \|\| e\.id::text \|\| ':' \|\| m\.idx, 'escrow'/); // idempotency key + rail
     expect(sql).toMatch(/ON CONFLICT \(enterprise_id, idempotency_key\) WHERE idempotency_key IS NOT NULL DO NOTHING/);
     expect(sql).toMatch(/m\.status = 'claimed'/);             // only money the worker actually received
@@ -114,40 +114,44 @@ describe('reconciler', () => {
 });
 
 describe('GET /escrows/summary', () => {
-  const ROW = { locked: '10.0000000', claimed: '192.0000000', refunded: '40.0000000' };
-  // What the worker has cashed out of the wallet (MoneyGram) lives in `cashouts`, not on milestones.
-  const CASHOUTS = { match: /FROM cashouts WHERE worker_id = \$1/, handler: () => ({ rows: [{ spent: '150.0000000' }] }) };
-  const SUMMARY = { match: /FROM escrow_milestones m JOIN escrows e ON e\.id = m\.escrow_id\s+WHERE e\.(worker_id|enterprise_id)/, handler: () => ({ rows: [ROW] }) };
+  // One row per token: earlier escrows locked XLM, new ones lock USDC, and the two are never added together.
+  const ROWS = [
+    { token_code: 'USDC', locked: '10.0000000', claimed: '192.0000000', refunded: '40.0000000' },
+    { token_code: 'XLM', locked: '0', claimed: '25.0000000', refunded: '0' },
+  ];
+  const SUMMARY = { match: /FROM escrow_milestones m JOIN escrows e ON e\.id = m\.escrow_id\s+WHERE e\.(worker_id|enterprise_id)/, handler: () => ({ rows: ROWS }) };
 
   it('403s without an identity', async () => {
     expect((await request(app).get('/escrows/summary')).status).toBe(403);
   });
 
-  it('gives a worker their own escrow money, in XLM, split into locked / claimed / refunded / cashed out', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([SUMMARY, CASHOUTS]));
+  it('gives a worker their own escrow money per token, split into locked / claimed / refunded', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([SUMMARY]));
     const res = await request(app).get('/escrows/summary').set(workerHeaders);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ lockedXlm: 10, claimedXlm: 192, refundedXlm: 40, cashedOutXlm: 150 });
+    expect(res.body).toEqual({ totals: [
+      { tokenCode: 'USDC', locked: 10, claimed: 192, refunded: 40 },
+      { tokenCode: 'XLM', locked: 0, claimed: 25, refunded: 0 },
+    ] });
 
     const [sql, params] = vi.mocked(query).mock.calls.find(([q]) => /FROM escrow_milestones m JOIN escrows e/.test(q)) as [string, unknown[]];
     expect(sql).toMatch(/WHERE e\.worker_id = \$1/);
+    expect(sql).toMatch(/GROUP BY e\.token_code/);
     expect(params).toEqual([WORKER_ID]); // scoped to the caller, never someone else's
   });
 
   it('scopes an employer to their company', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([SUMMARY, CASHOUTS]));
+    vi.mocked(query).mockImplementation(createQueryMock([SUMMARY]));
     const res = await request(app).get('/escrows/summary').set(enterpriseHeaders);
     expect(res.status).toBe(200);
-    expect(res.body.cashedOutXlm).toBe(0); // cash-outs are the worker's own business
     const [sql, params] = vi.mocked(query).mock.calls.find(([q]) => /FROM escrow_milestones m JOIN escrows e/.test(q)) as [string, unknown[]];
     expect(sql).toMatch(/WHERE e\.enterprise_id = \$1/);
     expect(params).toEqual([ENTERPRISE_ID]);
   });
 
-  it('returns zeros for someone with no escrows, and refuses other roles', async () => {
-    vi.mocked(query).mockImplementation(createQueryMock([{ ...SUMMARY, handler: () => ({ rows: [{}] }) }]));
-    expect((await request(app).get('/escrows/summary').set(workerHeaders)).body)
-      .toEqual({ lockedXlm: 0, claimedXlm: 0, refundedXlm: 0, cashedOutXlm: 0 });
+  it('returns no totals for someone with no escrows, and refuses other roles', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([{ ...SUMMARY, handler: () => ({ rows: [] }) }]));
+    expect((await request(app).get('/escrows/summary').set(workerHeaders)).body).toEqual({ totals: [] });
     expect((await request(app).get('/escrows/summary').set({ 'x-user-id': 'x', 'x-user-role': 'nobody' })).status).toBe(403);
     expect(MEMBER_ID).toBeDefined();
   });

@@ -22,7 +22,7 @@ export async function recordEscrowPayment(escrowId: string, idx: number): Promis
     `INSERT INTO payments
        (enterprise_id, worker_id, amount, currency, status, stellar_tx_hash, stellar_destination,
         description, reference_id, created_at, completed_at, updated_at, idempotency_key, rail)
-     SELECT e.enterprise_id, e.worker_id, m.amount, 'XLM', 'completed', m.claim_tx_hash, u.stellar_public_key,
+     SELECT e.enterprise_id, e.worker_id, m.amount, e.token_code, 'completed', m.claim_tx_hash, u.stellar_public_key,
             'Escrow milestone: ' || COALESCE(NULLIF(m.description, ''), 'Milestone ' || (m.idx + 1)),
             e.id::text, COALESCE(m.claimed_at, NOW()), COALESCE(m.claimed_at, NOW()), COALESCE(m.claimed_at, NOW()),
             'escrow:' || e.id::text || ':' || m.idx, 'escrow'
@@ -57,7 +57,7 @@ export async function recordAllMissingEscrowPayments(): Promise<number> {
     `INSERT INTO payments
        (enterprise_id, worker_id, amount, currency, status, stellar_tx_hash, stellar_destination,
         description, reference_id, created_at, completed_at, updated_at, idempotency_key, rail)
-     SELECT e.enterprise_id, e.worker_id, m.amount, 'XLM', 'completed', m.claim_tx_hash, u.stellar_public_key,
+     SELECT e.enterprise_id, e.worker_id, m.amount, e.token_code, 'completed', m.claim_tx_hash, u.stellar_public_key,
             'Escrow milestone: ' || COALESCE(NULLIF(m.description, ''), 'Milestone ' || (m.idx + 1)),
             e.id::text, COALESCE(m.claimed_at, NOW()), COALESCE(m.claimed_at, NOW()), COALESCE(m.claimed_at, NOW()),
             'escrow:' || e.id::text || ':' || m.idx, 'escrow'

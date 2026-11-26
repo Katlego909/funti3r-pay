@@ -78,12 +78,19 @@ export default function MoneyGramCashoutModal({ open, onClose, onChanged }: Prop
     }
   }
 
+  /** The wallet's USDC plus its XLM, each converted first: two currencies are never added as raw amounts. */
+  const cashoutLimit = (sm: MoneyGramSession): string => {
+    const usdc = dc.convert(sm.maxUsdc, 'USDC');
+    const xlm = dc.convert(sm.maxXlm, 'XLM');
+    return usdc === null || xlm === null ? '—' : dc.formatValue(usdc + xlm);
+  };
+
   return (
     <Modal open={open} onClose={close} title="Cash out with MoneyGram" closeButton maxWidth="480px">
       {session && (
         <p style={{ fontSize: '0.82rem', color: '#6b7280', marginTop: 0 }}>
           Pick the amount, a pickup country and location, then confirm.
-          You can cash out up to {dc.format(session.maxXlm, 'XLM')} from your wallet.
+          You can cash out up to {cashoutLimit(session)} from your wallet.
         </p>
       )}
       {error && (

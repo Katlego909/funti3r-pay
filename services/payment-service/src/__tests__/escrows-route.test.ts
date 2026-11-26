@@ -16,7 +16,7 @@ const workerHeaders = { 'x-user-id': WORKER_ID, 'x-user-role': 'worker' };
 // ── Query handlers specific to the escrow routes ─────────────────────────────
 
 const HANDLER_WORKER_LOOKUP = {
-  match: /SELECT stellar_public_key, email FROM users/,
+  match: /SELECT stellar_public_key, stellar_secret_key, email FROM users/,
   handler: () => ({ rows: [{ stellar_public_key: 'GDESTWORKERPUBLICKEYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', email: 'worker@test.com' }] }),
 };
 
@@ -97,14 +97,14 @@ beforeEach(() => {
 describe('POST /escrows — authorization and validation', () => {
   it('403s for worker role', async () => {
     const res = await request(app).post('/escrows').set(workerHeaders)
-      .send({ workerId: WORKER_ID, milestones: [{ amountXlm: 10 }], expiresAt: new Date(Date.now() + 86_400_000).toISOString() });
+      .send({ workerId: WORKER_ID, milestones: [{ amount: 10 }], expiresAt: new Date(Date.now() + 86_400_000).toISOString() });
     expect(res.status).toBe(403);
   });
 
   it('403s for a company member — escrow funding is owner/admin-only', async () => {
     const res = await request(app).post('/escrows')
       .set({ 'x-user-id': MEMBER_ID, 'x-user-role': 'enterprise' })
-      .send({ workerId: WORKER_ID, milestones: [{ amountXlm: 10 }], expiresAt: new Date(Date.now() + 86_400_000).toISOString() });
+      .send({ workerId: WORKER_ID, milestones: [{ amount: 10 }], expiresAt: new Date(Date.now() + 86_400_000).toISOString() });
     expect(res.status).toBe(403);
     expect(res.body.error).toMatch(/owners and admins/);
   });
@@ -115,7 +115,7 @@ describe('POST /escrows — authorization and validation', () => {
     expect(noMilestones.status).toBe(400);
 
     const pastExpiry = await request(app).post('/escrows').set(enterpriseHeaders)
-      .send({ workerId: WORKER_ID, milestones: [{ amountXlm: 10 }], expiresAt: '2020-01-01' });
+      .send({ workerId: WORKER_ID, milestones: [{ amount: 10 }], expiresAt: '2020-01-01' });
     expect(pastExpiry.status).toBe(400);
   });
 
@@ -129,7 +129,7 @@ describe('POST /escrows — authorization and validation', () => {
       .set({ 'x-user-id': ADMIN_ID, 'x-user-role': 'enterprise' })
       .send({
         workerId: WORKER_ID,
-        milestones: [{ description: 'Design', amountXlm: 25 }, { description: 'Build', amountXlm: 40 }],
+        milestones: [{ description: 'Design', amount: 25 }, { description: 'Build', amount: 40 }],
         expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
       });
 
@@ -142,7 +142,7 @@ describe('POST /escrows — authorization and validation', () => {
   });
 
   const createEscrowRequest = () => request(app).post('/escrows').set(enterpriseHeaders)
-    .send({ workerId: WORKER_ID, milestones: [{ amountXlm: 10 }], expiresAt: new Date(Date.now() + 86_400_000).toISOString() });
+    .send({ workerId: WORKER_ID, milestones: [{ amount: 10 }], expiresAt: new Date(Date.now() + 86_400_000).toISOString() });
 
   it('502s with a plain message when the contract call fails on-chain', async () => {
     vi.mocked(query).mockImplementation(createQueryMock([
@@ -235,7 +235,7 @@ describe('milestone approve and claim', () => {
 describe('compliance gate', () => {
   const body = () => ({
     workerId: WORKER_ID,
-    milestones: [{ amountXlm: 10 }],
+    milestones: [{ amount: 10 }],
     expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
   });
 
@@ -367,8 +367,8 @@ describe('GET /escrows/my-clearance', () => {
 describe('POST /escrows/:id/return-frozen', () => {
   const adminHeaders = { 'x-user-id': ADMIN_ID, 'x-user-role': 'admin' };
   const frozenRow = (over: Record<string, unknown> = {}) => ({
-    match: /SELECT onchain_escrow_id, status, frozen FROM escrows/,
-    handler: () => ({ rows: [{ onchain_escrow_id: '3', status: 'active', frozen: true, ...over }] }),
+    match: /SELECT onchain_escrow_id, status, frozen, token_code FROM escrows/,
+    handler: () => ({ rows: [{ onchain_escrow_id: '3', status: 'active', frozen: true, token_code: 'USDC', ...over }] }),
   });
 
   it('403s anyone who is not a platform admin', async () => {
@@ -390,7 +390,7 @@ describe('POST /escrows/:id/return-frozen', () => {
 
     const res = await request(app).post(`/escrows/${ESCROW_ID}/return-frozen`).set(adminHeaders).send({});
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ returnedXlm: 300, txHash: 'tx-return' });
+    expect(res.body).toEqual({ returned: 300, tokenCode: 'USDC', txHash: 'tx-return' });
     expect(escrow.returnFrozen).toHaveBeenCalledWith(3n);
     expect(vi.mocked(query).mock.calls.some(([sql]) => /SET status = 'refunded'/.test(String(sql)))).toBe(true);
   });
@@ -416,7 +416,7 @@ describe('POST /escrows/:id/refund', () => {
 
     const res = await request(app).post(`/escrows/${ESCROW_ID}/refund`).set(enterpriseHeaders);
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ refundedXlm: 40, txHash: 'tx-refund' });
+    expect(res.body).toMatchObject({ refunded: 40, txHash: 'tx-refund' });
     const write = vi.mocked(query).mock.calls.find(([sql]) => /refund_tx_hash = \$2/.test(sql));
     expect(write?.[1]).toEqual([ESCROW_ID, 'tx-refund']);
   });
@@ -453,7 +453,7 @@ describe('GET /escrows', () => {
     const res = await request(app).get('/escrows').set(enterpriseHeaders);
     expect(res.status).toBe(200);
     expect(res.body.escrows).toHaveLength(1);
-    expect(res.body.escrows[0]).toMatchObject({ totalXlm: 65, workerEmail: 'worker@test.com' });
+    expect(res.body.escrows[0]).toMatchObject({ total: 65, workerEmail: 'worker@test.com' });
     expect(res.body.escrows[0].milestones).toHaveLength(2);
     expect(res.body.escrows[0].milestones[0]).toMatchObject({ claimTxHash: 'tx-claim', approveTxHash: 'tx-approve', refundTxHash: null });
   });

@@ -35,7 +35,8 @@ const toExport = ({ escrow: e, milestone: m, state }: MilestoneRow): ExportMiles
   escrowId: e.id,
   title: m.description || `Milestone ${m.idx + 1}`,
   position: e.milestones.length > 1 ? `${m.idx + 1} of ${e.milestones.length}` : '',
-  amountXlm: m.amountXlm,
+  amount: m.amount,
+  tokenCode: e.tokenCode,
   status: state.label,
   expires: e.expiresAt,
   approvedAt: m.approvedAt,
@@ -108,7 +109,7 @@ export default function WorkerMilestonesTable({
                         <div style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>{m.idx + 1} of {e.milestones.length}</div>
                       )}
                     </td>
-                    <td data-label="Amount">{dc.format(m.amountXlm, 'XLM')}</td>
+                    <td data-label="Amount">{dc.format(m.amount, e.tokenCode)}</td>
                     <td data-label="Expires">{new Date(e.expiresAt).toLocaleDateString()}</td>
                     <td data-label="Status">
                       <StatusBadge variant={state.variant}>{state.label}</StatusBadge>

@@ -1,7 +1,8 @@
 //! Funti3r milestone escrow with an on-chain compliance gate.
 //!
 //! An enterprise funds an escrow for a worker with N milestone tranches of a
-//! SAC token (native XLM on testnet, USDC on mainnet — same code). Flow:
+//! SAC token the admin has allowlisted (USDC; earlier escrows used native XLM,
+//! and keep paying out in it). Flow:
 //!
 //!   create (enterprise deposits total; worker must be cleared)
 //!     └─ per milestone: Pending ──approve(enterprise)──► Approved ──claim(worker)──► Claimed
@@ -81,6 +82,9 @@ enum DataKey {
     Escrow(u64),
     Clearance(Address),
     PendingAdmin,
+    /// A token `create` accepts. In instance storage: the list is tiny, and the instance TTL is bumped on every
+    /// change, so an allowed token can never be archived out from under `create`.
+    AllowedToken(Address),
 }
 
 /// An admin handover waiting to be accepted: `address` may call `accept_admin`
@@ -114,6 +118,8 @@ pub enum Error {
     InvalidLiveUntilLedger = 16,
     /// More than MAX_MILESTONES tranches
     TooManyMilestones = 17,
+    /// The token is not on the admin's allowlist
+    TokenNotAllowed = 18,
 }
 
 // ── Events ───────────────────────────────────────────────────────────────────
@@ -199,6 +205,13 @@ pub struct AdminChanged {
 }
 
 #[contractevent]
+pub struct TokenAllowlistChanged {
+    #[topic]
+    pub token: Address,
+    pub allowed: bool,
+}
+
+#[contractevent]
 pub struct FreezeChanged {
     #[topic]
     pub id: u64,
@@ -241,6 +254,10 @@ fn admin(env: &Env) -> Address {
         .instance()
         .get(&DataKey::Admin)
         .expect("constructor sets admin")
+}
+
+fn token_allowed(env: &Env, token: &Address) -> bool {
+    env.storage().instance().has(&DataKey::AllowedToken(token.clone()))
 }
 
 fn is_cleared(env: &Env, worker: &Address) -> bool {
@@ -394,6 +411,25 @@ impl EscrowContract {
             .filter(|p| env.ledger().sequence() <= p.live_until_ledger)
     }
 
+    /// Admin adds `token` to, or removes it from, the tokens `create` accepts. A token contract decides how its own
+    /// transfers behave, so only vetted ones (the USDC Stellar Asset Contract) may hold escrowed funds. Removing a
+    /// token stops new escrows in it; escrows already holding it still pay out and refund as normal.
+    pub fn set_token_allowed(env: Env, token: Address, allowed: bool) {
+        admin(&env).require_auth();
+        let key = DataKey::AllowedToken(token.clone());
+        if allowed {
+            env.storage().instance().set(&key, &());
+        } else {
+            env.storage().instance().remove(&key);
+        }
+        bump_instance(&env);
+        TokenAllowlistChanged { token, allowed }.publish(&env);
+    }
+
+    pub fn is_token_allowed(env: Env, token: Address) -> bool {
+        token_allowed(&env, &token)
+    }
+
     /// Swap the contract code (upload the new wasm first, pass its hash).
     /// Address and storage survive; the constructor does not re-run.
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
@@ -522,6 +558,9 @@ impl EscrowContract {
         expiry: u64,
     ) -> Result<u64, Error> {
         enterprise.require_auth();
+        if !token_allowed(&env, &token) {
+            return Err(Error::TokenNotAllowed);
+        }
         require_cleared(&env, &worker)?;
 
         if amounts.is_empty() {

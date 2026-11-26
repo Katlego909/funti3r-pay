@@ -35,6 +35,19 @@ export default function Dashboard() {
   const isEnterprise = user?.role !== 'worker';
   // One currency for this viewer: a worker's preferred currency, USD for employers.
   const dc = useDisplayCurrency();
+  /**
+   * One escrow figure across tokens (USDC, XLM for older escrows): each is converted to the display currency before
+   * adding, never summed as raw amounts. '—' when a rate is missing rather than a figure that leaves part out.
+   */
+  const formatEscrowTotal = (summary: EscrowSummary, field: 'locked' | 'claimed'): string => {
+    let sum = 0;
+    for (const t of summary.totals) {
+      const v = dc.convert(t[field], t.tokenCode);
+      if (v === null) return '—';
+      sum += v;
+    }
+    return dc.formatValue(sum);
+  };
 
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
   const [userCount, setUserCount] = useState<number | null>(null);
@@ -212,9 +225,9 @@ export default function Dashboard() {
           </div>
           {escrow ? (
             <>
-              <div className="metric-value">{dc.format(escrow.lockedXlm, 'XLM')}</div>
+              <div className="metric-value">{formatEscrowTotal(escrow, 'locked')}</div>
               <div className="metric-change">
-                {dc.format(escrow.claimedXlm, 'XLM')} released {isEnterprise ? 'to workers' : 'to your wallet'}
+                {formatEscrowTotal(escrow, 'claimed')} released {isEnterprise ? 'to workers' : 'to your wallet'}
               </div>
             </>
           ) : (

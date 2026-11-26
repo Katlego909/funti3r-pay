@@ -43,6 +43,7 @@ fn setup_uncleared() -> Setup {
     let contract_id = env.register(EscrowContract, (admin.clone(), compliance.clone()));
     let client = EscrowContractClient::new(&env, &contract_id);
     let token = token::Client::new(&env, &token_address);
+    client.set_token_allowed(&token_address, &true);
 
     Setup {
         env,
@@ -674,4 +675,56 @@ fn balance_matches_open_tranches_through_mixed_operations() {
         s.token.balance(&s.worker) + s.token.balance(&s.enterprise),
         1_000
     );
+}
+
+// ── Token allowlist ──────────────────────────────────────────────────────────
+
+#[test]
+fn create_refuses_a_token_not_on_the_allowlist_before_moving_money() {
+    let s = setup();
+    let other = s.env.register_stellar_asset_contract_v2(Address::generate(&s.env)).address();
+    token::StellarAssetClient::new(&s.env, &other).mint(&s.enterprise, &1_000);
+
+    let r = s.client.try_create(&s.enterprise, &s.worker, &other, &vec![&s.env, 100_i128], &EXPIRY);
+    assert_eq!(r, Err(Ok(Error::TokenNotAllowed)));
+    assert_eq!(token::Client::new(&s.env, &other).balance(&s.enterprise), 1_000);
+    assert_eq!(token::Client::new(&s.env, &other).balance(&s.client.address), 0);
+}
+
+#[test]
+fn a_fresh_contract_accepts_no_token_until_the_admin_allows_one() {
+    let s = setup();
+    s.client.set_token_allowed(&s.token_address, &false);
+    assert!(!s.client.is_token_allowed(&s.token_address));
+    assert_eq!(
+        s.client.try_create(&s.enterprise, &s.worker, &s.token_address, &vec![&s.env, 100_i128], &EXPIRY),
+        Err(Ok(Error::TokenNotAllowed))
+    );
+
+    s.client.set_token_allowed(&s.token_address, &true);
+    assert_eq!(s.env.auths()[0].0, s.admin);
+    assert!(s.client.is_token_allowed(&s.token_address));
+    create_default(&s);
+}
+
+#[test]
+fn only_the_admin_can_change_the_allowlist() {
+    let s = setup();
+    let other = Address::generate(&s.env);
+    s.env.set_auths(&[]);
+    assert!(s.client.try_set_token_allowed(&other, &true).is_err());
+    assert!(!s.client.is_token_allowed(&other));
+}
+
+#[test]
+fn removing_a_token_keeps_existing_escrows_paying_out() {
+    let s = setup();
+    let id = create_default(&s);
+    s.client.set_token_allowed(&s.token_address, &false);
+
+    s.client.approve(&id, &0);
+    s.client.claim(&id, &0);
+    assert_eq!(s.token.balance(&s.worker), 100);
+    set_time(&s, EXPIRY + 1);
+    assert_eq!(s.client.refund(&id), 200);
 }

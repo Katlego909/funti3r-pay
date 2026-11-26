@@ -5,11 +5,11 @@ import { buildMilestoneRows, inTab, milestoneState } from './workerMilestones.js
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 
 const milestone = (over: Partial<EscrowMilestone> = {}): EscrowMilestone => ({
-  idx: 0, description: 'Test', amountXlm: 10, status: 'pending', approvedAt: null, claimedAt: null, claimTxHash: null,
+  idx: 0, description: 'Test', amount: 10, status: 'pending', approvedAt: null, claimedAt: null, claimTxHash: null,
   approveTxHash: null, refundTxHash: null, reviewStatus: 'none', ...over,
 });
 const escrow = (ms: EscrowMilestone[], over: Partial<Escrow> = {}): Escrow => ({
-  id: 'e1', workerEmail: 'w@x.io', onchainEscrowId: '1', contractAddress: 'C', tokenCode: 'XLM', totalXlm: 10,
+  id: 'e1', workerEmail: 'w@x.io', onchainEscrowId: '1', contractAddress: 'C', tokenCode: 'XLM', total: 10,
   status: 'active', frozen: false, expiresAt: '2026-10-16T00:00:00Z', createTxHash: null,
   createdAt: '2026-10-08T10:00:00Z', milestones: ms, reviewEvents: [], ...over,
 } as Escrow);

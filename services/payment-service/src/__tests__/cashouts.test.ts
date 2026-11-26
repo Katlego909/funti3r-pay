@@ -6,7 +6,7 @@ import { query } from '@funti3r/database';
 import { AppError } from '@funti3r/shared-utils';
 import app from '../app.js';
 import { ensureCleared, ComplianceBlockedError } from '../lib/clearance.js';
-import { payExactWithXlm, spendableXlm, SubmitOutcomeUnknownError } from '../lib/stellar.js';
+import { payExactWithXlm, sendPayment, spendableAsset, spendableXlm, SubmitOutcomeUnknownError } from '../lib/stellar.js';
 import * as mg from '../lib/moneygram.js';
 import { awaitRampsAcknowledgement } from '../lib/rampsSync.js';
 import { createQueryMock, WORKER_ID, ENTERPRISE_ID } from './helpers.js';
@@ -101,7 +101,7 @@ describe('POST /cashouts/moneygram/session', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       sessionToken: 'session-token', widgetUrl: expect.stringContaining('widget.html'),
-      publicKey: 'ramps_pk_sbox_public', walletAddress: WALLET, maxXlm: 180.5,
+      publicKey: 'ramps_pk_sbox_public', walletAddress: WALLET, maxUsdc: 0, maxXlm: 180.5,
     });
     expect(mg.createSession).toHaveBeenCalledWith({ customerIdentifier: WORKER_ID, walletAddress: WALLET });
   });
@@ -206,6 +206,25 @@ describe('POST /cashouts/moneygram/deposit', () => {
     expect(opts.sendMaxXlm).toBe('180.5000000'); // the wallet's spendable XLM — a hard on-chain ceiling
     expect(opts.memo.type).toBe('id');
     expect(opts.memo.value).toBe(MEMO);
+  });
+
+  it('sends the USDC the wallet already holds when it covers the amount: nothing is converted', async () => {
+    vi.mocked(query).mockImplementation(createQueryMock([...base, TAKE]));
+    vi.mocked(spendableAsset).mockResolvedValueOnce(500_000_000n); // 50 USDC in the wallet
+    vi.mocked(sendPayment).mockReset().mockImplementation((async (...args: any[]) => {
+      await args[6]('usdc-direct-hash', new Date(Date.now() + 60_000)); // write-ahead, as the real one does
+      return 'usdc-direct-hash';
+    }) as never);
+
+    const res = await deposit();
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ txHash: 'usdc-direct-hash', status: 'pending' });
+    const [, destination, amount, code, issuer, memo] = vi.mocked(sendPayment).mock.calls[0] as unknown as [string, string, string, string, string, Memo];
+    expect([destination, amount, code, issuer]).toEqual([DEPOSIT, '10', 'USDC', process.env.STELLAR_USDC_ISSUER]);
+    expect(memo.type).toBe('id');
+    expect(memo.value).toBe(MEMO);
+    expect(payExactWithXlm).not.toHaveBeenCalled();
+    expect(calls(/SET settlement_hash = \$2/).length).toBe(1); // the hash was stored before submitting
   });
 
   it('stores the hash before submitting, then answers without waiting on MoneyGram (the gateway cuts off slow requests)', async () => {

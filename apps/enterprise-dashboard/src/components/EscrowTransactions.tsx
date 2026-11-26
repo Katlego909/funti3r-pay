@@ -27,7 +27,7 @@ function buildRows(escrow: Escrow, dc: DisplayCurrency): TxRow[] {
   ];
 
   for (const m of escrow.milestones) {
-    const milestone = `#${m.idx + 1}${m.description ? ` ${m.description}` : ''} · ${dc.format(m.amountXlm, 'XLM')}`;
+    const milestone = `#${m.idx + 1}${m.description ? ` ${m.description}` : ''} · ${dc.format(m.amount, escrow.tokenCode)}`;
 
     if (m.approveTxHash || m.status === 'approved' || m.status === 'claimed') {
       rows.push({ key: `a${m.idx}`, step: 'Approved', milestone, at: m.approvedAt, hash: m.approveTxHash });

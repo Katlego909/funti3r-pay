@@ -31,7 +31,7 @@ export default function EscrowMoneyTrail({ escrow, viewer }: { escrow: Escrow; v
             return (
               <tr key={m.idx}>
                 <td data-label="Milestone" style={{ fontWeight: 600 }}>{m.description || `Milestone ${m.idx + 1}`}</td>
-                <td data-label="Amount">{dc.format(m.amountXlm, 'XLM')}</td>
+                <td data-label="Amount">{dc.format(m.amount, escrow.tokenCode)}</td>
                 <td data-label="Where it is"><StatusBadge variant={variant}>{where}</StatusBadge></td>
               </tr>
             );

@@ -3,7 +3,8 @@ import type { Router as RouterType } from 'express';
 import { query, recoveryHold } from '@funti3r/database';
 import { AppError, createLogger, decryptFromString } from '@funti3r/shared-utils';
 import { Memo } from '@stellar/stellar-sdk';
-import { HorizonRejectedError, SubmitOutcomeUnknownError, payExactWithXlm, spendableXlm, type OnSigned } from '../lib/stellar.js';
+import { HorizonRejectedError, SubmitOutcomeUnknownError, payExactWithXlm, sendPayment, spendableAsset, spendableXlm, type OnSigned } from '../lib/stellar.js';
+import { fromStroops } from '../lib/amounts.js';
 import { getCurrency } from '../lib/currencies.js';
 import {
   checkDeposit, createSession, findClaimedTransaction, listTransactions,
@@ -39,6 +40,16 @@ async function workerPublicKey(workerId: string): Promise<string | undefined> {
   return r.rows[0]?.stellar_public_key;
 }
 
+/** What a cash-out can spend from the wallet: its USDC as is, and its XLM (converted for any USDC it lacks). */
+async function cashoutFunds(pub: string): Promise<{ maxUsdc: number; maxXlm: number }> {
+  const usdc = getCurrency('USDC');
+  const [usdcStroops, maxXlm] = await Promise.all([
+    usdc?.issuer ? spendableAsset(pub, usdc.code, usdc.issuer) : Promise.resolve(0n),
+    spendableXlm(pub),
+  ]);
+  return { maxUsdc: Number(fromStroops(usdcStroops)), maxXlm };
+}
+
 router.post('/moneygram/session', recoveryHold(), async (req: Request, res: Response, next: NextFunction) => {
   const workerId = requireWorker(req, res);
   if (!workerId) return;
@@ -47,8 +58,8 @@ router.post('/moneygram/session', recoveryHold(), async (req: Request, res: Resp
   try {
     const pub = await workerPublicKey(workerId);
     if (!pub) return res.status(400).json({ error: 'Your Stellar account is not set up' });
-    const maxXlm = await spendableXlm(pub);
-    if (maxXlm <= 0) return res.status(409).json({ error: 'There is no balance available to cash out' });
+    const { maxUsdc, maxXlm } = await cashoutFunds(pub);
+    if (maxUsdc <= 0 && maxXlm <= 0) return res.status(409).json({ error: 'There is no balance available to cash out' });
     await ensureCleared(workerId, pub);
 
     const session = await createSession({ customerIdentifier: workerId, walletAddress: pub });
@@ -57,7 +68,8 @@ router.post('/moneygram/session', recoveryHold(), async (req: Request, res: Resp
       widgetUrl: session.widgetUrl,
       publicKey: moneygramPublicKey(),
       walletAddress: pub,
-      // The most XLM this cash-out may ever spend: what the wallet can spare right now.
+      // What the wallet can spare right now: its USDC is sent as is, its XLM is converted for whatever USDC lacks.
+      maxUsdc,
       maxXlm,
     });
   } catch (err) {
@@ -98,8 +110,8 @@ router.post('/moneygram/deposit', recoveryHold(), async (req: Request, res: Resp
       return res.json({ txHash: prior.settlement_hash, alreadyPaid: true });
     }
 
-    const maxXlm = await spendableXlm(pub);
-    if (maxXlm <= 0) return res.status(409).json({ error: 'There is no balance available to cash out' });
+    const { maxUsdc, maxXlm } = await cashoutFunds(pub);
+    if (maxUsdc <= 0 && maxXlm <= 0) return res.status(409).json({ error: 'There is no balance available to cash out' });
 
     // Take the cash-out. The unique MoneyGram transaction id means a forged or replayed request
     // can never pay one transaction twice. Only our own attempt that signed nothing can be taken again: a failed one,
@@ -131,17 +143,23 @@ router.post('/moneygram/deposit', recoveryHold(), async (req: Request, res: Resp
 
     const stored = (await query(`SELECT stellar_secret_key FROM users WHERE id = $1`, [workerId])).rows[0]?.stellar_secret_key;
     let hash: string;
-    let spentXlm: string;
+    let spentXlm: string | null = null;
     try {
       const usdc = getCurrency('USDC');
       if (!stored || !usdc?.issuer) throw new Error('USDC is not configured for this account');
-      // Strict-receive: MoneyGram gets exactly the USDC it asked for, delivered straight to its
-      // deposit address with its memo. sendMax is the wallet's spendable XLM, so the network itself
-      // refuses to let this cash-out spend more than the wallet can spare.
-      ({ hash, sourceAmountXlm: spentXlm } = await payExactWithXlm(
-        decryptFromString(stored), tx.depositAddress!, usdc.code, usdc.issuer, claim.amount, 0, undefined,
-        { sendMaxXlm: maxXlm.toFixed(7), memo: Memo.id(tx.depositMemo!), onSigned: recordIntent },
-      ));
+      const secret = decryptFromString(stored);
+      if (maxUsdc >= Number(claim.amount)) {
+        // The wallet already holds the USDC (from a USDC payout or escrow): send it as is, nothing to convert.
+        hash = await sendPayment(secret, tx.depositAddress!, claim.amount, usdc.code, usdc.issuer, Memo.id(tx.depositMemo!), recordIntent);
+      } else {
+        // Strict-receive: MoneyGram gets exactly the USDC it asked for, delivered straight to its
+        // deposit address with its memo. sendMax is the wallet's spendable XLM, so the network itself
+        // refuses to let this cash-out spend more than the wallet can spare.
+        ({ hash, sourceAmountXlm: spentXlm } = await payExactWithXlm(
+          secret, tx.depositAddress!, usdc.code, usdc.issuer, claim.amount, 0, undefined,
+          { sendMaxXlm: maxXlm.toFixed(7), memo: Memo.id(tx.depositMemo!), onSigned: recordIntent },
+        ));
+      }
     } catch (err) {
       if (err instanceof SubmitOutcomeUnknownError) {
         // Not a failure: the payment may still land. Its hash is already stored (recordIntent), so every retry answers

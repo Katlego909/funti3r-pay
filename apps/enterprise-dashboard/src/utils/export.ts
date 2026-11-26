@@ -229,7 +229,9 @@ export interface ExportMilestone {
   escrowId: string;
   title: string;
   position: string; // "1 of 3"
-  amountXlm: number;
+  /** In the escrow's token: USDC for new escrows, XLM for earlier ones. */
+  amount: number;
+  tokenCode: string;
   status: string;
   expires: string;
   approvedAt: string | null;
@@ -239,7 +241,7 @@ export interface ExportMilestone {
   refundTxHash: string | null;
 }
 
-const MILESTONE_HEADERS = ['Escrow', 'Milestone', 'Amount (XLM)', 'Status', 'Expires', 'Approved', 'Claimed', 'Approve Tx', 'Claim Tx', 'Refund Tx'];
+const MILESTONE_HEADERS = ['Escrow', 'Milestone', 'Amount', 'Token', 'Status', 'Expires', 'Approved', 'Claimed', 'Approve Tx', 'Claim Tx', 'Refund Tx'];
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '');
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '');
 /** A 64-character hash does not fit a page column; the PDF shows its ends, the CSV carries the whole thing. */
@@ -247,7 +249,8 @@ const shortHash = (h: string | null) => (h ? `${h.slice(0, 8)}…${h.slice(-8)}`
 const milestoneRow = (m: ExportMilestone) => [
   m.escrowId,
   m.position ? `${m.title} (${m.position})` : m.title,
-  m.amountXlm,
+  m.amount,
+  m.tokenCode,
   m.status,
   new Date(m.expires).toLocaleDateString(),
   when(m.approvedAt),
@@ -264,7 +267,8 @@ export function exportMilestonesPDF(milestones: ExportMilestone[], suffix = '') 
   const rows = milestones.map((m) => [
     shortHash(m.escrowId),
     m.position ? `${m.title} (${m.position})` : m.title,
-    m.amountXlm.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+    m.amount.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+    m.tokenCode,
     m.status,
     day(m.expires),
     day(m.approvedAt),
@@ -280,7 +284,7 @@ export function exportMilestonesPDF(milestones: ExportMilestone[], suffix = '') 
     MILESTONE_HEADERS,
     rows,
     `funti3rpay-escrow-milestones${suffix}-${timestamp()}.pdf`,
-    { 2: { cellWidth: 'wrap' }, 3: { cellWidth: 'wrap' }, 4: { cellWidth: 'wrap' }, 5: { cellWidth: 'wrap' }, 6: { cellWidth: 'wrap' } },
+    { 2: { cellWidth: 'wrap' }, 3: { cellWidth: 'wrap' }, 4: { cellWidth: 'wrap' }, 5: { cellWidth: 'wrap' }, 6: { cellWidth: 'wrap' }, 7: { cellWidth: 'wrap' } },
   );
 }
 

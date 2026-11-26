@@ -9,6 +9,7 @@
  * Run: node --env-file=../../.env.local --import tsx scripts/upgrade-escrow.ts
  */
 import {
+  Address,
   BASE_FEE,
   Keypair,
   Operation,
@@ -18,6 +19,7 @@ import {
   rpc,
 } from '@stellar/stellar-sdk';
 import { stellarNetwork } from '@funti3r/shared-utils';
+import { escrowToken } from '../src/lib/escrow.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -73,6 +75,19 @@ async function main() {
     }),
   );
   console.log(`upgrade tx: ${upgradeTx}`);
+
+  // The upgraded code only creates escrows in allowlisted tokens: allow the platform's escrow token (USDC). Harmless
+  // to repeat on a later upgrade.
+  const token = escrowToken();
+  const allowTx = await submit(
+    admin,
+    Operation.invokeContractFunction({
+      contract: contractAddress,
+      function: 'set_token_allowed',
+      args: [nativeToScVal(new Address(token.address), { type: 'address' }), nativeToScVal(true, { type: 'bool' })],
+    }),
+  );
+  console.log(`allow ${token.code} tx: ${allowTx} (${token.address})`);
   console.log(`${NETWORK.explorerUrl}/contract/${contractAddress}`);
 }
 

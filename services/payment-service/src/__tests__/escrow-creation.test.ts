@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import axios from 'axios';
+import { Keypair } from '@stellar/stellar-sdk';
+import { encryptToString } from '@funti3r/shared-utils';
 import { query } from '@funti3r/database';
 import * as escrow from '../lib/escrow.js';
 import * as stellar from '../lib/stellar.js';
@@ -13,12 +15,15 @@ const owner = { 'x-user-id': ENTERPRISE_ID, 'x-user-role': 'enterprise' };
 const CREATION_ID = '77777777-7777-4777-8777-777777777777';
 const ESCROW_ID = '88888888-8888-4888-8888-888888888888';
 const body = (extra: Record<string, unknown> = {}) => ({
-  workerId: WORKER_ID, milestones: [{ amountXlm: 10 }], expiresAt: new Date(Date.now() + 86_400_000).toISOString(), ...extra,
+  workerId: WORKER_ID, milestones: [{ amount: 10 }], expiresAt: new Date(Date.now() + 86_400_000).toISOString(), ...extra,
 });
 
+// A real encrypted custodial secret, so the route can open the worker's trustline (test-only key).
+process.env.MASTER_ENCRYPTION_KEY ??= '11'.repeat(32);
+const WORKER_SECRET = encryptToString(Keypair.random().secret());
 const WORKER = {
-  match: /SELECT stellar_public_key, email FROM users WHERE id = \$1 AND role = 'worker'/,
-  handler: () => ({ rows: [{ stellar_public_key: 'GDESTWORKERPUBLICKEYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', email: 'w@test.com' }] }),
+  match: /SELECT stellar_public_key, stellar_secret_key, email FROM users WHERE id = \$1 AND role = 'worker'/,
+  handler: () => ({ rows: [{ stellar_public_key: 'GDESTWORKERPUBLICKEYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', stellar_secret_key: WORKER_SECRET, email: 'w@test.com' }] }),
 };
 const SECRET = {
   match: /^SELECT stellar_secret_key FROM users/,
@@ -26,7 +31,7 @@ const SECRET = {
 };
 const PENDING_ROW = {
   id: CREATION_ID, enterprise_id: ENTERPRISE_ID, worker_id: WORKER_ID, contract_address: 'CESCROW',
-  milestones: [{ amountXlm: '10' }], expires_at: new Date(), status: 'pending', escrow_id: null,
+  milestones: [{ amount: '10' }], expires_at: new Date(), status: 'pending', escrow_id: null, token_code: 'USDC',
 };
 const handlers = [
   WORKER, SECRET,
@@ -43,18 +48,49 @@ beforeEach(() => {
   vi.mocked(escrow.contractCallOutcome).mockReset();
   vi.mocked(stellar.sendPayment).mockReset();
   vi.mocked(axios.get).mockReset().mockResolvedValue({ data: { status: 'verified' } });
+  vi.mocked(stellar.ensureTrustline).mockReset();
+  vi.mocked(stellar.ensureAssetBalance).mockReset().mockResolvedValue({ spentXlm: null });
 });
 
 describe('POST /escrows write-ahead', () => {
-  it('records the creation before signing, and hands the chain call a hook that stores its hash', async () => {
+  it('records the creation before signing, locks USDC, and hands the chain call a hook that stores its hash', async () => {
     vi.mocked(escrow.createEscrow).mockImplementation(async (...args) => {
       expect(sqlCalls().some((s) => /INSERT INTO escrow_creations/.test(s))).toBe(true);
-      expect(typeof args[4]).toBe('function');
+      expect(args[2]).toBe(escrow.escrowToken().address); // locked in USDC
+      expect(typeof args[5]).toBe('function');
       return { escrowId: 3n, hash: 'tx-create' };
     });
     const res = await request(app).post('/escrows').set(owner).send(body());
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ id: ESCROW_ID, onchainEscrowId: '3' });
+  });
+
+  it('buys any USDC the company wallet lacks, and opens the USDC trustline of the worker, before locking anything', async () => {
+    const order: string[] = [];
+    vi.mocked(stellar.ensureTrustline).mockReset().mockImplementation(async () => { order.push('worker-trustline'); });
+    vi.mocked(stellar.ensureAssetBalance).mockReset().mockImplementation(async () => { order.push('fund'); return { spentXlm: '15.4' }; });
+    vi.mocked(escrow.createEscrow).mockImplementation(async () => { order.push('lock'); return { escrowId: 3n, hash: 'tx-create' }; });
+
+    const res = await request(app).post('/escrows').set(owner).send(body({ milestones: [{ amount: '25.5' }, { amount: 10 }] }));
+    expect(res.status).toBe(201);
+    expect(order).toEqual(['worker-trustline', 'fund', 'lock']);
+    const [, code, issuer, total] = vi.mocked(stellar.ensureAssetBalance).mock.calls[0];
+    expect([code, issuer, total]).toEqual(['USDC', process.env.STELLAR_USDC_ISSUER, '35.5000000']); // exact, no float drift
+  });
+
+  it('fails cleanly, locking nothing, when buying the USDC cannot be confirmed', async () => {
+    vi.mocked(stellar.ensureAssetBalance).mockReset().mockRejectedValue(new stellar.SubmitOutcomeUnknownError('tx-swap', new Error('timeout')));
+    const res = await request(app).post('/escrows').set(owner).send(body());
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe('escrow_funding_unconfirmed');
+    expect(escrow.createEscrow).not.toHaveBeenCalled();
+    expect(failedCreation()).toBe(true);
+  });
+
+  it('refuses an amount finer than the 7 decimal places Stellar supports instead of rounding it', async () => {
+    const res = await request(app).post('/escrows').set(owner).send(body({ milestones: [{ amount: '1.00000001' }] }));
+    expect(res.status).toBe(400);
+    expect(sqlCalls().some((q) => /INSERT INTO escrow_creations/.test(q))).toBe(false);
   });
 
   it('answers 202 and keeps the creation pending when the chain gave no verdict: the money may be locked', async () => {
