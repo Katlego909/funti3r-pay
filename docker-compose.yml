@@ -245,6 +245,23 @@ services:
     networks:
       - funti3r-network
 
+  # The platform admin console: its own site (own origin and sessions), served by nginx like the dashboard, with /api
+  # forwarded to the gateway. Put it behind its own host name (e.g. admin.funti3r.xyz) and add that origin to
+  # RP_ORIGINS and ALLOWED_ORIGINS.
+  admin-dashboard:
+    <<: *service-hardening
+    build:
+      context: .
+      dockerfile: apps/admin-dashboard/Dockerfile
+    container_name: funti3r-admin-dashboard
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+    depends_on:
+      - api-gateway
+    networks:
+      - funti3r-network
+
   # Optional: `docker compose --profile monitoring up -d prometheus`. Scrapes every service's /metrics and evaluates the
   # alert rules in deploy/alerts.yml; point Alertmanager or Grafana at it. Reachable only inside the network.
   prometheus:

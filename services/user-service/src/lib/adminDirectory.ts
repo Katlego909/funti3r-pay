@@ -53,7 +53,7 @@ export async function searchDirectory(q: string, deps: AdminDirectoryDeps) {
 /** One account whole: profile, status, company ties, where it has passkeys, pending invites. Null when unknown. */
 export async function accountDetail(userId: string, deps: AdminDirectoryDeps) {
   const user = (await deps.query(
-    `SELECT id, email, role, status, first_name, last_name, phone, country, preferred_currency, kyc_status,
+    `SELECT id, email, role, status, first_name, last_name, phone, country, preferred_currency,
             stellar_public_key, recovered_at, created_at, updated_at
        FROM users WHERE id = $1`,
     [userId],
@@ -110,7 +110,7 @@ export async function companyDetail(companyId: string, deps: AdminDirectoryDeps)
       [companyId],
     ),
     deps.query(
-      `SELECT u.id, u.email, u.status AS account_status, u.kyc_status, u.preferred_currency, w.status, w.added_at
+      `SELECT u.id, u.email, u.status AS account_status, u.preferred_currency, w.status, w.added_at
          FROM enterprise_workers w JOIN users u ON u.id = w.worker_id
         WHERE w.enterprise_id = $1 ORDER BY w.added_at DESC`,
       [companyId],
