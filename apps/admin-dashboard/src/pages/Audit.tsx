@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { PageHeader, exportCSV } from '@funti3r/ui';
 import { admin, type Row } from '../api';
 import { useLoad } from '../useLoad';
+import { useDrawers } from '../components/drawers';
 import { Card, LoadState, Pager, Table } from '../components/bits';
 import { auditColumns, auditDetail } from '../components/AuditTable';
 
@@ -16,6 +17,7 @@ const FIELDS = [
 
 /** Everything recorded as done to money and accounts, by whom and why: filterable, paged, exportable. */
 export default function Audit() {
+  const drawers = useDrawers();
   const [params, setParams] = useSearchParams();
   const filters = Object.fromEntries(FIELDS.map(([k]) => [k, params.get(k) ?? ''])) as Record<string, string>;
   const offset = Number(params.get('offset') ?? 0);
@@ -58,9 +60,10 @@ export default function Audit() {
       </form>
       <Card>
         <LoadState loading={page.loading && !page.data} error={page.error} />
-        {page.data && <Table rows={page.data.events} empty="Nothing recorded for this filter." rowKey={(e) => String(e.id)} columns={auditColumns} />}
+        {page.data && <Table rows={page.data.events} onRowClick={drawers.open('audit')} empty="Nothing recorded for this filter." rowKey={(e) => String(e.id)} columns={auditColumns} />}
         <Pager offset={offset} shown={page.data?.events.length ?? 0} pageSize={PAGE} onPage={(o) => setParams({ ...Object.fromEntries(params), offset: String(o) })} />
       </Card>
+      {drawers.element}
     </div>
   );
 }

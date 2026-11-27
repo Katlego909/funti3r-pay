@@ -5,6 +5,7 @@ import { apiErrorMessage } from '@funti3r/web-core';
 import { admin, type Row } from '../api';
 import { useLoad } from '../useLoad';
 import { useListParams } from '../listParams';
+import { useDrawers } from '../components/drawers';
 import { AccountLink, Card, Facts, LoadState, Pager, Pill, Table, Tabs } from '../components/bits';
 import { when } from '../format';
 
@@ -41,6 +42,7 @@ export default function Compliance() {
 }
 
 function Queue({ status, offset, onPage }: { status: Exclude<Tab, 'sanctions'>; offset: number; onPage: (o: number) => void }) {
+  const drawers = useDrawers();
   const page = useLoad(() => admin.kycQueue({ status, limit: PAGE, offset }), [status, offset]);
   const empty = { pending: 'Nobody is waiting for a KYC decision.', rejected: 'Nobody has been rejected.', expired: 'No approvals have lapsed.' }[status];
   return (
@@ -48,7 +50,7 @@ function Queue({ status, offset, onPage }: { status: Exclude<Tab, 'sanctions'>; 
       {status === 'pending' && <p className="admin-muted">Oldest first. Open an account to review its KYC and approve or reject it.</p>}
       <LoadState loading={page.loading && !page.data} error={page.error} />
       {page.data && (
-        <Table<Row> rows={page.data.queue} empty={empty} rowKey={(r) => r.user_id} columns={[
+        <Table<Row> rows={page.data.queue} onRowClick={drawers.open('account', 'user_id')} empty={empty} rowKey={(r) => r.user_id} columns={[
           { label: 'Account', render: (r) => <AccountLink id={r.user_id} email={r.email} /> },
           { label: 'Role', render: (r) => r.role },
           { label: 'KYC', render: (r) => <Pill value={r.status} /> },
@@ -58,11 +60,13 @@ function Queue({ status, offset, onPage }: { status: Exclude<Tab, 'sanctions'>; 
         ]} />
       )}
       <Pager offset={offset} shown={page.data?.queue.length ?? 0} pageSize={PAGE} total={page.data?.total} onPage={onPage} />
+      {drawers.element}
     </Card>
   );
 }
 
 function Sanctions({ flagged }: { flagged: ReturnType<typeof useLoad<{ flagged: Row[] }>> }) {
+  const drawers = useDrawers();
   const status = useLoad(admin.sanctionsStatus, []);
   const [confirming, setConfirming] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -101,7 +105,7 @@ function Sanctions({ flagged }: { flagged: ReturnType<typeof useLoad<{ flagged: 
       <Card title={`Flagged by screening (${flagged.data?.flagged.length ?? '…'})`}>
         <LoadState loading={flagged.loading && !flagged.data} error={flagged.error} />
         {flagged.data && (
-          <Table<Row> rows={flagged.data.flagged} empty="Nobody is flagged." rowKey={(r) => r.user_id} columns={[
+          <Table<Row> rows={flagged.data.flagged} onRowClick={drawers.open('account', 'user_id')} empty="Nobody is flagged." rowKey={(r) => r.user_id} columns={[
             { label: 'Account', render: (r) => <AccountLink id={r.user_id} email="Open account to decide" /> },
             { label: 'KYC', render: (r) => <Pill value={r.status} /> },
             {
@@ -114,6 +118,7 @@ function Sanctions({ flagged }: { flagged: ReturnType<typeof useLoad<{ flagged: 
         )}
       </Card>
 
+      {drawers.element}
       <ConfirmDialog
         open={confirming}
         title="Refresh the sanctions list?"

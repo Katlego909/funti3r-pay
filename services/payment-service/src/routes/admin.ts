@@ -8,7 +8,8 @@ import type { Router as RouterType } from 'express';
 import { query } from '@funti3r/database';
 import { isUuid, NotFoundError } from '@funti3r/shared-utils';
 import {
-  accountMoney, listAudit, listBatches, listCashouts, listEscrows, listPayments, listSchedules, opsOverview, type AdminViewDeps,
+  accountMoney, escrowDetail, listAudit, listBatches, listCashouts, listEscrows, listPayments, listSchedules, opsOverview,
+  scheduleDetail, type AdminViewDeps,
 } from '../lib/adminViews.js';
 import { getAccountBalance, spendableXlm, sponsorPublicKey } from '../lib/stellar.js';
 import { contractState } from '../lib/escrow.js';
@@ -49,6 +50,16 @@ router.get('/payments', handle(async (req, res) => { res.json(await listPayments
 router.get('/escrows', handle(async (req, res) => { res.json(await listEscrows(req.query as never, deps)); }));
 router.get('/cashouts', handle(async (req, res) => { res.json(await listCashouts(req.query as never, deps)); }));
 router.get('/batches', handle(async (req, res) => { res.json(await listBatches(req.query as never, deps)); }));
+
+/** One record by its id, for the console's detail panels; a malformed or unknown id is a 404. */
+const detail = (what: string, read: (id: string, d: AdminViewDeps) => Promise<unknown>) =>
+  handle(async (req, res) => {
+    const found = isUuid(req.params.id) ? await read(req.params.id, deps) : null;
+    if (!found) throw new NotFoundError(what);
+    res.json(found);
+  });
+router.get('/escrows/:id', detail('Escrow', escrowDetail));
+router.get('/schedules/:id', detail('Schedule', scheduleDetail));
 router.get('/schedules', handle(async (req, res) => { res.json(await listSchedules(req.query as never, deps)); }));
 router.get('/ops', handle(async (_req, res) => { res.json(await opsOverview(deps)); }));
 router.get('/audit', handle(async (req, res) => { res.json(await listAudit(req.query as never, deps)); }));

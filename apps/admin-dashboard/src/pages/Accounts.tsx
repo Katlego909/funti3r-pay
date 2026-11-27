@@ -2,6 +2,7 @@ import { PageHeader } from '@funti3r/ui';
 import { admin, type Row } from '../api';
 import { useLoad } from '../useLoad';
 import { useListParams } from '../listParams';
+import { useDrawers } from '../components/drawers';
 import { AccountLink, Card, FilterInput, Id, LoadState, Pager, Pill, Table, Tabs } from '../components/bits';
 import { when } from '../format';
 
@@ -11,6 +12,7 @@ const STATUSES = ['active', 'suspended', 'closed'];
 
 /** Every account on the platform: by role, by status, or by part of the email. A row opens the account. */
 export default function Accounts() {
+  const drawers = useDrawers();
   const list = useListParams();
   const role = (list.get('role') || 'all') as RoleTab;
   const status = list.get('status');
@@ -49,7 +51,7 @@ export default function Accounts() {
       <Card>
         <LoadState loading={page.loading && !page.data} error={page.error} />
         {page.data && (
-          <Table<Row> rows={page.data.accounts} empty="No accounts match." rowKey={(a) => a.id} columns={[
+          <Table<Row> rows={page.data.accounts} onRowClick={drawers.open('account')} empty="No accounts match." rowKey={(a) => a.id} columns={[
             { label: 'Account', render: (a) => <AccountLink id={a.id} email={a.email} /> },
             { label: 'Role', render: (a) => a.role },
             { label: 'Status', render: (a) => <Pill value={a.status} /> },
@@ -61,6 +63,7 @@ export default function Accounts() {
         )}
         <Pager offset={list.offset} shown={page.data?.accounts.length ?? 0} pageSize={PAGE} total={page.data?.total} onPage={(o) => list.set({ offset: String(o) })} />
       </Card>
+      {drawers.element}
     </div>
   );
 }

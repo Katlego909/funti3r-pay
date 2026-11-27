@@ -2,11 +2,13 @@ import { useParams } from 'react-router-dom';
 import { PageHeader } from '@funti3r/ui';
 import { admin, type Row } from '../api';
 import { useLoad } from '../useLoad';
+import { useDrawers } from '../components/drawers';
 import { AccountLink, Card, Facts, Id, LoadState, Pill, Table, Tx } from '../components/bits';
 import { money, when } from '../format';
 
 /** One company whole: owner and wallet, members and their roles, workers, invites, and the money it has sent. */
 export default function CompanyPage() {
+  const drawers = useDrawers();
   const { id = '' } = useParams();
   const company = useLoad(() => admin.company(id), [id]);
   const c = company.data?.company;
@@ -38,7 +40,7 @@ export default function CompanyPage() {
               ]} />
             </Card>
             <Card title={`Members (${company.data.members.length})`}>
-              <Table<Row> rows={company.data.members} rowKey={(r) => r.id} columns={[
+              <Table<Row> rows={company.data.members} onRowClick={drawers.open('account')} rowKey={(r) => r.id} columns={[
                 { label: 'Member', render: (r) => <AccountLink id={r.id} email={r.email} /> },
                 { label: 'Role', render: (r) => r.company_role },
                 { label: 'Membership', render: (r) => <Pill value={r.status} /> },
@@ -48,7 +50,7 @@ export default function CompanyPage() {
           </div>
 
           <Card title={`Workers (${company.data.workers.length})`}>
-            <Table<Row> rows={company.data.workers} empty="No workers yet." rowKey={(r) => r.id} columns={[
+            <Table<Row> rows={company.data.workers} onRowClick={drawers.open('account')} empty="No workers yet." rowKey={(r) => r.id} columns={[
               { label: 'Worker', render: (r) => <AccountLink id={r.id} email={r.email} /> },
               { label: 'With company', render: (r) => <Pill value={r.status} /> },
               { label: 'Account', render: (r) => <Pill value={r.account_status} /> },
@@ -60,7 +62,7 @@ export default function CompanyPage() {
 
           {m && (
             <Card title={`Payments sent (${m.payments.length})`}>
-              <Table<Row> rows={m.payments} empty="No payments." rowKey={(p) => p.id} columns={[
+              <Table<Row> rows={m.payments} onRowClick={drawers.open('payment')} empty="No payments." rowKey={(p) => p.id} columns={[
                 { label: 'Created', render: (p) => when(p.created_at) },
                 { label: 'To', render: (p) => <AccountLink id={p.worker_id} email={p.worker_email} /> },
                 { label: 'Amount', render: (p) => money(p.amount, p.currency) },
@@ -74,14 +76,14 @@ export default function CompanyPage() {
           {m && (m.escrows.length > 0 || m.schedules.length > 0) && (
             <div className="admin-grid-2">
               <Card title={`Escrows (${m.escrows.length})`}>
-                <Table<Row> rows={m.escrows} empty="No escrows." rowKey={(x) => x.id} columns={[
+                <Table<Row> rows={m.escrows} onRowClick={drawers.open('escrow')} empty="No escrows." rowKey={(x) => x.id} columns={[
                   { label: 'Worker', render: (x) => <AccountLink id={x.worker_id} email={x.worker_email} /> },
                   { label: 'Amount', render: (x) => money(x.total_amount, x.token_code) },
                   { label: 'Status', render: (x) => <>{<Pill value={x.status} />} {x.frozen && <Pill value="frozen" />}</> },
                 ]} />
               </Card>
               <Card title="Payroll schedules">
-                <Table<Row> rows={m.schedules} empty="No schedules." rowKey={(s) => s.id} columns={[
+                <Table<Row> rows={m.schedules} onRowClick={drawers.open('schedule')} empty="No schedules." rowKey={(s) => s.id} columns={[
                   { label: 'Name', render: (s) => s.name },
                   { label: 'Every', render: (s) => s.frequency },
                   { label: 'Status', render: (s) => <Pill value={s.status} /> },
@@ -102,6 +104,7 @@ export default function CompanyPage() {
           </Card>
         </>
       )}
+      {drawers.element}
     </div>
   );
 }

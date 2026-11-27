@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@funti3r/ui';
 import { admin, type Row } from '../api';
 import { useLoad } from '../useLoad';
+import { useDrawers } from '../components/drawers';
 import { AccountLink, Card, Id, LoadState, Pill, Table, Tx } from '../components/bits';
 import { money, when } from '../format';
 
@@ -14,6 +15,7 @@ const TX_HASH = /^[0-9a-f]{64}$/i;
  * and escrows (by their id, a transaction hash, or an account id) from the money views.
  */
 export default function Search() {
+  const drawers = useDrawers();
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const q = params.get('q')?.trim() ?? '';
@@ -51,7 +53,7 @@ export default function Search() {
 
       {r && r.users.length > 0 && (
         <Card title={`Accounts (${r.users.length})`}>
-          <Table<Row> rows={r.users} rowKey={(u) => u.id} columns={[
+          <Table<Row> rows={r.users} onRowClick={drawers.open('account')} rowKey={(u) => u.id} columns={[
             { label: 'Account', render: (u) => <AccountLink id={u.id} email={u.email} /> },
             { label: 'Role', render: (u) => u.role },
             { label: 'Status', render: (u) => <Pill value={u.status} /> },
@@ -64,7 +66,7 @@ export default function Search() {
 
       {r && r.companies.length > 0 && (
         <Card title={`Companies (${r.companies.length})`}>
-          <Table<Row> rows={r.companies} rowKey={(c) => c.id} columns={[
+          <Table<Row> rows={r.companies} onRowClick={drawers.open('company')} rowKey={(c) => c.id} columns={[
             { label: 'Company', render: (c) => <Link to={`/companies/${c.id}`}>{c.company_name}</Link> },
             { label: 'Owner', render: (c) => c.owner_email },
             { label: 'Country', render: (c) => c.country ?? '—' },
@@ -76,7 +78,7 @@ export default function Search() {
 
       {r && r.payments.length > 0 && (
         <Card title={`Payments (${r.payments.length})`}>
-          <Table<Row> rows={r.payments} rowKey={(p) => p.id} columns={[
+          <Table<Row> rows={r.payments} onRowClick={drawers.open('payment')} rowKey={(p) => p.id} columns={[
             { label: 'Created', render: (p) => when(p.created_at) },
             { label: 'From', render: (p) => <AccountLink id={p.enterprise_id} email={p.enterprise_email} /> },
             { label: 'To', render: (p) => <AccountLink id={p.worker_id} email={p.worker_email} /> },
@@ -90,7 +92,7 @@ export default function Search() {
 
       {r && r.escrows.length > 0 && (
         <Card title={`Escrows (${r.escrows.length})`}>
-          <Table<Row> rows={r.escrows} rowKey={(x) => x.id} columns={[
+          <Table<Row> rows={r.escrows} onRowClick={drawers.open('escrow')} rowKey={(x) => x.id} columns={[
             { label: 'Escrow', render: (x) => <Link to={`/money?tab=escrows&q=${x.id}`}><Id value={x.id} /></Link> },
             { label: 'Employer', render: (x) => <AccountLink id={x.enterprise_id} email={x.enterprise_email} /> },
             { label: 'Worker', render: (x) => <AccountLink id={x.worker_id} email={x.worker_email} /> },
@@ -99,6 +101,7 @@ export default function Search() {
           ]} />
         </Card>
       )}
+      {drawers.element}
     </div>
   );
 }

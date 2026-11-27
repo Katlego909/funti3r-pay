@@ -1,6 +1,7 @@
 import { admin, type AuditQuery, type Row } from '../api';
 import { useLoad } from '../useLoad';
 import { AccountLink, LoadState, Table } from './bits';
+import { useDrawers } from './drawers';
 import { when } from '../format';
 
 /** Detail worth reading at a glance: the reason first, then anything else, compactly. */
@@ -22,10 +23,12 @@ export const auditColumns = [
 /** The audit trail for one query (an account's, say), newest first. */
 export default function AuditTable({ query }: { query: AuditQuery }) {
   const { data, error, loading } = useLoad(() => admin.audit(query), [JSON.stringify(query)]);
+  const drawers = useDrawers();
   return (
     <>
       <LoadState loading={loading && !data} error={error} />
-      {data && <Table rows={data.events} empty="Nothing recorded." rowKey={(e) => String(e.id)} columns={auditColumns} />}
+      {data && <Table rows={data.events} empty="Nothing recorded." rowKey={(e) => String(e.id)} columns={auditColumns} onRowClick={drawers.open('audit')} />}
+      {drawers.element}
     </>
   );
 }
