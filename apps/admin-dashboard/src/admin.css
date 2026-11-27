@@ -3,41 +3,14 @@
 .admin-search-big { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; }
 .admin-search-big input { flex: 1; padding: 0.7rem 0.9rem; border: 1px solid #d1d5db; border-radius: 10px; font: inherit; }
 
-.admin-card {
-  background: #fff;
-  border: 1px solid #ececf1;
-  border-radius: 14px;
-  padding: 1.1rem 1.25rem;
-  margin-bottom: 1.25rem;
-}
-.admin-card-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.85rem; }
-.admin-card-head h3 { margin: 0; font-size: 1rem; }
-.admin-card-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.admin-section { margin-bottom: 14px; }
+.admin-section-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 18px; }
+.admin-section-head h3 { margin-bottom: 0; }
+.admin-section-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
-.admin-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
-.admin-grid-2 > .admin-card { margin-bottom: 1.25rem; }
+.admin-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.admin-grid-2 > .admin-section { margin-bottom: 0; }
 @media (max-width: 1100px) { .admin-grid-2 { grid-template-columns: 1fr; } }
-
-.admin-tiles { margin-bottom: 1.25rem; }
-.admin-tile-link { text-decoration: none; color: inherit; }
-.admin-tile { border-left: 4px solid #16a34a; }
-.admin-tile.alert { border-left-color: #dc2626; }
-.admin-tile-label { color: #6b7280; font-size: 0.8rem; font-weight: 600; }
-.admin-tile-hint { color: #9ca3af; font-size: 0.75rem; margin-top: 0.25rem; }
-
-.admin-pill {
-  display: inline-block;
-  padding: 0.12rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: capitalize;
-  white-space: nowrap;
-}
-.admin-pill.good { background: #dcfce7; color: #166534; }
-.admin-pill.bad { background: #fee2e2; color: #991b1b; }
-.admin-pill.warn { background: #fef3c7; color: #92400e; }
-.admin-pill.muted { background: #f3f4f6; color: #6b7280; }
 
 .admin-check { display: inline-block; margin-right: 0.5rem; font-size: 0.75rem; }
 .admin-check.ok::before { content: '● '; color: #16a34a; }

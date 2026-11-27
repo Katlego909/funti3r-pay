@@ -10,7 +10,7 @@ import {
   HiOutlineLockClosed,
 } from 'react-icons/hi2';
 import { exportAnalyticsCSV, exportAnalyticsPDF, formatCompanyLabel } from '../utils/export.js';
-import { ExportButtons, StatusBadge, statusClass } from '@funti3r/ui';
+import { ExportButtons, MetricCard, StatusBadge, statusClass } from '@funti3r/ui';
 import {
   getSummary,
   getRecentPayments,
@@ -173,120 +173,43 @@ export default function Dashboard() {
 
       {/* Metric cards */}
       <div className="metrics-grid">
-        {/* Wallet Balance */}
-        <div className="metric-card" data-accent="orange">
-          <div className="metric-header">
-            <span className="metric-icon">
-              <HiOutlineBanknotes size={18} />
-            </span>
-            <h3>Wallet Balance</h3>
-          </div>
-          {walletBalance ? (
-            <>
-              <div className="metric-value">{walletTotal !== null ? dc.formatValue(walletTotal) : '—'}</div>
-              <div className="metric-change">Current on-chain balance</div>
-            </>
-          ) : (
-            <div className="metric-value">—</div>
-          )}
-        </div>
-
-        {/* Total Payments */}
-        <div className="metric-card" data-accent="green">
-          <div className="metric-header">
-            <span className="metric-icon">
-              <HiOutlineBanknotes size={18} />
-            </span>
-            <h3>{isEnterprise ? 'Total Payments' : 'Total Received'}</h3>
-          </div>
-          {summary ? (
-            <>
-              <div className="metric-value">{dc.format(summary.completedVolumeUsd, 'USD')}</div>
-              <div className="metric-change">
-                Lifetime total {isEnterprise ? 'sent' : 'received'} · {summary.byStatus['completed'] ?? 0} transactions
-              </div>
-            </>
-          ) : (
-            <div className="metric-value">—</div>
-          )}
-        </div>
-
+        <MetricCard
+          icon={HiOutlineBanknotes} accent="orange" label="Wallet Balance"
+          value={walletBalance && walletTotal !== null ? dc.formatValue(walletTotal) : undefined}
+          note={walletBalance ? 'Current on-chain balance' : undefined}
+        />
+        <MetricCard
+          icon={HiOutlineBanknotes} accent="green" label={isEnterprise ? 'Total Payments' : 'Total Received'}
+          value={summary ? dc.format(summary.completedVolumeUsd, 'USD') : undefined}
+          note={summary ? `Lifetime total ${isEnterprise ? 'sent' : 'received'} · ${summary.byStatus['completed'] ?? 0} transactions` : undefined}
+        />
         {/* Escrow: money locked in the contract and what has been released */}
-        <div className="metric-card" data-accent="blue">
-          <div className="metric-header">
-            <span className="metric-icon">
-              <HiOutlineLockClosed size={18} />
-            </span>
-            <h3>{isEnterprise ? 'Locked in Escrow' : 'In Escrow for You'}</h3>
-          </div>
-          {escrow ? (
-            <>
-              <div className="metric-value">{formatEscrowTotal(escrow, 'locked')}</div>
-              <div className="metric-change">
-                {formatEscrowTotal(escrow, 'claimed')} released {isEnterprise ? 'to workers' : 'to your wallet'}
-              </div>
-            </>
-          ) : (
-            <div className="metric-value">—</div>
-          )}
-        </div>
-
-        {/* Enterprise: Total Workers / Worker: Pending */}
+        <MetricCard
+          icon={HiOutlineLockClosed} accent="blue" label={isEnterprise ? 'Locked in Escrow' : 'In Escrow for You'}
+          value={escrow ? formatEscrowTotal(escrow, 'locked') : undefined}
+          note={escrow ? `${formatEscrowTotal(escrow, 'claimed')} released ${isEnterprise ? 'to workers' : 'to your wallet'}` : undefined}
+        />
         {isEnterprise ? (
-          <div className="metric-card" data-accent="purple">
-            <div className="metric-header">
-              <span className="metric-icon">
-                <HiOutlineUsers size={18} />
-              </span>
-              <h3>Total Workers</h3>
-            </div>
-            <div className="metric-value">{userCount ?? '—'}</div>
-            {userCount !== null && <div className="metric-change">registered workers</div>}
-          </div>
+          <MetricCard
+            icon={HiOutlineUsers} accent="purple" label="Total Workers"
+            value={userCount ?? undefined} note={userCount !== null ? 'registered workers' : undefined}
+          />
         ) : (
-          <div className="metric-card" data-accent="warning">
-            <div className="metric-header">
-              <span className="metric-icon">
-                <HiOutlineClock size={18} />
-              </span>
-              <h3>Pending</h3>
-            </div>
-            <div className="metric-value">{pending + processing}</div>
-            {pending + processing > 0 && <div className="metric-change">awaiting settlement</div>}
-          </div>
+          <MetricCard
+            icon={HiOutlineClock} accent="warning" label="Pending"
+            value={pending + processing} note={pending + processing > 0 ? 'awaiting settlement' : undefined}
+          />
         )}
-
-        {/* Enterprise: Success Rate / Worker: Completed payments */}
         {isEnterprise ? (
-          <div className="metric-card" data-accent="warning">
-            <div className="metric-header">
-              <span className="metric-icon">
-                <HiOutlineCheckCircle size={18} />
-              </span>
-              <h3>Success Rate</h3>
-            </div>
-            <div className="metric-value">
-              {summary ? (
-                <>
-                  {summary.successRate}
-                  {unit('%')}
-                </>
-              ) : (
-                '—'
-              )}
-            </div>
-          </div>
+          <MetricCard
+            icon={HiOutlineCheckCircle} accent="warning" label="Success Rate"
+            value={summary ? <>{summary.successRate}{unit('%')}</> : undefined}
+          />
         ) : (
-          <div className="metric-card" data-accent="purple">
-            <div className="metric-header">
-              <span className="metric-icon">
-                <HiOutlineCheckCircle size={18} />
-              </span>
-              <h3>Completed</h3>
-            </div>
-            <div className="metric-value">{summary?.byStatus['completed'] ?? '—'}</div>
-            <div className="metric-change">payments received</div>
-          </div>
+          <MetricCard
+            icon={HiOutlineCheckCircle} accent="purple" label="Completed"
+            value={summary?.byStatus['completed']} note="payments received"
+          />
         )}
       </div>
 

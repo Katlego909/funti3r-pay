@@ -1,16 +1,16 @@
 /** Small building blocks the admin pages share: a section card, a table, a status pill, an ID with copy, a value list. */
 import { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { CopyButton, EXPLORER } from '@funti3r/ui';
+import { CopyButton, EXPLORER, StatusBadge } from '@funti3r/ui';
 import { short } from '../format';
 
 export function Card({ title, actions, children }: { title?: string; actions?: ReactNode; children: ReactNode }) {
   return (
-    <section className="admin-card">
+    <section className="section admin-section">
       {(title || actions) && (
-        <div className="admin-card-head">
+        <div className="admin-section-head">
           {title && <h3>{title}</h3>}
-          {actions && <div className="admin-card-actions">{actions}</div>}
+          {actions && <div className="admin-section-actions">{actions}</div>}
         </div>
       )}
       {children}
@@ -38,16 +38,17 @@ export function Table<T>({ rows, columns, empty = 'Nothing here.', rowKey }: {
   );
 }
 
-const TONE: Record<string, 'good' | 'bad' | 'warn' | 'muted'> = {
+type Tone = 'good' | 'bad' | 'warn';
+const TONE: Record<string, Tone> = {
   active: 'good', completed: 'good', approved: 'good', verified: 'good', ready: 'good', clear: 'good', accepted: 'good',
-  suspended: 'bad', failed: 'bad', rejected: 'bad', unavailable: 'bad', unreachable: 'bad', flagged: 'bad', closed: 'muted',
-  frozen: 'bad', refunded: 'muted', revoked: 'muted', expired: 'muted',
+  suspended: 'bad', failed: 'bad', rejected: 'bad', unavailable: 'bad', unreachable: 'bad', flagged: 'bad', frozen: 'bad',
 };
+const VARIANT = { good: 'completed', bad: 'failed', warn: 'pending' } as const;
 
-/** A status as a coloured pill; unknown statuses read as in-progress. */
-export function Pill({ value, tone }: { value: string | null | undefined; tone?: 'good' | 'bad' | 'warn' | 'muted' }) {
-  if (!value) return <span className="admin-pill muted">none</span>;
-  return <span className={`admin-pill ${tone ?? TONE[value] ?? 'warn'}`}>{value.replace(/_/g, ' ')}</span>;
+/** A status as the dashboard shows one (its status badge): green when done or fine, red when failed or held, amber otherwise. */
+export function Pill({ value, tone }: { value: string | null | undefined; tone?: Tone }) {
+  const label = value ? value.replace(/_/g, ' ') : 'none';
+  return <StatusBadge variant={VARIANT[tone ?? (value ? TONE[value] : undefined) ?? 'warn']} style={{ textTransform: 'capitalize' }}>{label}</StatusBadge>;
 }
 
 /** An id or address shortened, with the full value on hover and a copy button. */
