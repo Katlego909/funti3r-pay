@@ -1,5 +1,20 @@
-import { Pool, PoolClient, QueryResultRow } from 'pg';
+import pg, { Pool, PoolClient, QueryResultRow } from 'pg';
 import { createLogger } from '@funti3r/shared-utils';
+
+/**
+ * A `timestamp without time zone` value, which this database always holds in UTC (the server runs in UTC and writes
+ * NOW()), read as UTC. The driver's default reads it as the Node process's local time, so on a machine outside UTC
+ * every such time came out shifted (two hours early in South Africa) and any arithmetic on it was off by as much.
+ */
+export function utcTimestamp(text: string): Date {
+  return new Date(`${text.replace(' ', 'T')}Z`);
+}
+
+const TIMESTAMP_WITHOUT_TIME_ZONE = 1114;
+pg.types.setTypeParser(TIMESTAMP_WITHOUT_TIME_ZONE, utcTimestamp);
+// And the other direction: Dates sent as query parameters are written in UTC, not local time with an offset that
+// Postgres drops for a column without a time zone. Production runs in UTC, where both settings change nothing.
+pg.defaults.parseInputDatesAsUTC = true;
 
 const logger = createLogger('Database:PostgreSQL');
 
