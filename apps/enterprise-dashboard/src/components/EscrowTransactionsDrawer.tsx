@@ -6,7 +6,7 @@ import EscrowTransactions from './EscrowTransactions.js';
 import EscrowReviewLog from './EscrowReviewLog.js';
 import EscrowMoneyTrail from './EscrowMoneyTrail.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
-import { EXPLORER } from '../lib/explorer.js';
+import { EXPLORER } from '@funti3r/ui';
 
 const STATUS: Record<Escrow['status'], ['completed' | 'pending', string]> = {
   active: ['completed', 'Active'],

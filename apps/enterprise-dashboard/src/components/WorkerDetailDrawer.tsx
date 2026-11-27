@@ -4,7 +4,7 @@ import { api } from '@funti3r/web-core';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { SlideOver, Row, SectionTitle, CopyButton, StatusBadge } from '@funti3r/ui';
 import { CURRENCY_META } from '../lib/currencyMeta.js';
-import { EXPLORER } from '../lib/explorer.js';
+import { EXPLORER } from '@funti3r/ui';
 
 interface Profile {
   id: string; email: string; status?: string; country?: string | null;

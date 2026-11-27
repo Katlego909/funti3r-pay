@@ -59,6 +59,52 @@ importers:
         specifier: ^8
         version: 8.71.2(eslint@10.13.0)(typescript@5.9.3)
 
+  apps/admin-dashboard:
+    dependencies:
+      '@funti3r/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@funti3r/web-core':
+        specifier: workspace:*
+        version: link:../../packages/web-core
+      axios:
+        specifier: '>=1.20.0'
+        version: 1.20.0
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.2.0
+        version: 18.3.1(react@18.3.1)
+      react-icons:
+        specifier: ^5.7.0
+        version: 5.7.0(react@18.3.1)
+      react-router-dom:
+        specifier: ^7.18.4
+        version: 7.18.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      sonner:
+        specifier: ^2.0.8
+        version: 2.0.8(@types/react@18.3.29)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+    devDependencies:
+      '@types/react':
+        specifier: ^18.2.0
+        version: 18.3.29
+      '@types/react-dom':
+        specifier: ^18.2.0
+        version: 18.3.7(@types/react@18.3.29)
+      '@vitejs/plugin-react':
+        specifier: ^5.2.0
+        version: 5.2.0(vite@7.3.7(@types/node@20.19.43)(terser@5.48.0)(tsx@4.23.15)(yaml@2.9.0))
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+      vite:
+        specifier: ^7.3.7
+        version: 7.3.7(@types/node@20.19.43)(terser@5.48.0)(tsx@4.23.15)(yaml@2.9.0)
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(vite@7.3.7(@types/node@20.19.43)(terser@5.48.0)(tsx@4.23.15)(yaml@2.9.0))
+
   apps/enterprise-dashboard:
     dependencies:
       '@funti3r/shared-types':
@@ -244,6 +290,9 @@ importers:
       '@types/react':
         specifier: ^18.2.0
         version: 18.3.29
+      react-router-dom:
+        specifier: ^7.18.4
+        version: 7.18.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   packages/web-core:
     dependencies:

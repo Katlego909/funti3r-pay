@@ -18,7 +18,7 @@ import {
 import { ConfirmDialog } from '@funti3r/ui';
 import InviteLinkModal from '../components/InviteLinkModal.js';
 import { collectMyData, getClosureBlockers, closeAccount } from '../api/account.js';
-import { exportJSON } from '../utils/export.js';
+import { exportJSON } from '@funti3r/ui';
 
 const card: React.CSSProperties = {
   background: '#fff',

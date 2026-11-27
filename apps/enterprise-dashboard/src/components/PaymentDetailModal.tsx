@@ -7,7 +7,7 @@ import { initiatePayment } from '../api/payments.js';
 import { generatePayslip, formatCompanyLabel } from '../utils/export.js';
 import { SlideOver, Row, CopyButton, StatusBadge } from '@funti3r/ui';
 import { currencyColor } from '../lib/currencyMeta.js';
-import { EXPLORER } from '../lib/explorer.js';
+import { EXPLORER } from '@funti3r/ui';
 
 interface PaymentDetail {
   id: string;

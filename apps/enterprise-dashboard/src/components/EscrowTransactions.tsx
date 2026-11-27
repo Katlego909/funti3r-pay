@@ -4,7 +4,7 @@ import { CopyButton } from '@funti3r/ui';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import type { DisplayCurrency } from '../lib/displayCurrency.js';
 
-import { EXPLORER } from '../lib/explorer.js';
+import { EXPLORER } from '@funti3r/ui';
 
 interface TxRow {
   key: string;

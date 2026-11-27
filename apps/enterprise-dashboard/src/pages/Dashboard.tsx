@@ -24,7 +24,7 @@ import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { api, useAuthStore } from '@funti3r/web-core';
 import InsightsCharts, { RAIL_LABELS } from '../components/InsightsCharts.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
-import { EXPLORER } from '../lib/explorer.js';
+import { EXPLORER } from '@funti3r/ui';
 
 export default function Dashboard() {
   const user = useAuthStore((s) => s.user);
