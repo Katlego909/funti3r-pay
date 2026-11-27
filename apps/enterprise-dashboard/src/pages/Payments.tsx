@@ -9,7 +9,7 @@ import { api, useAuthStore, apiErrorMessage } from '@funti3r/web-core';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
 import { Modal, PageHeader, ExportButtons, CopyButton, StatusBadge, STATUS_TABS } from '@funti3r/ui';
 import { CURRENCY_META } from '../lib/currencyMeta.js';
-import { EXPLORER } from '../lib/explorer.js';
+import { EXPLORER } from '@funti3r/ui';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string; stellar_public_key?: string }
 interface BatchRow { workerId: string; amountUsd: string }

@@ -24,7 +24,7 @@ import MoneyGramCashoutModal from '../components/MoneyGramCashoutModal.js';
 import CashoutsTable from '../components/CashoutsTable.js';
 import WorkerMilestonesTable from '../components/WorkerMilestonesTable.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
-import { EXPLORER } from '../lib/explorer.js';
+import { EXPLORER } from '@funti3r/ui';
 
 interface WalletBalance {
   asset_type: string;

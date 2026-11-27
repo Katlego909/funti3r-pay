@@ -4,7 +4,7 @@ import { HiOutlineDocumentText, HiOutlineXMark, HiOutlineArrowDownTray, HiOutlin
 import { listAllPayments, getFxRates, getXlmPrice, type Payment } from '../api/payments.js';
 import { apiErrorMessage } from '@funti3r/web-core';
 import { makeDisplayCurrency } from '../lib/displayCurrency.js';
-import { EXPLORER, IS_MAINNET } from '../lib/explorer.js';
+import { EXPLORER, IS_MAINNET } from '@funti3r/ui';
 import { generateIncomeStatement } from '../utils/export.js';
 import '../styles/IncomeStatement.css';
 

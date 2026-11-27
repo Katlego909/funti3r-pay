@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import {
   HiOutlineChartBar,
   HiOutlineArrowPathRoundedSquare,
@@ -6,14 +6,9 @@ import {
   HiOutlineBanknotes,
   HiOutlineShieldCheck,
   HiOutlineClock,
-  HiOutlineBars3,
-  HiOutlineArrowRightOnRectangle,
   HiOutlineUser,
   HiOutlineCog6Tooth,
   HiOutlineLifebuoy,
-  HiOutlineChevronDown,
-  HiOutlineChevronLeft,
-  HiOutlineChevronRight,
   HiOutlineBell,
   HiOutlineLockClosed,
 } from 'react-icons/hi2';
@@ -21,6 +16,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { toast } from 'sonner';
 import { useNotificationStore } from './store/notificationStore.js';
 import { useAuthStore, logout } from '@funti3r/web-core';
+import { AppShell } from '@funti3r/ui';
 import GlobalSearch from './components/GlobalSearch.js';
 import { Toaster } from 'sonner';
 import ErrorBoundary from './components/ErrorBoundary.js';
@@ -107,9 +103,10 @@ const FOOTER_LINKS = [
   { to: '/support', icon: HiOutlineLifebuoy, label: 'Support' },
 ];
 
-// Combined for TopBar page-title lookup
-const ENTERPRISE_LINKS = [...ENTERPRISE_NAV, ...FOOTER_LINKS];
-const WORKER_LINKS = [...WORKER_NAV, ...FOOTER_LINKS];
+const MENU_LINKS = [
+  { to: '/profile', icon: HiOutlineUser, label: 'Profile' },
+  { to: '/settings', icon: HiOutlineCog6Tooth, label: 'Settings' },
+];
 
 function formatTimeAgo(dateStr: string): string {
   const mins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
@@ -268,147 +265,8 @@ function NotificationBell() {
   );
 }
 
-function Sidebar({
-  role, isOpen, onClose, collapsed, onToggleCollapse,
-}: {
-  role: string;
-  isOpen: boolean;
-  onClose: () => void;
-  collapsed: boolean;
-  onToggleCollapse: () => void;
-}) {
-  const navLinks = role === 'worker' ? WORKER_NAV : ENTERPRISE_NAV;
-  const location = useLocation();
-  const clearSession = useAuthStore((s) => s.clearSession);
-
-  async function handleLogout() {
-    await logout();
-    clearSession();
-  }
-
-  const navLink = (to: string, Icon: React.ElementType, label: string) => (
-    <Link
-      key={to}
-      to={to}
-      className={`sidebar-link${location.pathname === to ? ' active' : ''}`}
-      onClick={onClose}
-      title={collapsed ? label : undefined}
-    >
-      <Icon size={18} />
-      <span>{label}</span>
-    </Link>
-  );
-
-  return (
-    <>
-      {isOpen && <div className="sidebar-overlay" onClick={onClose} />}
-      <aside className={`sidebar${isOpen ? ' open' : ''}${collapsed ? ' collapsed' : ''}`}>
-        <button
-          className="sidebar-collapse-toggle"
-          onClick={onToggleCollapse}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {collapsed ? <HiOutlineChevronRight size={14} /> : <HiOutlineChevronLeft size={14} />}
-        </button>
-        <div className="sidebar-logo">
-          <img src="/images/logo-wht.png" alt="Funti3rPay" className="sidebar-logo-full" />
-          <img src="/images/icon.png" alt="Funti3rPay" className="sidebar-logo-icon" />
-        </div>
-        <nav className="sidebar-nav">
-          {navLinks.map(({ to, icon: Icon, label }) => navLink(to, Icon, label))}
-        </nav>
-        <div className="sidebar-footer">
-          {FOOTER_LINKS.map(({ to, icon: Icon, label }) => navLink(to, Icon, label))}
-          <div className="sidebar-divider" />
-          <button className="sidebar-signout" onClick={handleLogout} title={collapsed ? 'Sign Out' : undefined}>
-            <HiOutlineArrowRightOnRectangle size={18} />
-            <span>Sign Out</span>
-          </button>
-        </div>
-      </aside>
-    </>
-  );
-}
-
-function TopBar({ role, onMenuToggle }: { role: string; onMenuToggle: () => void }) {
-  const user = useAuthStore((s) => s.user);
-  const clearSession = useAuthStore((s) => s.clearSession);
-  const location = useLocation();
-  const [menuOpen, setMenuOpen] = useState(false);
-
-  const allLinks = role === 'worker' ? WORKER_LINKS : ENTERPRISE_LINKS;
-  const currentLink = allLinks.find((l) => l.to === location.pathname);
-  const PAGE_TITLES: Record<string, string> = { '/profile': 'Profile' };
-  const pageTitle = currentLink?.label ?? PAGE_TITLES[location.pathname] ?? 'Funti3rPay';
-
-  const email = user?.email ?? '';
-  const initials = email.split('@')[0].slice(0, 2).toUpperCase() || 'U';
-  const displayName = email.split('@')[0];
-
-  async function handleLogout() {
-    await logout();
-    clearSession();
-  }
-
-  return (
-    <header className="topbar">
-      <div className="topbar-left">
-        <button className="topbar-hamburger" onClick={onMenuToggle} aria-label="Toggle menu">
-          <HiOutlineBars3 size={22} />
-        </button>
-        <span className="topbar-title">{pageTitle}</span>
-      </div>
-
-      <div className="topbar-center">
-        <GlobalSearch />
-      </div>
-
-      <div className="topbar-right">
-        <NotificationBell />
-        <div className="user-menu">
-          <button className="user-menu-btn" onClick={() => setMenuOpen(!menuOpen)}>
-            <span className="user-avatar">{initials}</span>
-            <div className="user-meta">
-              <span className="user-meta-name">{displayName}</span>
-              <span className="user-meta-role">{user?.role ?? 'enterprise'}</span>
-            </div>
-            <HiOutlineChevronDown size={14} style={{ color: 'var(--gray-600)', flexShrink: 0 }} />
-          </button>
-
-          {menuOpen && (
-            <>
-              <div
-                style={{ position: 'fixed', inset: 0, zIndex: 150 }}
-                onClick={() => setMenuOpen(false)}
-              />
-              <div className="user-dropdown">
-                <div className="dropdown-header">
-                  <div className="dropdown-email">{email}</div>
-                </div>
-                <Link to="/profile" className="dropdown-item" onClick={() => setMenuOpen(false)}>
-                  <HiOutlineUser size={15} /> Profile
-                </Link>
-                <Link to="/settings" className="dropdown-item" onClick={() => setMenuOpen(false)}>
-                  <HiOutlineCog6Tooth size={15} /> Settings
-                </Link>
-                <div className="dropdown-divider" />
-                <button className="dropdown-item dropdown-item-danger" onClick={handleLogout}>
-                  <HiOutlineArrowRightOnRectangle size={15} /> Sign out
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </header>
-  );
-}
-
 function AuthedApp({ role }: { role: string }) {
   const isWorker = role === 'worker';
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebar-collapsed') === 'true');
   const fetchNotifications = useNotificationStore((s) => s.fetch);
   const unreadCount = useNotificationStore((s) => s.unreadCount);
   const prevUnreadRef = useRef<number | null>(null);
@@ -431,22 +289,23 @@ function AuthedApp({ role }: { role: string }) {
     prevUnreadRef.current = unreadCount;
   }, [unreadCount]);
 
-  useEffect(() => {
-    localStorage.setItem('sidebar-collapsed', String(collapsed));
-  }, [collapsed]);
+  const user = useAuthStore((s) => s.user);
+  const clearSession = useAuthStore((s) => s.clearSession);
+  async function handleLogout() {
+    await logout();
+    clearSession();
+  }
 
   return (
-    <div className={`app-shell${collapsed ? ' sidebar-collapsed' : ''}`}>
-      <Sidebar
-        role={role}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        collapsed={collapsed}
-        onToggleCollapse={() => setCollapsed((c) => !c)}
-      />
-      <div className="content-area">
-        <TopBar role={role} onMenuToggle={() => setSidebarOpen((o) => !o)} />
-        <main className="main">
+    <AppShell
+      nav={isWorker ? WORKER_NAV : ENTERPRISE_NAV}
+      footerLinks={FOOTER_LINKS}
+      menuLinks={MENU_LINKS}
+      search={<GlobalSearch />}
+      topbarExtras={<NotificationBell />}
+      user={user}
+      onSignOut={handleLogout}
+    >
           <Suspense fallback={null}>
           <Routes>
             {isWorker ? (
@@ -479,7 +338,21 @@ function AuthedApp({ role }: { role: string }) {
             <Route path="*" element={<NotFound />} />
           </Routes>
           </Suspense>
-        </main>
+    </AppShell>
+  );
+}
+
+/** Where platform admins work. The dashboard has nothing for them: an admin signing in here is sent there. */
+const ADMIN_CONSOLE_URL = import.meta.env.VITE_ADMIN_URL ?? 'http://localhost:3200';
+
+function AdminElsewhere() {
+  return (
+    <div className="auth-page">
+      <div className="auth-card">
+        <img src="/images/logo.png" alt="Funti3rPay" className="auth-logo" />
+        <h2>Platform admins use the admin console</h2>
+        <p className="auth-subtitle">This dashboard is for enterprises and workers, so you have been signed out here.</p>
+        <a className="btn-cta" href={ADMIN_CONSOLE_URL}>Open the admin console</a>
       </div>
     </div>
   );
@@ -497,6 +370,17 @@ export default function App() {
 
   const isAuthenticated = token || hasToken();
   const role = user?.role ?? 'enterprise';
+
+  // A platform admin is signed out here at once and pointed at the admin console. Remembered in state so the message
+  // stays on screen after the session is gone.
+  const clearSession = useAuthStore((s) => s.clearSession);
+  const [adminSignedOut, setAdminSignedOut] = useState(false);
+  useEffect(() => {
+    if (role !== 'admin' || !isAuthenticated) return;
+    setAdminSignedOut(true);
+    void logout().finally(clearSession);
+  }, [role, isAuthenticated, clearSession]);
+  if (adminSignedOut || (isAuthenticated && role === 'admin')) return <AdminElsewhere />;
 
   return (
     <BrowserRouter>

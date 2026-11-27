@@ -4,7 +4,7 @@ import type { WalletCashout } from '../api/escrows.js';
 import { SlideOver, Row, SectionTitle, StatusBadge, CopyButton } from '@funti3r/ui';
 import { buildReceipt } from '../lib/cashoutReceipt.js';
 
-import { EXPLORER } from '../lib/explorer.js';
+import { EXPLORER } from '@funti3r/ui';
 
 const STATUS: Record<WalletCashout['status'], ['completed' | 'failed' | 'pending', string]> = {
   pending: ['pending', 'In progress'],

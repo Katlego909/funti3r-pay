@@ -13,7 +13,7 @@ import { useAuthStore, apiErrorMessage } from '@funti3r/web-core';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
 import { PageHeader, ExportButtons, StatusBadge, STATUS_TABS } from '@funti3r/ui';
 import IncomeStatementButton from '../components/IncomeStatementButton.js';
-import { EXPLORER } from '../lib/explorer.js';
+import { EXPLORER } from '@funti3r/ui';
 
 export default function PaymentHistory() {
   const dc = useDisplayCurrency();

@@ -11,7 +11,7 @@ import { PageHeader, Modal, ConfirmDialog, SlideOver, Row, SectionTitle, StatusB
 import EscrowTransactions from '../components/EscrowTransactions.js';
 import EscrowReviewLog from '../components/EscrowReviewLog.js';
 import RejectWorkModal from '../components/RejectWorkModal.js';
-import { EXPLORER } from '../lib/explorer.js';
+import { EXPLORER } from '@funti3r/ui';
 
 interface WorkerOption { id: string; email: string }
 /** Employers enter milestone amounts in USD; the XLM that gets locked is derived from the live price. */

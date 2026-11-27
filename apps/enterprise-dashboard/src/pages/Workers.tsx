@@ -7,7 +7,7 @@ import WorkerDetailDrawer from '../components/WorkerDetailDrawer.js';
 import { ConfirmDialog, Modal, PageHeader, ExportButtons, StatusBadge, KycBadge } from '@funti3r/ui';
 import InviteLinkModal from '../components/InviteLinkModal.js';
 import { exportWorkersCSV, exportWorkersPDF } from '../utils/export.js';
-import { EXPLORER } from '../lib/explorer.js';
+import { EXPLORER } from '@funti3r/ui';
 
 interface WorkerRow extends Worker {
   kyc?: KYCStatus;

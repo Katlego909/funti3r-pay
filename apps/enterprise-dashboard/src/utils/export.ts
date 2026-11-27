@@ -1,4 +1,4 @@
-import { IS_MAINNET } from '../lib/explorer.js';
+import { IS_MAINNET, exportCSV } from '@funti3r/ui';
 
 // jsPDF + autotable are ~400 KB, so they load only when someone actually exports a PDF.
 async function loadPdf() {
@@ -130,35 +130,6 @@ function timestamp() {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
-}
-
-// ── CSV ───────────────────────────────────────────────────────────────────────
-
-function escapeCell(v: unknown): string {
-  const s = v == null ? '' : String(v);
-  return s.includes(',') || s.includes('"') || s.includes('\n')
-    ? `"${s.replace(/"/g, '""')}"`
-    : s;
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-export function exportJSON(value: unknown, filename: string) {
-  downloadBlob(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }), filename);
-}
-
-export function exportCSV(headers: string[], rows: unknown[][], filename: string) {
-  const lines = [headers, ...rows].map((r) => r.map(escapeCell).join(',')).join('\r\n');
-  downloadBlob(new Blob([lines], { type: 'text/csv;charset=utf-8;' }), filename);
 }
 
 // ── PDF ───────────────────────────────────────────────────────────────────────
