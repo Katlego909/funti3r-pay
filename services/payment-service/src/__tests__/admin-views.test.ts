@@ -86,7 +86,8 @@ describe('admin money routes', () => {
   it('narrow the audit trail, matching an action prefix literally and ignoring a malformed actor id', async () => {
     await request(app).get('/admin/audit?action=escrow.%&actorId=nope&entityType=escrow').set(admin);
     const { sql, params } = sqlCalls()[0];
-    expect(sql).toMatch(/WHERE entity_type = \$1 AND action LIKE \$2/);
+    expect(sql).toMatch(/WHERE a\.entity_type = \$1 AND a\.action LIKE \$2/);
+    expect(sql).toMatch(/actor\.email AS actor_email/);
     expect(params).toEqual(['escrow', 'escrow.\\%%']);
   });
 

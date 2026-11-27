@@ -11,6 +11,7 @@ import { useLoad } from '../useLoad';
 import { AccountLink, Id, LoadState, Pill, Tx } from './bits';
 import ReasonDialog, { type ReasonAction } from './ReasonDialog';
 import { money, short, when } from '../format';
+import { describe } from './auditText';
 
 const WIDTH = 520;
 
@@ -22,12 +23,15 @@ function AuditTrail({ entityId, version = 0 }: { entityId: string; version?: num
       <SectionTitle>Audit trail</SectionTitle>
       <LoadState loading={loading && !data} error={error} />
       {data && !data.events.length && <p className="admin-empty">Nothing recorded.</p>}
-      {data?.events.map((e) => (
-        <Field key={e.id} label={when(e.at)}>
-          <code>{e.action}</code> · {e.actor_role}
-          {e.detail?.reason && <div className="admin-detail">“{e.detail.reason}”</div>}
-        </Field>
-      ))}
+      {data?.events.map((e) => {
+        const { summary, reason } = describe(e);
+        return (
+          <Field key={e.id} label={when(e.at)}>
+            {summary}
+            <div className="admin-detail">by {e.actor_email ?? e.actor_role}{reason && <> · “{reason}”</>}</div>
+          </Field>
+        );
+      })}
     </>
   );
 }
@@ -245,10 +249,11 @@ export function AuditEventDrawer({ event, onClose }: { event: Row | null; onClos
       {e && (
         <>
           <SectionTitle>What happened</SectionTitle>
-          <Field label="Action"><code>{e.action}</code></Field>
+          <p style={{ margin: '0.25rem 0 0.5rem', fontSize: '0.95rem' }}>{describe(e).summary}</p>
           <Field label="When">{when(e.at)}</Field>
-          <Field label="By">{e.actor_id ? <AccountLink id={e.actor_id} email={e.actor_role} /> : e.actor_role}</Field>
-          <Field label="On">{e.entity_type} {target ? <Link to={target} onClick={onClose}><Id value={e.entity_id} /></Link> : <Id value={e.entity_id} />}</Field>
+          <Field label="By">{e.actor_id ? <AccountLink id={e.actor_id} email={e.actor_email ?? e.actor_role} /> : e.actor_role} ({e.actor_role})</Field>
+          <Field label="On">{e.entity_type} {e.entity_email ?? ''} {target ? <Link to={target} onClick={onClose}><Id value={e.entity_id} /></Link> : <Id value={e.entity_id} />}</Field>
+          <Field label="Action"><code>{e.action}</code></Field>
           {e.detail?.reason && <Field label="Reason">“{e.detail.reason}”</Field>}
           {e.detail?.txHash && <Field label="Transaction"><Tx hash={e.detail.txHash} /></Field>}
           <Field label="Request id"><Id value={e.request_id} /></Field>

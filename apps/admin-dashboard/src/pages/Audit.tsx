@@ -5,7 +5,8 @@ import { admin, type Row } from '../api';
 import { useLoad } from '../useLoad';
 import { useDrawers } from '../components/drawers';
 import { Card, LoadState, Pager, Table } from '../components/bits';
-import { auditColumns, auditDetail } from '../components/AuditTable';
+import { auditColumns } from '../components/AuditTable';
+import { describe } from '../components/auditText';
 
 const PAGE = 100;
 const FIELDS = [
@@ -33,8 +34,11 @@ export default function Audit() {
 
   function download(events: Row[]) {
     exportCSV(
-      ['When', 'Action', 'Actor role', 'Actor id', 'Entity type', 'Entity id', 'Detail', 'Request id'],
-      events.map((e) => [e.at, e.action, e.actor_role, e.actor_id, e.entity_type, e.entity_id, auditDetail(e.detail), e.request_id]),
+      ['When', 'What happened', 'Reason', 'Transaction', 'Action', 'By', 'By (role)', 'On', 'On (id)', 'Detail', 'Request id'],
+      events.map((e) => {
+        const { summary, reason, txHash } = describe(e);
+        return [e.at, summary, reason, txHash, e.action, e.actor_email ?? e.actor_id, e.actor_role, e.entity_type, e.entity_id, JSON.stringify(e.detail ?? {}), e.request_id];
+      }),
       `funti3rpay-audit-${new Date().toISOString().slice(0, 10)}.csv`,
     );
   }
