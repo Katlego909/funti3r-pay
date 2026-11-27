@@ -4,7 +4,7 @@
 import { execSync } from 'node:child_process';
 import os from 'node:os';
 
-const PORTS = [3000, 3001, 3002, 3003, 3004, 3100];
+const PORTS = [3000, 3001, 3002, 3003, 3004, 3100, 3200];
 const isWin = os.platform() === 'win32';
 
 function pidsOnPort(port) {
