@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AuditEntry } from '@funti3r/database';
-import { accountDetail, companyDetail, searchDirectory, setAccountStatus, type AdminDirectoryDeps } from './adminDirectory.js';
+import {
+  accountDetail, companyDetail, listAccounts, listCompanies, searchDirectory, setAccountStatus, type AdminDirectoryDeps,
+} from './adminDirectory.js';
 
 /** Records every statement; answers reads with `answer(sql)`. */
 function fakeDeps(answer: (sql: string) => any[] = () => []) {
@@ -42,6 +44,8 @@ test('no admin view ever reads a secret key or a password hash', async () => {
   await searchDirectory('ada', deps);
   await accountDetail(ID, deps);
   await companyDetail(ID, deps);
+  await listAccounts({}, deps);
+  await listCompanies({}, deps);
   for (const { sql } of statements) {
     assert.doesNotMatch(sql, /secret|password|\*\s*FROM/i, sql);
   }
@@ -71,3 +75,31 @@ test('no reason, your own account, a closed account or no change: nothing is wri
   assert.equal((await setAccountStatus(ID, 'active', 'x', 'admin-1', same.deps)).changed, false);
   assert.equal(closed.audits.length + same.audits.length, 0);
 });
+
+test('the account list filters by role, status and part of the email, ignoring unknown values, a page at a time', async () => {
+  const { deps, statements } = fakeDeps((sql) => (/GROUP BY u\.role/.test(sql) ? [{ role: 'worker', count: 7 }, { role: 'enterprise', count: 2 }] : []));
+  const result = await listAccounts({ role: 'worker', status: 'suspended', q: 'a_b', limit: '9999' }, deps);
+  const [list, counts] = statements;
+  assert.match(list.sql, /WHERE u\.status = \$1 AND u\.email ILIKE \$2 AND u\.role = \$3/);
+  assert.deepEqual(list.params, ['suspended', '%a\\_b%', 'worker']);
+  assert.match(list.sql, /LIMIT 200 OFFSET 0/);
+  // The role tabs count under the other filters, not under the chosen role.
+  assert.match(counts.sql, /WHERE u\.status = \$1 AND u\.email ILIKE \$2 GROUP BY u\.role/);
+  assert.deepEqual(result.byRole, { enterprise: 2, worker: 7, admin: 0 });
+  assert.equal(result.total, 7);
+
+  const unknown = fakeDeps();
+  const all = await listAccounts({ role: 'superuser', status: "x' OR 1=1" }, unknown.deps);
+  assert.doesNotMatch(unknown.statements[0].sql, /WHERE/);
+  assert.equal(all.total, 0);
+});
+
+test('the company list filters by part of the name and says how many there are', async () => {
+  const { deps, statements } = fakeDeps((sql) => (/COUNT\(\*\)::int AS count FROM enterprises/.test(sql) ? [{ count: 3 }] : []));
+  const result = await listCompanies({ q: 'Ardent', offset: '50' }, deps);
+  assert.match(statements[0].sql, /WHERE e\.company_name ILIKE \$1/);
+  assert.match(statements[0].sql, /LIMIT 50 OFFSET 50/);
+  assert.deepEqual(statements[0].params, ['%Ardent%']);
+  assert.equal(result.total, 3);
+});
+

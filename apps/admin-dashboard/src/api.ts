@@ -6,7 +6,8 @@ import { api } from '@funti3r/web-core';
 
 export type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- rows straight from the API
 export interface Page { limit: number; offset: number }
-export interface ListParams { status?: string; q?: string; limit?: number; offset?: number; frozen?: string }
+export interface ListParams { status?: string; q?: string; limit?: number; offset?: number; frozen?: string; batchId?: string; role?: string }
+export interface Counted { total: number }
 
 export interface Readiness {
   status: string;
@@ -43,6 +44,8 @@ export const admin = {
   health: () => get<Record<string, Readiness>>('/admin/health'),
   ops: () => get<Ops>('/admin/ops'),
   search: (q: string) => get<{ users: Row[]; companies: Row[] }>('/admin/search', { q }),
+  accounts: (p: ListParams) => get<Page & Counted & { accounts: Row[]; byRole: Record<string, number> }>('/admin/users', p),
+  companies: (p: ListParams) => get<Page & Counted & { companies: Row[] }>('/admin/companies', p),
   account: (id: string) => get<AccountDetail>(`/admin/users/${id}`),
   company: (id: string) => get<CompanyDetail>(`/admin/companies/${id}`),
   money: (id: string) => get<AccountMoney>(`/admin/money/${id}`),
@@ -52,6 +55,8 @@ export const admin = {
   payments: (p: ListParams) => get<Page & { payments: Row[] }>('/admin/payments', p),
   escrows: (p: ListParams) => get<Page & { escrows: Row[] }>('/admin/escrows', p),
   cashouts: (p: ListParams) => get<Page & { cashouts: Row[] }>('/admin/cashouts', p),
+  batches: (p: ListParams) => get<Page & { batches: Row[] }>('/admin/batches', p),
+  schedules: (p: ListParams) => get<Page & { schedules: Row[] }>('/admin/schedules', p),
   reconcile: (repair: boolean) =>
     post<{ repair: boolean; checked: number; repaired: number; unreadable: number; drift: Row[] }>('/admin/ops/reconcile-escrows', { repair }),
   freeze: (escrowId: string, frozen: boolean, reason: string) => post<{ frozen: boolean; txHash: string }>(`/escrows/${escrowId}/freeze`, { frozen, reason }),
@@ -63,6 +68,7 @@ export const admin = {
   sanctionsStatus: () => get<{ list: { source: string; entryCount: number; fetchedAt: string } | null }>('/admin/compliance/sanctions/status'),
   refreshSanctions: () => post<Row>('/admin/compliance/sanctions/refresh'),
   flagged: () => get<{ flagged: Row[] }>('/admin/compliance/flagged'),
+  kycQueue: (p: ListParams) => get<Page & Counted & { queue: Row[]; status: string }>('/admin/compliance/queue', p),
   kyc: (userId: string) => get<Row>(`/admin/compliance/${userId}`),
   /** KYC status for many people at once, from compliance (the only place it is kept). */
   kycStatuses: (userIds: string[]) => post<{ statuses: Record<string, { status: string }> }>('/admin/compliance/status/bulk', { userIds }),

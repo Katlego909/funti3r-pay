@@ -6,7 +6,9 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import type { Router as RouterType } from 'express';
 import { audit, query } from '@funti3r/database';
 import { isUuid, NotFoundError, ValidationError } from '@funti3r/shared-utils';
-import { accountDetail, companyDetail, searchDirectory, setAccountStatus } from '../lib/adminDirectory.js';
+import {
+  accountDetail, companyDetail, listAccounts, listCompanies, searchDirectory, setAccountStatus,
+} from '../lib/adminDirectory.js';
 import { metrics } from '../metrics.js';
 
 const router: RouterType = Router();
@@ -22,6 +24,22 @@ function idParam(req: Request, what: string): string {
 router.get('/search', async (req: Request, res: Response, next: NextFunction) => {
   try {
     res.json(await searchDirectory(typeof req.query.q === 'string' ? req.query.q : '', deps));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/users', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json(await listAccounts(req.query as never, deps));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/companies', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json(await listCompanies(req.query as never, deps));
   } catch (err) {
     next(err);
   }

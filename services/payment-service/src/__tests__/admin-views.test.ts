@@ -19,7 +19,7 @@ beforeEach(() => {
 
 describe('admin money routes', () => {
   it('refuse anyone but a platform admin', async () => {
-    for (const path of ['/admin/ops', '/admin/payments', '/admin/escrows', '/admin/cashouts', '/admin/audit', `/admin/money/${WORKER_ID}`]) {
+    for (const path of ['/admin/ops', '/admin/payments', '/admin/escrows', '/admin/cashouts', '/admin/batches', '/admin/schedules', '/admin/audit', `/admin/money/${WORKER_ID}`]) {
       for (const role of ['worker', 'enterprise']) {
         const res = await request(app).get(path).set({ 'x-user-id': ENTERPRISE_ID, 'x-user-role': role });
         expect(res.status, `${role} ${path}`).toBe(403);
@@ -46,7 +46,7 @@ describe('admin money routes', () => {
     vi.mocked(query).mockImplementation(createQueryMock([
       { match: /SELECT id, role, stellar_public_key FROM users/, handler: () => ({ rows: [{ id: WORKER_ID, role: 'worker', stellar_public_key: null }] }) },
     ]));
-    for (const path of ['/admin/ops', '/admin/payments', '/admin/escrows', '/admin/cashouts', '/admin/audit', `/admin/money/${WORKER_ID}`]) {
+    for (const path of ['/admin/ops', '/admin/payments', '/admin/escrows', '/admin/cashouts', '/admin/batches', '/admin/schedules', '/admin/audit', `/admin/money/${WORKER_ID}`]) {
       await request(app).get(path).set(admin);
     }
     for (const { sql } of sqlCalls()) {
@@ -88,5 +88,28 @@ describe('admin money routes', () => {
     const { sql, params } = sqlCalls()[0];
     expect(sql).toMatch(/WHERE entity_type = \$1 AND action LIKE \$2/);
     expect(params).toEqual(['escrow', 'escrow.\\%%']);
+  });
+
+  it('open the payments of one payout batch, and list batches and schedules with an unknown status ignored', async () => {
+    const BATCH = '66666666-6666-4666-8666-666666666666';
+    await request(app).get(`/admin/payments?batchId=${BATCH}&status=completed`).set(admin);
+    let { sql, params } = sqlCalls()[0];
+    expect(sql).toMatch(/WHERE p\.status = \$1 AND p\.batch_id = \$2/);
+    expect(params).toEqual(['completed', BATCH]);
+
+    vi.mocked(query).mockClear();
+    await request(app).get(`/admin/batches?status=partial&q=${ENTERPRISE_ID}`).set(admin);
+    ({ sql, params } = sqlCalls()[0]);
+    expect(sql).toMatch(/FROM payment_batches b/);
+    expect(sql).toMatch(/WHERE b\.status = \$1 AND \$2 IN \(b\.id, b\.enterprise_id\)/);
+    expect(sql).toMatch(/AS awaiting_claim/);
+    expect(params).toEqual(['partial', ENTERPRISE_ID]);
+
+    vi.mocked(query).mockClear();
+    await request(app).get("/admin/schedules?status=paused' OR 1=1").set(admin);
+    ({ sql, params } = sqlCalls()[0]);
+    expect(sql).toMatch(/FROM payment_schedules s/);
+    expect(sql).not.toMatch(/WHERE/);
+    expect(params).toEqual([]);
   });
 });

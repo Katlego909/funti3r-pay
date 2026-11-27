@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { PageHeader, exportCSV } from '@funti3r/ui';
 import { admin, type Row } from '../api';
 import { useLoad } from '../useLoad';
-import { Card, LoadState, Table } from '../components/bits';
+import { Card, LoadState, Pager, Table } from '../components/bits';
 import { auditColumns, auditDetail } from '../components/AuditTable';
 
 const PAGE = 100;
@@ -59,11 +59,7 @@ export default function Audit() {
       <Card>
         <LoadState loading={page.loading && !page.data} error={page.error} />
         {page.data && <Table rows={page.data.events} empty="Nothing recorded for this filter." rowKey={(e) => String(e.id)} columns={auditColumns} />}
-        <div className="admin-pager">
-          <button className="btn-secondary" disabled={offset === 0} onClick={() => setParams({ ...Object.fromEntries(params), offset: String(Math.max(offset - PAGE, 0)) })}>Newer</button>
-          <span className="admin-muted">{offset + 1}–{offset + (page.data?.events.length ?? 0)}</span>
-          <button className="btn-secondary" disabled={(page.data?.events.length ?? 0) < PAGE} onClick={() => setParams({ ...Object.fromEntries(params), offset: String(offset + PAGE) })}>Older</button>
-        </div>
+        <Pager offset={offset} shown={page.data?.events.length ?? 0} pageSize={PAGE} onPage={(o) => setParams({ ...Object.fromEntries(params), offset: String(o) })} />
       </Card>
     </div>
   );

@@ -3,15 +3,17 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { logout, useAuthStore } from '@funti3r/web-core';
 import {
-  HiOutlineBanknotes, HiOutlineClipboardDocumentList, HiOutlineCog6Tooth, HiOutlineMagnifyingGlass, HiOutlineShieldCheck,
-  HiOutlineSquares2X2, HiOutlineUser,
+  HiOutlineBanknotes, HiOutlineBuildingOffice2, HiOutlineClipboardDocumentList, HiOutlineCog6Tooth, HiOutlineShieldCheck,
+  HiOutlineSquares2X2, HiOutlineUser, HiOutlineUsers,
 } from 'react-icons/hi2';
 import { AppShell } from '@funti3r/ui';
 import AdminSearch from './components/AdminSearch';
 import Login from './pages/Login';
 import Overview from './pages/Overview';
 import Search from './pages/Search';
+import Accounts from './pages/Accounts';
 import AccountPage from './pages/Account';
+import Companies from './pages/Companies';
 import CompanyPage from './pages/Company';
 import Compliance from './pages/Compliance';
 import Money from './pages/Money';
@@ -21,7 +23,8 @@ import Settings from './pages/Settings';
 
 const NAV = [
   { to: '/', icon: HiOutlineSquares2X2, label: 'Overview' },
-  { to: '/search', icon: HiOutlineMagnifyingGlass, label: 'Search' },
+  { to: '/accounts', icon: HiOutlineUsers, label: 'Accounts' },
+  { to: '/companies', icon: HiOutlineBuildingOffice2, label: 'Companies' },
   { to: '/compliance', icon: HiOutlineShieldCheck, label: 'Compliance' },
   { to: '/money', icon: HiOutlineBanknotes, label: 'Money' },
   { to: '/audit', icon: HiOutlineClipboardDocumentList, label: 'Audit log' },
@@ -29,8 +32,10 @@ const NAV = [
 const FOOTER_LINKS = [{ to: '/settings', icon: HiOutlineCog6Tooth, label: 'Settings' }];
 const MENU_LINKS = [{ to: '/profile', icon: HiOutlineUser, label: 'Profile' }, ...FOOTER_LINKS];
 
-/** Detail pages are not in the navigation. */
-const titleFor = (path: string) => (path.startsWith('/accounts/') ? 'Account' : path.startsWith('/companies/') ? 'Company' : undefined);
+/** Pages that are not in the navigation: the detail pages, and search (always one click away in the top bar). */
+const titleFor = (path: string) => (
+  path.startsWith('/accounts/') ? 'Account' : path.startsWith('/companies/') ? 'Company' : path === '/search' ? 'Search' : undefined
+);
 
 /** Shown to anyone who signs in here without being a platform admin, after they have been signed out. */
 function NotAnAdmin({ email, onBack }: { email: string; onBack: () => void }) {
@@ -85,7 +90,9 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/search" element={<Search />} />
+            <Route path="/accounts" element={<Accounts />} />
             <Route path="/accounts/:id" element={<AccountPage />} />
+            <Route path="/companies" element={<Companies />} />
             <Route path="/companies/:id" element={<CompanyPage />} />
             <Route path="/compliance" element={<Compliance />} />
             <Route path="/money" element={<Money />} />

@@ -5,3 +5,4 @@ export * from './locks.js';
 export * from './notifications.js';
 export * from './recoveryHold.js';
 export * from './audit.js';
+export * from './listQuery.js';

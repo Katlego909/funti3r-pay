@@ -1,53 +1,54 @@
-import { FormEvent, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { PageHeader } from '@funti3r/ui';
 import { admin, type Row } from '../api';
 import { useLoad } from '../useLoad';
-import { AccountLink, Card, Id, LoadState, Pill, Table, Tx } from '../components/bits';
+import { useListParams } from '../listParams';
+import { AccountLink, Card, FilterInput, Id, LoadState, Pager, Pill, Table, Tabs, Tx } from '../components/bits';
 import ReasonDialog, { type ReasonAction } from '../components/ReasonDialog';
 import { money, when } from '../format';
 
-type Tab = 'payments' | 'escrows' | 'cashouts';
+type Tab = 'payments' | 'escrows' | 'cashouts' | 'batches' | 'schedules';
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'payments', label: 'Payments' }, { key: 'escrows', label: 'Escrows' }, { key: 'cashouts', label: 'Cash-outs' },
+  { key: 'batches', label: 'Batches' }, { key: 'schedules', label: 'Schedules' },
+];
 const STATUSES: Record<Tab, string[]> = {
   payments: ['initiated', 'submitted', 'completed', 'pending_claim', 'failed'],
   escrows: ['active', 'completed', 'refunded'],
   cashouts: ['pending', 'completed', 'failed'],
+  batches: ['processing', 'completed', 'partial', 'failed'],
+  schedules: ['active', 'paused'],
+};
+const PLACEHOLDER: Record<Tab, string> = {
+  payments: 'Payment id, account id or tx hash', escrows: 'Escrow id or account id', cashouts: 'Cash-out id or worker id',
+  batches: 'Batch id or employer id', schedules: 'Schedule id or employer id',
 };
 const PAGE = 50;
 
 /**
- * Money platform-wide: payments, escrows and cash-outs, filtered and paged. The only actions are compliance holds on
- * an escrow (freeze, unfreeze, return a frozen escrow to the employer) and bringing the database in line with the
- * contract. An admin never sends, retries or claims anyone's money.
+ * Money platform-wide: payments, escrows, cash-outs, payout batches and payroll schedules, filtered and paged. The only
+ * actions are compliance holds on an escrow (freeze, unfreeze, return a frozen escrow to the employer) and bringing the
+ * database in line with the contract. An admin never sends, retries or claims anyone's money.
  */
 export default function Money() {
-  const [params, setParams] = useSearchParams();
+  const params = useListParams();
   const tab = (params.get('tab') as Tab) || 'payments';
-  const status = params.get('status') ?? '';
-  const q = params.get('q') ?? '';
+  const status = params.get('status');
+  const q = params.get('q');
+  const batchId = params.get('batchId');
   const frozenOnly = params.get('frozen') === 'true';
-  const offset = Number(params.get('offset') ?? 0);
-  const [draft, setDraft] = useState(q);
+  const { offset, set } = params;
   const [action, setAction] = useState<ReasonAction | null>(null);
 
-  const set = (patch: Record<string, string | null>) => {
-    const next = new URLSearchParams(params);
-    for (const [k, v] of Object.entries(patch)) { if (v) next.set(k, v); else next.delete(k); }
-    if (!('offset' in patch)) next.delete('offset');
-    setParams(next);
-  };
-
-  const list = useLoad(async () => {
+  const list = useLoad(async (): Promise<Row[]> => {
     const p = { status: status || undefined, q: q || undefined, limit: PAGE, offset };
     if (tab === 'escrows') return (await admin.escrows({ ...p, frozen: frozenOnly ? 'true' : undefined })).escrows;
     if (tab === 'cashouts') return (await admin.cashouts(p)).cashouts;
-    return (await admin.payments(p)).payments;
-  }, [tab, status, q, frozenOnly, offset]);
-
-  function search(e: FormEvent) {
-    e.preventDefault();
-    set({ q: draft.trim() || null });
-  }
+    if (tab === 'batches') return (await admin.batches(p)).batches;
+    if (tab === 'schedules') return (await admin.schedules(p)).schedules;
+    return (await admin.payments({ ...p, batchId: batchId || undefined })).payments;
+  }, [tab, status, q, batchId, frozenOnly, offset]);
 
   const escrowActions = (x: Row) => {
     if (x.status !== 'active') return null;
@@ -74,6 +75,22 @@ export default function Money() {
         {x.frozen && <button className="btn-secondary admin-danger" onClick={() => setAction(returnIt)}>Return</button>}
       </div>
     );
+  };
+
+  /**
+   * How a batch's payments ended, in words: "3 paid · 1 failed". An item that failed its checks before anything was
+   * sent (not on the payroll, an unsupported currency) has no payment row, so it shows as "stopped before sending".
+   */
+  const batchOutcome = (b: Row) => {
+    const recorded = b.completed + b.awaiting_claim + b.failed + b.in_flight;
+    const stopped = Math.max(b.payment_count - recorded, 0);
+    return [
+      `${b.completed} paid`,
+      b.awaiting_claim ? `${b.awaiting_claim} to claim` : '',
+      b.failed ? `${b.failed} failed` : '',
+      b.in_flight ? `${b.in_flight} on the way` : '',
+      stopped ? `${stopped} stopped before sending` : '',
+    ].filter(Boolean).join(' · ');
   };
 
   const columns = {
@@ -107,22 +124,39 @@ export default function Money() {
       { label: 'Error', render: (c: Row) => c.error ?? '—' },
       { label: 'Settlement', render: (c: Row) => <Tx hash={c.settlement_hash} /> },
     ],
+    batches: [
+      { label: 'Created', render: (b: Row) => when(b.created_at) },
+      { label: 'Employer', render: (b: Row) => <AccountLink id={b.enterprise_id} email={b.enterprise_email} /> },
+      { label: 'Payments', render: (b: Row) => b.payment_count },
+      // What the batch moved once settled; batches recorded before that rule hold the amount asked for instead.
+      { label: 'Amount (USD)', render: (b: Row) => money(b.total_amount) },
+      { label: 'Status', render: (b: Row) => <Pill value={b.status} tone={b.status === 'partial' ? 'bad' : undefined} /> },
+      { label: 'How they ended', render: batchOutcome },
+      { label: '', render: (b: Row) => <Link to={`/money?batchId=${b.id}`}>Open payments</Link> },
+    ],
+    schedules: [
+      { label: 'Name', render: (s: Row) => s.name },
+      { label: 'Employer', render: (s: Row) => <AccountLink id={s.enterprise_id} email={s.enterprise_email} /> },
+      { label: 'Every', render: (s: Row) => `${s.frequency} (${s.run_day})` },
+      { label: 'People', render: (s: Row) => s.items },
+      { label: 'Per run (USD)', render: (s: Row) => money(s.total_usd) },
+      { label: 'Status', render: (s: Row) => <Pill value={s.status} /> },
+      { label: 'Next run', render: (s: Row) => when(s.next_run_at) },
+      {
+        label: 'Last run',
+        render: (s: Row) => <>{when(s.last_run_at)} {s.last_run_status && <Pill value={s.last_run_status === 'success' ? 'completed' : s.last_run_status} />}</>,
+      },
+    ],
   }[tab];
 
   return (
     <div className="dashboard">
-      <PageHeader title="Money" subtitle="Payments, escrows and cash-outs across the platform" />
+      <PageHeader title="Money" subtitle="Payments, escrows, cash-outs, payout batches and payroll schedules across the platform" />
 
-      <div className="payments-status-tabs">
-        {(['payments', 'escrows', 'cashouts'] as Tab[]).map((t) => (
-          <button key={t} className={`status-tab${tab === t ? ' active' : ''}`} onClick={() => setParams({ tab: t })}>
-            {t === 'cashouts' ? 'Cash-outs' : t[0].toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
+      <Tabs<Tab> tabs={TABS} active={tab} onChange={(key) => params.reset(key === 'payments' ? {} : { tab: key })} />
 
       <div className="admin-filters">
-        <select value={status} onChange={(e) => set({ status: e.target.value || null })} aria-label="Status">
+        <select value={status} onChange={(e) => set({ status: e.target.value })} aria-label="Status">
           <option value="">Any status</option>
           {STATUSES[tab].map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
         </select>
@@ -131,25 +165,19 @@ export default function Money() {
             <input type="checkbox" checked={frozenOnly} onChange={(e) => set({ frozen: e.target.checked ? 'true' : null })} /> Frozen only
           </label>
         )}
-        <form onSubmit={search} className="admin-filter-search">
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={tab === 'payments' ? 'Payment id, account id or tx hash' : 'Id or account id'}
-          />
-          <button className="btn-secondary" type="submit">Filter</button>
-          {q && <button className="btn-secondary" type="button" onClick={() => { setDraft(''); set({ q: null }); }}>Clear</button>}
-        </form>
+        {tab === 'payments' && batchId && (
+          <span className="admin-chip">
+            Batch <Id value={batchId} />
+            <button type="button" onClick={() => set({ batchId: null })} aria-label="Show all payments">Clear</button>
+          </span>
+        )}
+        <FilterInput value={q} placeholder={PLACEHOLDER[tab]} onApply={(v) => set({ q: v })} />
       </div>
 
       <Card>
         <LoadState loading={list.loading && !list.data} error={list.error} />
         {list.data && <Table<Row> rows={list.data} empty="Nothing matches." rowKey={(r) => r.id} columns={columns} />}
-        <div className="admin-pager">
-          <button className="btn-secondary" disabled={offset === 0} onClick={() => set({ offset: String(Math.max(offset - PAGE, 0)) })}>Newer</button>
-          <span className="admin-muted">{offset + 1}–{offset + (list.data?.length ?? 0)}</span>
-          <button className="btn-secondary" disabled={(list.data?.length ?? 0) < PAGE} onClick={() => set({ offset: String(offset + PAGE) })}>Older</button>
-        </div>
+        <Pager offset={offset} shown={list.data?.length ?? 0} pageSize={PAGE} onPage={(o) => set({ offset: String(o) })} />
       </Card>
 
       {tab === 'escrows' && <Reconcile onRepaired={list.reload} />}
