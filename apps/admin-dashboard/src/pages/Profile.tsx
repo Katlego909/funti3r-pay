@@ -41,7 +41,7 @@ export default function Profile() {
   );
 
   return (
-    <div className="dashboard" style={{ maxWidth: 760 }}>
+    <div className="dashboard" style={{ maxWidth: 720, margin: '0 auto' }}>
       <PageHeader title="Profile" subtitle="Your admin account" />
       <LoadState state={account} />
       {u && (

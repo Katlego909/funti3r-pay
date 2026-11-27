@@ -15,7 +15,7 @@ export default function Settings() {
   const account = useLoad(() => admin.account(id), [id]);
 
   return (
-    <div className="dashboard" style={{ maxWidth: 900 }}>
+    <div className="dashboard" style={{ maxWidth: 720, margin: '0 auto' }}>
       <PageHeader title="Settings" subtitle="Your sign-in and your admin activity" />
 
       <Card title="Passkeys">
@@ -25,7 +25,7 @@ export default function Settings() {
         </p>
         <LoadState state={account} />
         {account.data && (
-          <Table<Row> rows={account.data.passkeys} empty="No passkeys: you are signing in with the developer sign-in." rowKey={(p) => p.origin} columns={[
+          <Table<Row> rows={account.data.passkeys} empty={{ title: 'No passkeys yet', message: 'You are signing in with the developer sign-in.', compact: true }} rowKey={(p) => p.origin} columns={[
             { label: 'Site', render: (p) => p.origin },
             { label: 'Passkeys', render: (p) => p.count },
             { label: 'Last added', render: (p) => when(p.last_added) },
