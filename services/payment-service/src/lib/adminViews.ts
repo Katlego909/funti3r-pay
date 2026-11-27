@@ -149,7 +149,7 @@ export async function listBatches(q: ListQuery, deps: AdminViewDeps) {
   ]);
   const rows = await deps.query(
     `SELECT b.id, b.enterprise_id, e.email AS enterprise_email, b.payment_count, b.total_amount, b.status, b.created_at,
-            b.updated_at,
+            b.updated_at, b.unsent,
             COUNT(p.id) FILTER (WHERE p.status = 'completed')::int AS completed,
             COUNT(p.id) FILTER (WHERE p.status = 'pending_claim')::int AS awaiting_claim,
             COUNT(p.id) FILTER (WHERE p.status = 'failed')::int AS failed,
@@ -171,7 +171,7 @@ export async function listSchedules(q: ListQuery, deps: AdminViewDeps) {
   ]);
   const rows = await deps.query(
     `SELECT s.id, s.enterprise_id, e.email AS enterprise_email, s.name, s.frequency, s.run_day, s.timezone, s.status,
-            s.next_run_at, s.last_run_at, s.last_run_status, s.created_at,
+            s.next_run_at, s.last_run_at, s.last_run_status, s.last_run_error, s.last_run_batch_id, s.created_at,
             COUNT(i.id)::int AS items, COALESCE(SUM(i.amount_usd), 0) AS total_usd
        FROM payment_schedules s JOIN users e ON e.id = s.enterprise_id LEFT JOIN payment_schedule_items i ON i.schedule_id = s.id
        ${w.sql} GROUP BY s.id, e.email ORDER BY s.next_run_at LIMIT ${limit} OFFSET ${offset}`,

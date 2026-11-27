@@ -77,7 +77,7 @@ async function executeSchedule(
 
   if (itemRows.length === 0) {
     logger.warn('Schedule has no items — skipping', { scheduleId: id });
-    await updateScheduleAfterRun(id, frequency, run_day, timezone, 'failed');
+    await updateScheduleAfterRun(id, frequency, run_day, timezone, 'failed', { error: 'The schedule has nobody to pay' });
     return;
   }
 
@@ -88,6 +88,7 @@ async function executeSchedule(
   }));
 
   let runStatus: 'success' | 'partial' | 'failed';
+  let outcome: RunOutcome;
 
   try {
     // One key per scheduled occurrence, not per attempt: a retry of this occurrence (after a crash, or a failed
@@ -105,6 +106,7 @@ async function executeSchedule(
     runStatus = data.status === 'completed' ? 'success'
       : data.status === 'partial' || data.status === 'processing' ? 'partial'
       : 'failed';
+    outcome = { batchId: data.batchId, error: runStatus === 'success' ? undefined : failureSummary(data.results) };
 
     logger.info('Schedule run complete', {
       scheduleId: id,
@@ -117,9 +119,22 @@ async function executeSchedule(
     const detail = err?.message ?? String(err);
     logger.error('Schedule run failed', { scheduleId: id, name, error: detail });
     runStatus = 'failed';
+    outcome = { error: detail };
   }
 
-  await updateScheduleAfterRun(id, frequency, run_day, timezone, runStatus);
+  await updateScheduleAfterRun(id, frequency, run_day, timezone, runStatus, outcome);
+}
+
+interface RunOutcome { error?: string; batchId?: string }
+
+/** Why the payments of a run failed, each reason once: "Worker KYC not verified (2); Worker Stellar account not found". */
+export function failureSummary(results: Array<{ status: string; error?: string }> | undefined): string | undefined {
+  const counts = new Map<string, number>();
+  for (const r of results ?? []) {
+    if (r.status === 'failed') counts.set(r.error ?? 'Unknown error', (counts.get(r.error ?? 'Unknown error') ?? 0) + 1);
+  }
+  if (counts.size === 0) return undefined;
+  return [...counts].map(([reason, n]) => (n > 1 ? `${reason} (${n})` : reason)).join('; ').slice(0, 1000);
 }
 
 async function updateScheduleAfterRun(
@@ -128,14 +143,15 @@ async function updateScheduleAfterRun(
   runDay: string,
   timezone: string,
   runStatus: 'success' | 'partial' | 'failed',
+  outcome: RunOutcome = {},
 ): Promise<void> {
   try {
     const nextRun = nextRunDate(frequency, runDay, timezone, new Date());
     await query(
       `UPDATE payment_schedules
-          SET next_run_at = $1, last_run_status = $2, updated_at = NOW()
+          SET next_run_at = $1, last_run_status = $2, last_run_error = $4, last_run_batch_id = $5, updated_at = NOW()
         WHERE id = $3`,
-      [nextRun.toISOString(), runStatus, id],
+      [nextRun.toISOString(), runStatus, id, outcome.error ?? null, outcome.batchId ?? null],
     );
   } catch (err) {
     logger.error('Failed to update next_run_at', { scheduleId: id, error: String(err) });

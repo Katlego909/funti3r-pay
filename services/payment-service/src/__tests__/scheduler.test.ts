@@ -135,6 +135,32 @@ describe('runDueSchedules', () => {
     expect(batch).toHaveBeenCalledWith('ent-1', [{ workerId: 'wkr-1', amountUsd: 10, memo: undefined }], expect.any(String));
   });
 
+  it('records why a run failed and the batch it produced, so the reason survives the log', async () => {
+    batch.mockResolvedValue({
+      httpStatus: 207,
+      body: {
+        status: 'failed', batchId: 'batch-9',
+        results: [{ status: 'failed', error: 'Worker KYC not verified' }, { status: 'failed', error: 'Worker KYC not verified' }],
+      },
+    });
+    await runDueSchedules();
+    const after = query.mock.calls.find(([sql]) => String(sql).includes('SET next_run_at'));
+    expect(after?.[1]).toEqual([expect.any(String), 'failed', 'sch-1', 'Worker KYC not verified (2)', 'batch-9']);
+
+    query.mockClear();
+    batch.mockRejectedValue(new Error('Enterprise Stellar account is not set up'));
+    await runDueSchedules();
+    const thrown = query.mock.calls.find(([sql]) => String(sql).includes('SET next_run_at'));
+    expect(thrown?.[1]?.slice(1)).toEqual(['failed', 'sch-1', 'Enterprise Stellar account is not set up', null]);
+  });
+
+  it('a successful run clears the last error', async () => {
+    batch.mockResolvedValue({ httpStatus: 201, body: { status: 'completed', batchId: 'batch-1', results: [{ status: 'completed' }] } });
+    await runDueSchedules();
+    const after = query.mock.calls.find(([sql]) => String(sql).includes('SET next_run_at'));
+    expect(after?.[1]?.slice(1)).toEqual(['success', 'sch-1', null, 'batch-1']);
+  });
+
   it('records a batch still running elsewhere as in progress, not failed', async () => {
     batch.mockResolvedValue({ httpStatus: 409, body: { error: 'Batch with this idempotency key is already being processed' } });
 
