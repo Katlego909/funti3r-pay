@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { useAuthStore } from './authStore.js';
+import type { SignedIn } from './auth.js';
 
 // Development talks to the gateway directly; the built app is served next to a proxy that forwards /api to it.
 const BASE_URL = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? '/api' : 'http://localhost:3000');
@@ -29,10 +30,15 @@ api.interceptors.response.use(
 
     if (!refreshing) {
       refreshing = axios
-        .post<{ accessToken: string }>(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true })
-        .then((r) => {
-          sessionStorage.setItem('access_token', r.data.accessToken);
-          return r.data.accessToken;
+        .post<SignedIn>(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true })
+        .then(({ data }) => {
+          // Keep the account the server renewed, not only its token: the refresh cookie may belong to someone else (on
+          // localhost every port shares it) or the account may have changed role since sign-in. The apps react to the
+          // user they hold (the admin console signs out anyone who is not an admin).
+          useAuthStore.getState().setSession(
+            { userId: data.userId, email: data.email, role: data.role, companyId: data.companyId ?? undefined }, data.accessToken,
+          );
+          return data.accessToken;
         })
         .finally(() => { refreshing = null; });
     }

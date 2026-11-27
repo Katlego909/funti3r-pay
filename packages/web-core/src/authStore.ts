@@ -15,38 +15,43 @@ interface AuthState {
   initializeFromStorage: () => void;
 }
 
-const getStoredToken = (): string | null => {
-  if (typeof window === 'undefined') return null;
-  return sessionStorage.getItem('access_token');
-};
+const TOKEN_KEY = 'access_token';
 
-const getStoredUser = (): AuthUser | null => {
-  if (typeof window === 'undefined') return null;
-  const stored = sessionStorage.getItem('auth_user');
-  return stored ? JSON.parse(stored) : null;
-};
+/**
+ * The account an access token was issued to, read from its payload. The signed-in user is always taken from the token
+ * the app will send, never kept apart from it, so the app can't show one account while acting as another (as happened
+ * when a refresh swapped the token but not the stored user). Only for display: the server checks the signature and the
+ * account's role and status on every request.
+ */
+export function userFromToken(token: string | null): AuthUser | null {
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (typeof payload.userId !== 'string' || typeof payload.role !== 'string') return null;
+    return { userId: payload.userId, email: payload.email, role: payload.role, companyId: payload.companyId ?? undefined };
+  } catch {
+    return null;
+  }
+}
+
+const getStoredToken = (): string | null => (typeof window === 'undefined' ? null : sessionStorage.getItem(TOKEN_KEY));
 
 export const useAuthStore = create<AuthState>((set) => ({
-  user: getStoredUser(),
+  user: userFromToken(getStoredToken()),
   accessToken: getStoredToken(),
 
   initializeFromStorage: () => {
     const token = getStoredToken();
-    const user = getStoredUser();
-    if (token || user) {
-      set({ accessToken: token, user });
-    }
+    set({ accessToken: token, user: userFromToken(token) });
   },
 
   setSession: (user, token) => {
-    sessionStorage.setItem('access_token', token);
-    sessionStorage.setItem('auth_user', JSON.stringify(user));
-    set({ user, accessToken: token });
+    sessionStorage.setItem(TOKEN_KEY, token);
+    set({ accessToken: token, user: userFromToken(token) ?? user });
   },
 
   clearSession: () => {
-    sessionStorage.removeItem('access_token');
-    sessionStorage.removeItem('auth_user');
+    sessionStorage.removeItem(TOKEN_KEY);
     set({ user: null, accessToken: null });
   },
 }));

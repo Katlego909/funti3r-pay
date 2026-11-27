@@ -708,8 +708,8 @@ const refreshHandler = async (req: express.Request, res: express.Response, next:
     // change (an admin granted or revoked), a suspension or a closure takes effect at the next refresh, within one
     // access-token lifetime (15 minutes), on every device.
     await deleteKey(`refresh:${hashRefreshToken(token)}`);
-    const { accessToken, companyId } = await issueSession(res, session.userId);
-    res.json({ accessToken, companyId });
+    // Who the session belongs to, not just a token: the apps keep showing (and checking) the account the server has.
+    res.json(await issueSession(res, session.userId));
   } catch (err) {
     next(err);
   }
