@@ -695,11 +695,17 @@ export async function runBatchPayout(
     (sum, item, i) => (isMoneyMoved(results[i].status) ? sum + item.amountUsd : sum),
     0,
   );
+  // Items that failed a check before anything was sent have no payments row; keep why on the batch, or the reason is
+  // gone once this request answers.
+  const unsent = normalized
+    .map((item, i) => ({ item, r: results[i] }))
+    .filter(({ r }) => r.status === 'failed' && !r.paymentId)
+    .map(({ item, r }) => ({ workerId: item.workerId, amountUsd: item.amountUsd, reason: r.error ?? 'Not sent' }));
   // With payments still awaiting their on-chain verdict the batch stays 'processing'; the watchdog finalizes it once
   // they are settled (scheduler.ts).
   await query(
-    `UPDATE payment_batches SET status = $1, total_amount = $2, updated_at = NOW() WHERE id = $3`,
-    [v.status, movedUsdTotal, batchId],
+    `UPDATE payment_batches SET status = $1, total_amount = $2, unsent = $4::jsonb, updated_at = NOW() WHERE id = $3`,
+    [v.status, movedUsdTotal, batchId, JSON.stringify(unsent)],
   );
 
   logger.info('Batch payout finished', { batchId, status: v.status, moved: v.movedCount, failed: v.failedCount, submitted: v.awaitingCount });

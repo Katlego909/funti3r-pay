@@ -78,18 +78,21 @@ export default function Money() {
   };
 
   /**
-   * How a batch's payments ended, in words: "3 paid · 1 failed". An item that failed its checks before anything was
-   * sent (not on the payroll, an unsupported currency) has no payment row, so it shows as "stopped before sending".
+   * How a batch's payments ended, in words: "3 paid · 1 failed · 2 not sent (Worker KYC not verified)". An item that
+   * failed its checks before anything was sent has no payment row; the batch keeps it and why (`unsent`). Batches from
+   * before that was kept can only say how many.
    */
   const batchOutcome = (b: Row) => {
+    const unsent: Row[] = Array.isArray(b.unsent) ? b.unsent : [];
     const recorded = b.completed + b.awaiting_claim + b.failed + b.in_flight;
-    const stopped = Math.max(b.payment_count - recorded, 0);
+    const notSent = Math.max(b.payment_count - recorded, unsent.length);
+    const reasons = [...new Set(unsent.map((u) => u.reason))].join('; ');
     return [
       `${b.completed} paid`,
       b.awaiting_claim ? `${b.awaiting_claim} to claim` : '',
       b.failed ? `${b.failed} failed` : '',
       b.in_flight ? `${b.in_flight} on the way` : '',
-      stopped ? `${stopped} stopped before sending` : '',
+      notSent ? `${notSent} not sent${reasons ? ` (${reasons})` : ' (reason not recorded)'}` : '',
     ].filter(Boolean).join(' · ');
   };
 
@@ -144,7 +147,13 @@ export default function Money() {
       { label: 'Next run', render: (s: Row) => when(s.next_run_at) },
       {
         label: 'Last run',
-        render: (s: Row) => <>{when(s.last_run_at)} {s.last_run_status && <Pill value={s.last_run_status === 'success' ? 'completed' : s.last_run_status} />}</>,
+        render: (s: Row) => (
+          <>
+            {when(s.last_run_at)} {s.last_run_status && <Pill value={s.last_run_status === 'success' ? 'completed' : s.last_run_status} />}
+            {s.last_run_error && <div className="admin-detail" style={{ color: '#b91c1c' }}>{s.last_run_error}</div>}
+            {s.last_run_batch_id && <div><Link to={`/money?batchId=${s.last_run_batch_id}`}>Open its payments</Link></div>}
+          </>
+        ),
       },
     ],
   }[tab];
@@ -174,6 +183,8 @@ export default function Money() {
         <FilterInput value={q} placeholder={PLACEHOLDER[tab]} onApply={(v) => set({ q: v })} />
       </div>
 
+      {tab === 'payments' && batchId && <BatchUnsent batchId={batchId} />}
+
       <Card>
         <LoadState loading={list.loading && !list.data} error={list.error} />
         {list.data && <Table<Row> rows={list.data} empty="Nothing matches." rowKey={(r) => r.id} columns={columns} />}
@@ -184,6 +195,23 @@ export default function Money() {
 
       <ReasonDialog action={action} onClose={() => setAction(null)} onDone={list.reload} />
     </div>
+  );
+}
+
+/** The items of one batch that never became a payment, with why: they are not in the payments list below. */
+function BatchUnsent({ batchId }: { batchId: string }) {
+  const batch = useLoad(async () => (await admin.batches({ q: batchId, limit: 1 })).batches[0] ?? null, [batchId]);
+  const unsent: Row[] = Array.isArray(batch.data?.unsent) ? batch.data!.unsent : [];
+  if (!unsent.length) return null;
+  return (
+    <Card title={`Not sent (${unsent.length})`}>
+      <p className="admin-muted">These failed a check before anything was sent, so they have no payment below.</p>
+      <Table<Row> rows={unsent} rowKey={(u, i) => `${u.workerId}-${i}`} columns={[
+        { label: 'Worker', render: (u) => <AccountLink id={u.workerId} /> },
+        { label: 'Amount (USD)', render: (u) => money(u.amountUsd) },
+        { label: 'Why', render: (u) => u.reason },
+      ]} />
+    </Card>
   );
 }
 

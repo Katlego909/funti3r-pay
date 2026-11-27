@@ -172,6 +172,11 @@ describe('POST /payouts/batch — per-worker currency conversion', () => {
     expect(failedResult.error).toMatch(/unsupported/i);
     // Never attempted a Stellar submission for the unsupported item.
     expect(stellar.payExactWithXlm).toHaveBeenCalledTimes(1);
+    // It has no payments row, so the batch keeps it and why, for the admin console and support.
+    const finalize = vi.mocked(query).mock.calls.find(([sql]) => String(sql).includes('UPDATE payment_batches SET status'));
+    expect(JSON.parse(finalize?.[1]?.[3] as string)).toEqual([
+      { workerId: UNSUPPORTED_WORKER, amountUsd: 5, reason: failedResult.error },
+    ]);
   });
 
   it('records the completed total in USD, not a blended sum of raw per-currency amounts', async () => {
