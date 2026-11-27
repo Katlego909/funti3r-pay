@@ -1,8 +1,7 @@
 import { Link } from 'react-router-dom';
 import { PageHeader } from '@funti3r/ui';
-import { useAuthStore } from '@funti3r/web-core';
+import { useAuthStore, useLoad } from '@funti3r/web-core';
 import { admin, type Row } from '../api';
-import { useLoad } from '../useLoad';
 import { Card, LoadState, Table } from '../components/bits';
 import AuditTable from '../components/AuditTable';
 import { when } from '../format';
@@ -24,7 +23,7 @@ export default function Settings() {
           You sign in with a passkey stored on your device; there is no password to steal. A passkey works only on the
           site it was created for, so the console and the dashboard each have their own.
         </p>
-        <LoadState loading={account.loading && !account.data} error={account.error} />
+        <LoadState state={account} />
         {account.data && (
           <Table<Row> rows={account.data.passkeys} empty="No passkeys: you are signing in with the developer sign-in." rowKey={(p) => p.origin} columns={[
             { label: 'Site', render: (p) => p.origin },

@@ -3,7 +3,8 @@
  * signed-in session, sign-in and sign-out, and turning a failed call into a message.
  */
 export { api } from './client.js';
-export { apiErrorMessage } from './errors.js';
+export { apiErrorKind, apiErrorMessage, type ApiErrorKind } from './errors.js';
+export { useLoad, type Loaded } from './useLoad.js';
 export { useAuthStore, userFromToken } from './authStore.js';
 export {
   devLogin,

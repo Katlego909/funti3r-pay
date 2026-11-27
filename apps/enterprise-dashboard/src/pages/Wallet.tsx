@@ -5,15 +5,14 @@ import {
   HiOutlineClipboard,
   HiCheck,
   HiOutlineArrowTopRightOnSquare,
-  HiOutlineArrowPath,
 } from 'react-icons/hi2';
 import { toast } from 'sonner';
-import { useAuthStore, api, apiErrorMessage } from '@funti3r/web-core';
+import { useAuthStore, api, apiErrorKind, apiErrorMessage, type ApiErrorKind } from '@funti3r/web-core';
 import {
   getPayoutCurrencies, getPreferredCurrency, setPreferredCurrency,
   type PayoutCurrency,
 } from '../api/payments.js';
-import { CopyButton } from '@funti3r/ui';
+import { CopyButton, EmptyState, ErrorState, RefreshButton, SkeletonPage } from '@funti3r/ui';
 import EscrowTransactionsDrawer from '../components/EscrowTransactionsDrawer.js';
 import SubmitWorkModal from '../components/SubmitWorkModal.js';
 import {
@@ -48,7 +47,7 @@ export default function Wallet() {
   const dc = useDisplayCurrency();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState('');
+  const [failure, setFailure] = useState<{ message: string; kind: ApiErrorKind } | null>(null);
 
   // Payout-currency preference
   const [currencies, setCurrencies] = useState<PayoutCurrency[]>([]);
@@ -116,20 +115,20 @@ export default function Wallet() {
   const fetchWallet = async () => {
     try {
       if (!userId) return;
-      setError('');
+      setFailure(null);
       const { data } = await api.get<WalletInfo>(`/wallets/${userId}`);
       setWalletInfo(data);
       setBalances(Array.isArray(data.balances) ? data.balances : []);
     } catch (err: any) {
       console.error('Failed to fetch wallet:', err);
-      setError(apiErrorMessage(err, 'Failed to load wallet'));
+      setFailure({ message: apiErrorMessage(err, 'Failed to load your wallet'), kind: apiErrorKind(err) });
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  if (loading) return <div className="loading">Loading wallet...</div>;
+  if (loading) return <SkeletonPage />;
 
   const address = walletInfo?.address;
 
@@ -144,18 +143,14 @@ export default function Wallet() {
           <h2>Wallet</h2>
           <p className="subtitle">Your account balances and wallet details</p>
         </div>
-        <button
-          className="btn-secondary"
-          disabled={refreshing}
-          onClick={() => { setRefreshing(true); fetchWallet(); }}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-        >
-          <HiOutlineArrowPath size={15} style={refreshing ? { animation: 'spin 0.8s linear infinite' } : undefined} />
-          {refreshing ? 'Refreshing…' : 'Refresh'}
-        </button>
+        <RefreshButton refreshing={refreshing} onClick={() => { setRefreshing(true); fetchWallet(); }} />
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
+      {failure && (
+        <section className="section" style={{ marginTop: '14px' }}>
+          <ErrorState message={failure.message} kind={failure.kind} onRetry={() => { setRefreshing(true); fetchWallet(); }} compact={balances.length > 0} />
+        </section>
+      )}
 
       <div style={{ display: 'grid', gap: '14px', marginTop: '14px' }}>
         {/* Balance: the whole wallet as one figure in the viewer's currency */}
@@ -168,10 +163,7 @@ export default function Wallet() {
             });
             if (balances.length === 0) {
               return (
-                <div className="empty-state" style={{ textAlign: 'center' }}>
-                  <HiOutlineBanknotes size={40} style={{ color: '#d1d5db', margin: '0 auto 12px' }} />
-                  <p style={{ margin: 0 }}>No balance yet. Once your wallet receives payments, they will appear here.</p>
-                </div>
+                <EmptyState icon={HiOutlineBanknotes} title="No balance yet" message="Once your wallet receives payments, they appear here." />
               );
             }
             // If any asset can't be priced, say so rather than quietly under-counting.
@@ -256,7 +248,7 @@ export default function Wallet() {
               </a>
             </div>
           ) : (
-            <p className="empty-state" style={{ padding: 0 }}>No Stellar account yet.</p>
+            <EmptyState compact title="No Stellar account yet" />
           )}
         </section>
 

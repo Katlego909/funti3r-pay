@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { ConfirmDialog, PageHeader } from '@funti3r/ui';
-import { apiErrorMessage } from '@funti3r/web-core';
+import { apiErrorMessage, useLoad } from '@funti3r/web-core';
 import { admin, type Row } from '../api';
-import { useLoad } from '../useLoad';
 import { useListParams } from '../listParams';
 import { useDrawers } from '../components/drawers';
 import { AccountLink, Card, Facts, LoadState, Pager, Pill, Table, Tabs } from '../components/bits';
@@ -44,13 +43,17 @@ export default function Compliance() {
 function Queue({ status, offset, onPage }: { status: Exclude<Tab, 'sanctions'>; offset: number; onPage: (o: number) => void }) {
   const drawers = useDrawers();
   const page = useLoad(() => admin.kycQueue({ status, limit: PAGE, offset }), [status, offset]);
-  const empty = { pending: 'Nobody is waiting for a KYC decision.', rejected: 'Nobody has been rejected.', expired: 'No approvals have lapsed.' }[status];
+  const empty = {
+    pending: { title: 'No KYC reviews waiting', message: 'When someone sends their identity documents, they appear here for you to review, oldest first.', tone: 'clear' as const },
+    rejected: { title: 'Nobody has been rejected', message: 'People whose KYC you reject show up here until they submit again.' },
+    expired: { title: 'No approvals have lapsed', message: 'A KYC approval lasts a year. People whose approval has run out appear here until they verify again.', tone: 'clear' as const },
+  }[status];
   return (
     <Card>
       {status === 'pending' && !!page.data?.queue.length && <p className="admin-muted">Oldest first. Open an account to review its KYC and approve or reject it.</p>}
-      <LoadState loading={page.loading && !page.data} error={page.error} />
+      <LoadState state={page} />
       {page.data && (
-        <Table<Row> rows={page.data.queue} onRowClick={drawers.open('account', 'user_id')} empty={empty} rowKey={(r) => r.user_id} columns={[
+        <Table<Row> rows={page.data.queue} refreshing={page.refreshing} onRowClick={drawers.open('account', 'user_id')} empty={empty} rowKey={(r) => r.user_id} columns={[
           { label: 'Account', render: (r) => <AccountLink id={r.user_id} email={r.email} /> },
           { label: 'Role', render: (r) => r.role },
           { label: 'KYC', render: (r) => <Pill value={r.status} /> },
@@ -92,7 +95,7 @@ function Sanctions({ flagged }: { flagged: ReturnType<typeof useLoad<{ flagged: 
         title="Sanctions list"
         actions={<button className="btn-secondary" onClick={() => setConfirming(true)} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh now'}</button>}
       >
-        <LoadState loading={status.loading && !status.data} error={status.error} />
+        <LoadState state={status} />
         {status.data && (list
           ? <Facts items={[
             ['Source', <a key="s" href={list.source} target="_blank" rel="noreferrer">{list.source}</a>],
@@ -103,9 +106,9 @@ function Sanctions({ flagged }: { flagged: ReturnType<typeof useLoad<{ flagged: 
       </Card>
 
       <Card title={`Flagged by screening (${flagged.data?.flagged.length ?? '…'})`}>
-        <LoadState loading={flagged.loading && !flagged.data} error={flagged.error} />
+        <LoadState state={flagged} />
         {flagged.data && (
-          <Table<Row> rows={flagged.data.flagged} onRowClick={drawers.open('account', 'user_id')} empty="Nobody is flagged." rowKey={(r) => r.user_id} columns={[
+          <Table<Row> rows={flagged.data.flagged} onRowClick={drawers.open('account', 'user_id')} empty={{ title: 'Nobody is flagged', message: 'Anyone whose name matches the sanctions list shows up here, to compare with the list entry before deciding.', tone: 'clear' }} rowKey={(r) => r.user_id} columns={[
             { label: 'Account', render: (r) => <AccountLink id={r.user_id} email="Open account to decide" /> },
             { label: 'KYC', render: (r) => <Pill value={r.status} /> },
             {

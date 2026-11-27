@@ -5,24 +5,25 @@
  */
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Row as Field, SectionTitle, SlideOver } from '@funti3r/ui';
+import { EmptyState, Row as Field, SectionTitle, SlideOver } from '@funti3r/ui';
 import { admin, type Row } from '../api';
-import { useLoad } from '../useLoad';
 import { AccountLink, Id, LoadState, Pill, Tx } from './bits';
 import ReasonDialog, { type ReasonAction } from './ReasonDialog';
 import { money, short, when } from '../format';
 import { describe } from './auditText';
+import { useLoad } from '@funti3r/web-core';
 
 const WIDTH = 520;
 
 /** What was recorded about one record, newest first, compact enough for a drawer. `version` reloads it after an action. */
 function AuditTrail({ entityId, version = 0 }: { entityId: string; version?: number }) {
-  const { data, error, loading } = useLoad(() => admin.audit({ entityId, limit: 20 }), [entityId, version]);
+  const trail = useLoad(() => admin.audit({ entityId, limit: 20 }), [entityId, version], { resetOnChange: true });
+  const data = trail.data;
   return (
     <>
       <SectionTitle>Audit trail</SectionTitle>
-      <LoadState loading={loading && !data} error={error} />
-      {data && !data.events.length && <p className="admin-empty">Nothing recorded.</p>}
+      <LoadState state={trail} skeleton="lines" />
+      {data && !data.events.length && <EmptyState title="Nothing recorded." compact />}
       {data?.events.map((e) => {
         const { summary, reason } = describe(e);
         return (
@@ -66,7 +67,7 @@ export function PaymentDrawer({ payment, onClose }: { payment: Row | null; onClo
 }
 
 export function EscrowDrawer({ escrowId, onClose, onChanged }: { escrowId: string | null; onClose: () => void; onChanged: () => void }) {
-  const detail = useLoad(async () => (escrowId ? admin.escrow(escrowId) : null), [escrowId]);
+  const detail = useLoad(async () => (escrowId ? admin.escrow(escrowId) : null), [escrowId], { resetOnChange: true });
   const [action, setAction] = useState<ReasonAction | null>(null);
   const [version, setVersion] = useState(0);
   const x = detail.data?.escrow;
@@ -93,7 +94,7 @@ export function EscrowDrawer({ escrowId, onClose, onChanged }: { escrowId: strin
 
   return (
     <SlideOver openKey={escrowId} title="Escrow" onClose={onClose} width={WIDTH}>
-      <LoadState loading={detail.loading && !detail.data} error={detail.error} />
+      <LoadState state={detail} />
       {x && detail.data && (
         <>
           <SectionTitle>Escrow</SectionTitle>
@@ -162,7 +163,7 @@ export function CashoutDrawer({ cashout, onClose }: { cashout: Row | null; onClo
 
 export function BatchDrawer({ batch, onClose }: { batch: Row | null; onClose: () => void }) {
   const b = batch;
-  const payments = useLoad(async () => (b ? (await admin.payments({ batchId: b.id, limit: 200 })).payments : []), [b?.id]);
+  const payments = useLoad(async () => (b ? (await admin.payments({ batchId: b.id, limit: 200 })).payments : []), [b?.id], { resetOnChange: true });
   const unsent: Row[] = Array.isArray(b?.unsent) ? b!.unsent : [];
   return (
     <SlideOver openKey={b?.id} title="Payout batch" onClose={onClose} width={WIDTH}>
@@ -176,7 +177,7 @@ export function BatchDrawer({ batch, onClose }: { batch: Row | null; onClose: ()
           <Field label="Created">{when(b.created_at)}</Field>
           <Field label="Batch id"><Id value={b.id} /></Field>
           <SectionTitle>Payments ({payments.data?.length ?? '…'})</SectionTitle>
-          <LoadState loading={payments.loading && !payments.data} error={payments.error} />
+          <LoadState state={payments} />
           {payments.data?.map((p) => (
             <Field key={p.id} label={p.worker_email ?? short(p.worker_id)}>
               {money(p.amount, p.currency)} <Pill value={p.status} />
@@ -206,12 +207,12 @@ export function BatchDrawer({ batch, onClose }: { batch: Row | null; onClose: ()
 }
 
 export function ScheduleDrawer({ scheduleId, onClose }: { scheduleId: string | null; onClose: () => void }) {
-  const detail = useLoad(async () => (scheduleId ? admin.schedule(scheduleId) : null), [scheduleId]);
+  const detail = useLoad(async () => (scheduleId ? admin.schedule(scheduleId) : null), [scheduleId], { resetOnChange: true });
   const s = detail.data?.schedule;
   const total = detail.data?.items.reduce((n, i) => n + Number(i.amount_usd), 0) ?? 0;
   return (
     <SlideOver openKey={scheduleId} title="Payroll schedule" onClose={onClose} width={WIDTH}>
-      <LoadState loading={detail.loading && !detail.data} error={detail.error} />
+      <LoadState state={detail} />
       {s && detail.data && (
         <>
           <SectionTitle>{s.name}</SectionTitle>
@@ -267,14 +268,14 @@ export function AuditEventDrawer({ event, onClose }: { event: Row | null; onClos
 
 /** A quick look at an account from a list, with the full page one click away. */
 export function AccountDrawer({ accountId, onClose }: { accountId: string | null; onClose: () => void }) {
-  const account = useLoad(async () => (accountId ? admin.account(accountId) : null), [accountId]);
-  const wallet = useLoad(async () => (accountId ? admin.money(accountId) : null), [accountId]);
-  const kyc = useLoad(async () => (accountId ? (await admin.kycStatuses([accountId])).statuses[accountId] : null), [accountId]);
+  const account = useLoad(async () => (accountId ? admin.account(accountId) : null), [accountId], { resetOnChange: true });
+  const wallet = useLoad(async () => (accountId ? admin.money(accountId) : null), [accountId], { resetOnChange: true });
+  const kyc = useLoad(async () => (accountId ? (await admin.kycStatuses([accountId])).statuses[accountId] : null), [accountId], { resetOnChange: true });
   const u = account.data?.user;
   const m = wallet.data;
   return (
     <SlideOver openKey={accountId} title={u?.email ?? 'Account'} onClose={onClose} width={WIDTH}>
-      <LoadState loading={account.loading && !u} error={account.error} />
+      <LoadState state={account} />
       {u && account.data && (
         <>
           <SectionTitle>Account</SectionTitle>
@@ -307,11 +308,11 @@ export function AccountDrawer({ accountId, onClose }: { accountId: string | null
 
 /** A quick look at a company from a list, with the full page one click away. */
 export function CompanyDrawer({ companyId, onClose }: { companyId: string | null; onClose: () => void }) {
-  const company = useLoad(async () => (companyId ? admin.company(companyId) : null), [companyId]);
+  const company = useLoad(async () => (companyId ? admin.company(companyId) : null), [companyId], { resetOnChange: true });
   const c = company.data?.company;
   return (
     <SlideOver openKey={companyId} title={c?.company_name ?? 'Company'} onClose={onClose} width={WIDTH}>
-      <LoadState loading={company.loading && !c} error={company.error} />
+      <LoadState state={company} />
       {c && company.data && (
         <>
           <SectionTitle>Company</SectionTitle>

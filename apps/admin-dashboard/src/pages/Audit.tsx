@@ -2,11 +2,11 @@ import { FormEvent, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PageHeader, exportCSV } from '@funti3r/ui';
 import { admin, type Row } from '../api';
-import { useLoad } from '../useLoad';
 import { useDrawers } from '../components/drawers';
 import { Card, LoadState, Pager, Table } from '../components/bits';
 import { auditColumns } from '../components/AuditTable';
 import { describe } from '../components/auditText';
+import { useLoad } from '@funti3r/web-core';
 
 const PAGE = 100;
 const FIELDS = [
@@ -63,8 +63,8 @@ export default function Audit() {
         </div>
       </form>
       <Card>
-        <LoadState loading={page.loading && !page.data} error={page.error} />
-        {page.data && <Table rows={page.data.events} onRowClick={drawers.open('audit')} empty="Nothing recorded for this filter." rowKey={(e) => String(e.id)} columns={auditColumns} />}
+        <LoadState state={page} />
+        {page.data && <Table rows={page.data.events} refreshing={page.refreshing} onRowClick={drawers.open('audit')} empty={{ title: 'Nothing recorded for this filter', message: 'Clear the filters to see everything admins and the system have done.' }} rowKey={(e) => String(e.id)} columns={auditColumns} />}
         <Pager offset={offset} shown={page.data?.events.length ?? 0} pageSize={PAGE} onPage={(o) => setParams({ ...Object.fromEntries(params), offset: String(o) })} />
       </Card>
       {drawers.element}

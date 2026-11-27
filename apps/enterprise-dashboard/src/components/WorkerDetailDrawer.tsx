@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { api } from '@funti3r/web-core';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
-import { SlideOver, Row, SectionTitle, CopyButton, StatusBadge } from '@funti3r/ui';
+import { ErrorState, SlideOver, Row, SectionTitle, CopyButton, StatusBadge } from '@funti3r/ui';
 import { CURRENCY_META } from '../lib/currencyMeta.js';
 import { EXPLORER } from '@funti3r/ui';
 
@@ -71,7 +71,7 @@ export default function WorkerDetailDrawer({ workerId, onClose }: { workerId: st
             ))}
           </div>
         ) : error ? (
-          <div className="error-banner" style={{ marginTop: '1rem' }}>{error}</div>
+          <ErrorState message={error} kind="other" compact />
         ) : profile ? (
           <div style={{ marginTop: '1rem' }}>
             {/* Header card */}

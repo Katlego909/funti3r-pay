@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom';
 import { admin, type AuditQuery, type Row } from '../api';
-import { useLoad } from '../useLoad';
 import { AccountLink, LoadState, Table, Tx } from './bits';
 import { useDrawers } from './drawers';
 import { short, when } from '../format';
 import { describe } from './auditText';
+import { useLoad } from '@funti3r/web-core';
 
 /** What the event was about: the account's email, or the kind of record and its short id. */
 function target(e: Row) {
@@ -43,12 +43,12 @@ export const auditColumns = [
 
 /** The audit trail for one query (an account's, say), newest first. */
 export default function AuditTable({ query }: { query: AuditQuery }) {
-  const { data, error, loading } = useLoad(() => admin.audit(query), [JSON.stringify(query)]);
+  const audit = useLoad(() => admin.audit(query), [JSON.stringify(query)]);
   const drawers = useDrawers();
   return (
     <>
-      <LoadState loading={loading && !data} error={error} />
-      {data && <Table rows={data.events} empty="Nothing recorded." rowKey={(e) => String(e.id)} columns={auditColumns} onRowClick={drawers.open('audit')} />}
+      <LoadState state={audit} />
+      {audit.data && <Table rows={audit.data.events} refreshing={audit.refreshing} empty="Nothing recorded." rowKey={(e) => String(e.id)} columns={auditColumns} onRowClick={drawers.open('audit')} />}
       {drawers.element}
     </>
   );

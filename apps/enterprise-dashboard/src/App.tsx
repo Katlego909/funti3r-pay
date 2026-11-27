@@ -16,7 +16,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { toast } from 'sonner';
 import { useNotificationStore } from './store/notificationStore.js';
 import { useAuthStore, logout } from '@funti3r/web-core';
-import { AppShell } from '@funti3r/ui';
+import { AppShell, SkeletonPage } from '@funti3r/ui';
 import GlobalSearch from './components/GlobalSearch.js';
 import { Toaster } from 'sonner';
 import ErrorBoundary from './components/ErrorBoundary.js';
@@ -306,7 +306,8 @@ function AuthedApp({ role }: { role: string }) {
       user={user}
       onSignOut={handleLogout}
     >
-          <Suspense fallback={null}>
+          {/* While a page's code downloads, its shape shows instead of a blank screen. */}
+          <Suspense fallback={<SkeletonPage />}>
           <Routes>
             {isWorker ? (
               <>

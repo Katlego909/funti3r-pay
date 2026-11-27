@@ -1,10 +1,10 @@
 import { useParams } from 'react-router-dom';
 import { PageHeader } from '@funti3r/ui';
 import { admin, type Row } from '../api';
-import { useLoad } from '../useLoad';
 import { useDrawers } from '../components/drawers';
 import { AccountLink, Card, Facts, Id, LoadState, Pill, Table, Tx } from '../components/bits';
 import { money, when } from '../format';
+import { useLoad } from '@funti3r/web-core';
 
 /** One company whole: owner and wallet, members and their roles, workers, invites, and the money it has sent. */
 export default function CompanyPage() {
@@ -24,7 +24,7 @@ export default function CompanyPage() {
   return (
     <div className="dashboard">
       <PageHeader title={c?.company_name ?? 'Company'} subtitle={c ? `Owned by ${c.owner_email}` : undefined} />
-      <LoadState loading={company.loading && !c} error={company.error} />
+      <LoadState state={company} />
 
       {c && company.data && (
         <>

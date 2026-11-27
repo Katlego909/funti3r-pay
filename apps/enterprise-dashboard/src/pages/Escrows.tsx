@@ -2,12 +2,12 @@ import { useEffect, useRef, useState, FormEvent } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { HiOutlineLockClosed, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { toast } from 'sonner';
-import { api, apiErrorMessage } from '@funti3r/web-core';
+import { api, apiErrorKind, apiErrorMessage, type ApiErrorKind } from '@funti3r/web-core';
 import { listEscrows, createEscrow, approveMilestone, refundEscrow, type Escrow, type CreateEscrowPayload } from '../api/escrows.js';
 import { isFinalPayoutError } from '../api/payments.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import EscrowMoneyTrail from '../components/EscrowMoneyTrail.js';
-import { PageHeader, Modal, ConfirmDialog, SlideOver, Row, SectionTitle, StatusBadge } from '@funti3r/ui';
+import { EmptyState, ErrorState, PageHeader, Modal, ConfirmDialog, SkeletonPage, SlideOver, Row, SectionTitle, StatusBadge } from '@funti3r/ui';
 import EscrowTransactions from '../components/EscrowTransactions.js';
 import EscrowReviewLog from '../components/EscrowReviewLog.js';
 import RejectWorkModal from '../components/RejectWorkModal.js';
@@ -189,15 +189,17 @@ export default function Escrows() {
   const [pendingRefund, setPendingRefund] = useState<Escrow | null>(null);
   const [pendingReject, setPendingReject] = useState<{ escrow: Escrow; idx: number } | null>(null);
   const [acting, setActing] = useState(false);
+  const [failure, setFailure] = useState<{ message: string; kind: ApiErrorKind } | null>(null);
 
   function load() {
+    setFailure(null);
     listEscrows()
       .then((list) => {
         setEscrows(list);
         // Keep the open detail modal in sync after an action.
         setSelected((sel) => (sel ? list.find((e) => e.id === sel.id) ?? null : null));
       })
-      .catch(() => toast.error('Failed to load escrows'))
+      .catch((err) => setFailure({ message: apiErrorMessage(err, 'Failed to load your escrows'), kind: apiErrorKind(err) }))
       .finally(() => setLoading(false));
   }
 
@@ -291,7 +293,11 @@ export default function Escrows() {
   const claimedCount = (e: Escrow) => e.milestones.filter((m) => m.status === 'claimed').length;
   const isExpired = (e: Escrow) => new Date(e.expiresAt) < new Date();
 
-  if (loading) return <div className="loading">Loading escrows…</div>;
+  if (loading) return <SkeletonPage />;
+  // Only a first load that failed replaces the page; a failed refresh after an action keeps what is on screen.
+  if (failure && escrows.length === 0) {
+    return <ErrorState message={failure.message} kind={failure.kind} onRetry={() => { setLoading(true); load(); }} />;
+  }
 
   return (
     <div className="dashboard">
@@ -310,10 +316,13 @@ export default function Escrows() {
       />
 
       {escrows.length === 0 ? (
-        <section className="section" style={{ textAlign: 'center', padding: '3rem' }}>
-          <HiOutlineLockClosed size={40} style={{ color: '#d1d5db', margin: '0 auto 12px' }} />
-          <p style={{ color: '#6b7280', marginBottom: '1rem' }}>No escrows yet. Fund milestones for a worker to get started.</p>
-          <button className="btn-primary" onClick={() => setFormOpen(true)}>Create your first escrow</button>
+        <section className="section">
+          <EmptyState
+            icon={HiOutlineLockClosed}
+            title="No escrows yet"
+            message="An escrow locks money for a worker's milestones, and releases each one when you approve their work."
+            action={<button className="btn-primary" onClick={() => setFormOpen(true)}>Create your first escrow</button>}
+          />
         </section>
       ) : (
         <section className="section">

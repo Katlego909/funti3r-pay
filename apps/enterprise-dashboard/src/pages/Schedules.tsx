@@ -2,13 +2,13 @@ import { useEffect, useState, FormEvent } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { HiOutlineClock, HiOutlinePause, HiOutlinePlay, HiOutlineTrash } from 'react-icons/hi2';
 import { toast } from 'sonner';
-import { api, useAuthStore, apiErrorMessage } from '@funti3r/web-core';
+import { api, useAuthStore, apiErrorKind, apiErrorMessage, type ApiErrorKind } from '@funti3r/web-core';
 import {
   listSchedules, createSchedule, updateScheduleStatus, deleteSchedule,
   type Schedule, type ScheduleItem,
 } from '../api/schedules.js';
 import ScheduleDetailModal from '../components/ScheduleDetailModal.js';
-import { ConfirmDialog, Modal, PageHeader, StatusBadge } from '@funti3r/ui';
+import { ConfirmDialog, EmptyState, ErrorState, Modal, PageHeader, SkeletonTable, StatusBadge } from '@funti3r/ui';
 
 interface WorkerOption { id: string; email: string; preferred_currency?: string }
 interface ScheduleRow { workerId: string; amountUsd: string }
@@ -57,16 +57,22 @@ export default function Schedules() {
   );
   const [rows, setRows] = useState<ScheduleRow[]>([{ workerId: '', amountUsd: '' }]);
 
+  const [failure, setFailure] = useState<{ message: string; kind: ApiErrorKind } | null>(null);
+  // Bumped by "Try again": the load below runs again.
+  const [attempt, setAttempt] = useState(0);
+
   useEffect(() => {
     if (!user) return;
+    setLoading(true);
+    setFailure(null);
     Promise.all([
       listSchedules().then(setSchedules),
       api.get<{ users?: WorkerOption[] }>('/users?role=worker&limit=100')
         .then((r) => setWorkers(r.data.users ?? [])),
     ])
-      .catch(() => toast.error('Failed to load schedules'))
+      .catch((err) => setFailure({ message: apiErrorMessage(err, 'Failed to load your payroll schedules'), kind: apiErrorKind(err) }))
       .finally(() => setLoading(false));
-  }, [user]);
+  }, [user, attempt]);
 
   function openForm() {
     setName('');
@@ -242,12 +248,17 @@ export default function Schedules() {
       </Modal>
 
       {loading ? (
-        <div className="loading">Loading schedules…</div>
+        <section className="section"><SkeletonTable columns={5} /></section>
+      ) : failure ? (
+        <section className="section"><ErrorState message={failure.message} kind={failure.kind} onRetry={() => setAttempt((n) => n + 1)} /></section>
       ) : schedules.length === 0 ? (
-        <section className="section" style={{ textAlign: 'center', padding: '3rem' }}>
-          <HiOutlineClock size={40} style={{ color: '#d1d5db', margin: '0 auto 12px' }} />
-          <p style={{ color: '#6b7280', marginBottom: '1rem' }}>No payroll schedules yet.</p>
-          <button className="btn-primary" onClick={openForm}>Create your first schedule</button>
+        <section className="section">
+          <EmptyState
+            icon={HiOutlineClock}
+            title="No payroll schedules yet"
+            message="A schedule pays your team automatically, weekly or monthly, so you don't have to remember."
+            action={<button className="btn-primary" onClick={openForm}>Create your first schedule</button>}
+          />
         </section>
       ) : (
         <section className="section">

@@ -3,13 +3,13 @@ import { Link, useParams } from 'react-router-dom';
 import { isAxiosError } from 'axios';
 import { PageHeader } from '@funti3r/ui';
 import { admin, type Row } from '../api';
-import { useLoad } from '../useLoad';
 import { useDrawers } from '../components/drawers';
 import { AccountLink, Card, Facts, Id, LoadState, Pill, Table, Tx } from '../components/bits';
 import ReasonDialog, { type ReasonAction } from '../components/ReasonDialog';
 import KycPanel from '../components/KycPanel';
 import AuditTable from '../components/AuditTable';
 import { money, when } from '../format';
+import { useLoad } from '@funti3r/web-core';
 
 /** A read that 404s means "none" (no KYC record yet, say), not a failure. */
 const orNull = async <T,>(read: Promise<T>): Promise<T | null> => {
@@ -65,7 +65,7 @@ export default function AccountPage() {
           </button>
         )}
       />
-      <LoadState loading={account.loading && !u} error={account.error} />
+      <LoadState state={account} />
 
       {u && (
         <div className="admin-grid-2">
@@ -84,7 +84,7 @@ export default function AccountPage() {
             ]} />
           </Card>
           <Card title="Wallet">
-            <LoadState loading={moneyView.loading && !m} error={moneyView.error} />
+            <LoadState state={moneyView} />
             {m && (
               <>
                 <Facts items={[['Address', <Id key="a" value={m.wallet.address} keep={8} />]]} />
@@ -123,7 +123,7 @@ export default function AccountPage() {
         </Card>
       )}
 
-      <KycPanel userId={id} record={kyc.data} loading={kyc.loading} error={kyc.error} onChanged={() => { void kyc.reload(); afterAction(); }} />
+      <KycPanel userId={id} state={kyc} onChanged={() => { void kyc.reload(); afterAction(); }} />
 
       {m && (
         <Card title={`Payments (${m.payments.length})`}>

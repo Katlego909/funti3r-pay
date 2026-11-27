@@ -1,9 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { PageHeader } from '@funti3r/ui';
-import { apiErrorMessage, useAuthStore } from '@funti3r/web-core';
+import { apiErrorMessage, useAuthStore, useLoad } from '@funti3r/web-core';
 import { admin, updateProfile } from '../api';
-import { useLoad } from '../useLoad';
 import { Card, Facts, Id, LoadState, Pill } from '../components/bits';
 import { when } from '../format';
 
@@ -44,7 +43,7 @@ export default function Profile() {
   return (
     <div className="dashboard" style={{ maxWidth: 760 }}>
       <PageHeader title="Profile" subtitle="Your admin account" />
-      <LoadState loading={account.loading && !u} error={account.error} />
+      <LoadState state={account} />
       {u && (
         <>
           <Card title="Account">

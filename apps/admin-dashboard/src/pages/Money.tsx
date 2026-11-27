@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '@funti3r/ui';
 import { admin, type Row } from '../api';
-import { useLoad } from '../useLoad';
 import { useListParams } from '../listParams';
 import { AccountLink, Card, FilterInput, Id, LoadState, Pager, Pill, Table, Tabs, Tx } from '../components/bits';
 import { useDrawers, type DrawerKind } from '../components/drawers';
 import { money, when } from '../format';
+import { useLoad } from '@funti3r/web-core';
 
 type Tab = 'payments' | 'escrows' | 'cashouts' | 'batches' | 'schedules';
 const TABS: { key: Tab; label: string }[] = [
@@ -158,8 +158,8 @@ export default function Money() {
       {tab === 'payments' && batchId && <BatchUnsent batchId={batchId} />}
 
       <Card>
-        <LoadState loading={list.loading && !list.data} error={list.error} />
-        {list.data && <Table<Row> rows={list.data} empty="Nothing matches." rowKey={(r) => r.id} columns={columns} onRowClick={drawers.open(DRAWER[tab])} />}
+        <LoadState state={list} />
+        {list.data && <Table<Row> rows={list.data} refreshing={list.refreshing} empty={{ title: 'Nothing matches', message: q || status || batchId || frozenOnly ? 'Try another status, or clear the filter.' : 'Nothing has happened here yet.' }} rowKey={(r) => r.id} columns={columns} onRowClick={drawers.open(DRAWER[tab])} />}
         <Pager offset={offset} shown={list.data?.length ?? 0} pageSize={PAGE} onPage={(o) => set({ offset: String(o) })} />
       </Card>
 

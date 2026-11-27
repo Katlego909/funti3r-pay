@@ -1,11 +1,11 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { PageHeader } from '@funti3r/ui';
+import { EmptyState, PageHeader } from '@funti3r/ui';
 import { admin, type Row } from '../api';
-import { useLoad } from '../useLoad';
 import { useDrawers } from '../components/drawers';
 import { AccountLink, Card, Id, LoadState, Pill, Table, Tx } from '../components/bits';
 import { money, when } from '../format';
+import { useLoad } from '@funti3r/web-core';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TX_HASH = /^[0-9a-f]{64}$/i;
@@ -48,8 +48,8 @@ export default function Search() {
         <button className="btn-primary" type="submit" disabled={draft.trim().length < 2}>Search</button>
       </form>
 
-      {q.length >= 2 && <LoadState loading={result.loading} error={result.error} />}
-      {nothing && <p className="admin-empty">Nothing matches “{q}”.</p>}
+      {q.length >= 2 && <LoadState state={result} />}
+      {nothing && <EmptyState title={`Nothing matches “${q}”`} message="Search by email, part of a company name, an account or payment id, a Stellar address or a transaction hash." />}
 
       {r && r.users.length > 0 && (
         <Card title={`Accounts (${r.users.length})`}>

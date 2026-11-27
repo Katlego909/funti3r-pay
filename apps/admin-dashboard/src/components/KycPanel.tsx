@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
+import { EmptyState } from '@funti3r/ui';
 import { admin, type Row } from '../api';
-import { useLoad } from '../useLoad';
 import { Card, LoadState, Pill, Table } from './bits';
 import ReasonDialog, { type ReasonAction } from './ReasonDialog';
 import { when } from '../format';
+import { useLoad, type Loaded } from '@funti3r/web-core';
 
 const SECTIONS: [string, string][] = [
   ['identity', 'Identity'], ['governmentId', 'Government ID'], ['address', 'Address'], ['taxInfo', 'Tax'], ['bankAccount', 'Bank'],
@@ -15,17 +16,17 @@ const label = (key: string) => key.replace(/([A-Z])/g, ' $1').replace(/^./, (c) 
  * and is written to the audit trail before anything is shown; the revealed copy lives only on this screen.
  * Approving clears a sanctions flag, which only a platform admin may do.
  */
-export default function KycPanel({ userId, record, loading, error, onChanged }: {
-  userId: string; record: Row | null; loading: boolean; error: string | null; onChanged: () => void;
+export default function KycPanel({ userId, state, onChanged }: {
+  userId: string; state: Loaded<Row | null>; onChanged: () => void;
 }) {
+  const record = state.data;
   const [revealed, setRevealed] = useState<Row | null>(null);
   const [action, setAction] = useState<ReasonAction | null>(null);
   const events = useLoad(async () => (record ? (await admin.kycEvents(userId)).events : []), [userId, record]);
   useEffect(() => setRevealed(null), [userId]);
 
-  if (loading && !record) return <Card title="KYC"><LoadState loading error={null} /></Card>;
-  if (error) return <Card title="KYC"><LoadState loading={false} error={error} /></Card>;
-  if (!record) return <Card title="KYC"><p className="admin-empty">No KYC submitted.</p></Card>;
+  if (state.loading || (state.error && !record)) return <Card title="KYC"><LoadState state={state} skeleton="lines" /></Card>;
+  if (!record) return <Card title="KYC"><EmptyState title="No KYC submitted yet" message="They have not sent their identity documents." compact /></Card>;
 
   const shown = revealed ?? record;
   const flagged = record.sanctions_status === 'flagged';
