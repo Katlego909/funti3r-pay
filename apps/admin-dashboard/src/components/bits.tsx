@@ -96,6 +96,7 @@ export function Pager({ offset, shown, pageSize, total, onPage }: {
   offset: number; shown: number; pageSize: number; total?: number; onPage: (offset: number) => void;
 }) {
   const last = total !== undefined ? offset + shown >= total : shown < pageSize;
+  if (!shown && offset === 0) return null; // an empty list needs no pager
   return (
     <div className="admin-pager">
       <button className="btn-secondary" disabled={offset === 0} onClick={() => onPage(Math.max(offset - pageSize, 0))}>Newer</button>

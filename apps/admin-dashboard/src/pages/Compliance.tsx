@@ -47,7 +47,7 @@ function Queue({ status, offset, onPage }: { status: Exclude<Tab, 'sanctions'>; 
   const empty = { pending: 'Nobody is waiting for a KYC decision.', rejected: 'Nobody has been rejected.', expired: 'No approvals have lapsed.' }[status];
   return (
     <Card>
-      {status === 'pending' && <p className="admin-muted">Oldest first. Open an account to review its KYC and approve or reject it.</p>}
+      {status === 'pending' && !!page.data?.queue.length && <p className="admin-muted">Oldest first. Open an account to review its KYC and approve or reject it.</p>}
       <LoadState loading={page.loading && !page.data} error={page.error} />
       {page.data && (
         <Table<Row> rows={page.data.queue} onRowClick={drawers.open('account', 'user_id')} empty={empty} rowKey={(r) => r.user_id} columns={[

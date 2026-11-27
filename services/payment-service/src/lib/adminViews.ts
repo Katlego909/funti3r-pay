@@ -270,20 +270,29 @@ export async function opsOverview(deps: AdminViewDeps) {
   };
 }
 
-/** The audit trail, newest first, narrowed by what it happened to, who did it, or the action. */
+/**
+ * The audit trail, newest first, narrowed by what it happened to, who did it, or the action. Each event carries the
+ * emails of who acted, of the account it was about and of the worker a payment or escrow was for, so the console can
+ * say it in words instead of ids.
+ */
 export async function listAudit(
   q: ListQuery & { entityType?: string; entityId?: string; actorId?: string; action?: string }, deps: AdminViewDeps,
 ) {
   const { limit, offset } = pageOf(q);
   const w = where([
-    q.entityType ? ['entity_type = ?', q.entityType] : null,
-    q.entityId ? ['entity_id = ?', q.entityId] : null,
-    isUuid(q.actorId) ? ['actor_id = ?', q.actorId] : null,
-    q.action ? ['action LIKE ?', `${escapeLike(q.action)}%`] : null,
+    q.entityType ? ['a.entity_type = ?', q.entityType] : null,
+    q.entityId ? ['a.entity_id = ?', q.entityId] : null,
+    isUuid(q.actorId) ? ['a.actor_id = ?', q.actorId] : null,
+    q.action ? ['a.action LIKE ?', `${escapeLike(q.action)}%`] : null,
   ]);
   const rows = await deps.query(
-    `SELECT id, at, actor_id, actor_role, action, entity_type, entity_id, detail, request_id
-       FROM audit_events ${w.sql} ORDER BY at DESC LIMIT ${limit} OFFSET ${offset}`,
+    `SELECT a.id, a.at, a.actor_id, actor.email AS actor_email, a.actor_role, a.action, a.entity_type, a.entity_id,
+            target.email AS entity_email, worker.email AS worker_email, a.detail, a.request_id
+       FROM audit_events a
+       LEFT JOIN users actor ON actor.id = a.actor_id
+       LEFT JOIN users target ON a.entity_type = 'user' AND target.id::text = a.entity_id
+       LEFT JOIN users worker ON worker.id::text = a.detail->>'workerId'
+       ${w.sql} ORDER BY a.at DESC LIMIT ${limit} OFFSET ${offset}`,
     w.params,
   );
   return { events: rows.rows, limit, offset };

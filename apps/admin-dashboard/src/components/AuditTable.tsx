@@ -1,23 +1,44 @@
+import { Link } from 'react-router-dom';
 import { admin, type AuditQuery, type Row } from '../api';
 import { useLoad } from '../useLoad';
-import { AccountLink, LoadState, Table } from './bits';
+import { AccountLink, LoadState, Table, Tx } from './bits';
 import { useDrawers } from './drawers';
-import { when } from '../format';
+import { short, when } from '../format';
+import { describe } from './auditText';
 
-/** Detail worth reading at a glance: the reason first, then anything else, compactly. */
-export function auditDetail(detail: Row | null | undefined): string {
-  if (!detail) return '—';
-  const { reason, ...rest } = detail;
-  const extra = Object.keys(rest).length ? JSON.stringify(rest) : '';
-  return [reason ? `“${reason}”` : '', extra].filter(Boolean).join('  ');
+/** What the event was about: the account's email, or the kind of record and its short id. */
+function target(e: Row) {
+  if (e.entity_type === 'user') return <AccountLink id={e.entity_id} email={e.entity_email} />;
+  const id = String(e.entity_id ?? '');
+  if (e.entity_type === 'payment' && e.detail?.batchId) return <Link to={`/money?batchId=${e.detail.batchId}`}>payment {short(id, 8)}</Link>;
+  return <span className="admin-muted">{e.entity_type} {id === 'all' ? '(all)' : short(id.split(':')[0], 8)}</span>;
 }
 
 export const auditColumns = [
-  { label: 'When', render: (e: Row) => when(e.at) },
-  { label: 'Action', render: (e: Row) => <code>{e.action}</code> },
-  { label: 'By', render: (e: Row) => (e.actor_id ? <AccountLink id={e.actor_id} email={e.actor_role} /> : e.actor_role) },
-  { label: 'On', render: (e: Row) => `${e.entity_type} ${e.entity_id?.length > 12 ? `${e.entity_id.slice(0, 8)}…` : e.entity_id}` },
-  { label: 'Detail', render: (e: Row) => <span className="admin-detail">{auditDetail(e.detail)}</span> },
+  { label: 'When', render: (e: Row) => <span className="admin-nowrap">{when(e.at)}</span> },
+  {
+    label: 'What happened',
+    render: (e: Row) => {
+      const { summary, reason, txHash } = describe(e);
+      return (
+        <div>
+          <div>{summary}</div>
+          {(reason || txHash) && (
+            <div className="admin-detail">
+              {reason && <>“{reason}”</>}{reason && txHash && ' · '}{txHash && <>tx <Tx hash={txHash} /></>}
+            </div>
+          )}
+        </div>
+      );
+    },
+  },
+  {
+    label: 'By',
+    render: (e: Row) => (e.actor_id
+      ? <><AccountLink id={e.actor_id} email={e.actor_email ?? e.actor_role} /><div className="admin-detail">{e.actor_role}</div></>
+      : <span className="admin-muted">{e.actor_role}</span>),
+  },
+  { label: 'On', render: target },
 ];
 
 /** The audit trail for one query (an account's, say), newest first. */
