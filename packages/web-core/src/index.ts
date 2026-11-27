@@ -4,7 +4,7 @@
  */
 export { api } from './client.js';
 export { apiErrorMessage } from './errors.js';
-export { useAuthStore } from './authStore.js';
+export { useAuthStore, userFromToken } from './authStore.js';
 export {
   devLogin,
   loginPasskey,
