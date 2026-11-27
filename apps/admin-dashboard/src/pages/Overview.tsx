@@ -1,20 +1,15 @@
-import { Link } from 'react-router-dom';
-import { PageHeader } from '@funti3r/ui';
+import {
+  HiOutlineBanknotes, HiOutlineExclamationTriangle, HiOutlineServerStack, HiOutlineShieldExclamation, HiOutlineXCircle,
+} from 'react-icons/hi2';
+import { MetricCard, PageHeader } from '@funti3r/ui';
 import { admin, readFailed, type Row } from '../api';
 import { useLoad } from '../useLoad';
 import { AccountLink, Card, Id, LoadState, Pill, Table, Tx } from '../components/bits';
 import { money, when } from '../format';
 
-function Tile({ label, value, to, alert, hint }: { label: string; value: string | number; to?: string; alert?: boolean; hint?: string }) {
-  const body = (
-    <div className={`metric-card admin-tile${alert ? ' alert' : ''}`}>
-      <div className="admin-tile-label">{label}</div>
-      <div className="metric-value">{value}</div>
-      {hint && <div className="admin-tile-hint">{hint}</div>}
-    </div>
-  );
-  return to ? <Link to={to} className="admin-tile-link">{body}</Link> : body;
-}
+const LOW_SPONSOR_XLM = 100;
+const STALE_LIST_HOURS = 48;
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
 /** What needs attention across the platform right now. */
 export default function Overview() {
@@ -28,6 +23,8 @@ export default function Overview() {
   const contract = o?.contract;
   const listAge = sanctions.data?.list ? Math.round((Date.now() - new Date(sanctions.data.list.fetchedAt).getTime()) / 3_600_000) : null;
   const down = health.data ? Object.entries(health.data).filter(([, r]) => r.status !== 'ready') : [];
+  const stuck = o ? o.stuckPayments.length + o.stuckCashouts.length + o.pendingEscrowCreations.length : 0;
+  const sponsorLow = !sponsor || readFailed(sponsor) || sponsor.spendableXlm < LOW_SPONSOR_XLM;
 
   return (
     <div className="dashboard">
@@ -39,20 +36,37 @@ export default function Overview() {
       <LoadState loading={ops.loading && !o} error={ops.error} />
 
       {o && (
-        <div className="metrics-grid admin-tiles">
-          <Tile label="Stuck payments" value={o.stuckPayments.length} alert={o.stuckPayments.length > 0} hint="initiated or submitted > 10 min" />
-          <Tile label="Stuck cash-outs" value={o.stuckCashouts.length} alert={o.stuckCashouts.length > 0} hint="pending > 15 min" />
-          <Tile label="Escrows waiting for the chain" value={o.pendingEscrowCreations.length} alert={o.pendingEscrowCreations.length > 0} />
-          <Tile label="Failed payouts (24h)" value={o.failedPayouts24h.total} alert={o.failedPayouts24h.total > 0} to="/money?status=failed" />
-          <Tile label="Sanctions flags" value={flagged.data?.flagged.length ?? '…'} alert={!!flagged.data?.flagged.length} to="/compliance" />
-          <Tile
-            label="Sponsor balance"
-            value={sponsor === null ? 'not set' : readFailed(sponsor) ? 'unreadable' : `${Math.floor(sponsor?.spendableXlm ?? 0).toLocaleString()} XLM`}
-            alert={!sponsor || readFailed(sponsor) || sponsor.spendableXlm < 100}
-            hint="pays new workers' reserves and fees"
+        <div className="metrics-grid">
+          <MetricCard
+            icon={HiOutlineExclamationTriangle} accent="orange" label="Stuck"
+            value={stuck}
+            note={stuck ? `${plural(o.stuckPayments.length, 'payment')} · ${plural(o.stuckCashouts.length, 'cash-out')} · ${plural(o.pendingEscrowCreations.length, 'escrow')}` : 'Nothing stuck'}
+            noteTone={stuck ? 'negative' : 'positive'}
           />
-          <Tile label="Sanctions list age" value={listAge === null ? 'not loaded' : `${listAge} h`} alert={listAge === null || listAge > 48} to="/compliance" />
-          <Tile label="Services" value={health.data ? (down.length ? `${down.length} down` : 'all ready') : '…'} alert={down.length > 0} />
+          <MetricCard
+            icon={HiOutlineXCircle} accent="warning" label="Failed payouts (24h)" to="/money?status=failed"
+            value={o.failedPayouts24h.total}
+            note={o.failedPayouts24h.byReason[0] ? `Most often: ${o.failedPayouts24h.byReason[0].reason}` : 'None failed'}
+            noteTone={o.failedPayouts24h.total ? 'negative' : 'positive'}
+          />
+          <MetricCard
+            icon={HiOutlineShieldExclamation} accent="purple" label="Sanctions flags" to="/compliance"
+            value={flagged.data?.flagged.length}
+            note={listAge === null ? 'No sanctions list loaded' : `List fetched ${listAge} h ago`}
+            noteTone={listAge === null || listAge > STALE_LIST_HOURS || !!flagged.data?.flagged.length ? 'negative' : 'neutral'}
+          />
+          <MetricCard
+            icon={HiOutlineBanknotes} accent="green" label="Sponsor balance"
+            value={sponsor === null ? 'Not set' : readFailed(sponsor) ? 'Unreadable' : `${Math.floor(sponsor?.spendableXlm ?? 0).toLocaleString()} XLM`}
+            note={sponsorLow ? 'Top up: new workers cannot be onboarded' : "Pays new workers' reserves and fees"}
+            noteTone={sponsorLow ? 'negative' : 'neutral'}
+          />
+          <MetricCard
+            icon={HiOutlineServerStack} accent="blue" label="Services"
+            value={health.data ? (down.length ? `${down.length} down` : 'All ready') : undefined}
+            note={health.data ? (down.length ? down.map(([name]) => name).join(', ') : Object.keys(health.data).join(' · ')) : undefined}
+            noteTone={down.length ? 'negative' : 'positive'}
+          />
         </div>
       )}
 

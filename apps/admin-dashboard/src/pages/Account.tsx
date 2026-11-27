@@ -75,7 +75,7 @@ export default function AccountPage() {
               ['Country', u.country],
               ['Phone', u.phone],
               ['Paid in', u.preferred_currency],
-              ['KYC', <Pill key="k" value={kyc.loading ? '…' : kyc.data?.status ?? 'not submitted'} tone={kyc.data ? undefined : 'muted'} />],
+              ['KYC', <Pill key="k" value={kyc.loading ? '…' : kyc.data?.status ?? 'not submitted'} />],
               ['Account id', <Id key="i" value={u.id} />],
               ['Joined', when(u.created_at)],
               ['Recovered by email', u.recovered_at ? when(u.recovered_at) : 'never'],
