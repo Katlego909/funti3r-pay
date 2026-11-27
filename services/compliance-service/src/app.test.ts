@@ -33,6 +33,8 @@ let events: any[];
 let failAuditWrites = false;
 let audits: any[] = [];
 let failAudit = false;
+let queueSql = '';
+let decisionSql = '';
 
 const query = async (sql: string, params: unknown[] = []): Promise<{ rows: any[] }> => {
   if (/ew\.worker_id = ANY/.test(sql)) {
@@ -65,6 +67,7 @@ const query = async (sql: string, params: unknown[] = []): Promise<{ rows: any[]
     return { rows: r ? [{ sanctions_status: r.sanctions_status }] : [] };
   }
   if (/UPDATE kyc_records\s+SET status/.test(sql)) {
+    decisionSql = sql;
     const [status, userId] = params as string[];
     const r = records[userId];
     if (!r) return { rows: [] };
@@ -90,6 +93,19 @@ const query = async (sql: string, params: unknown[] = []): Promise<{ rows: any[]
     const r = Object.values(records).find((x) => x.id === id)!;
     r.data = JSON.parse(data);
     return { rows: [] };
+  }
+  if (/FROM \(SELECT user_id/.test(sql)) {
+    queueSql = sql;
+    const rows = Object.values(records).filter((r) => r.status === params[0]).map((r) => ({
+      user_id: r.user_id, email: `${r.user_id}@example.com`, role: 'worker', status: r.status,
+      sanctions_status: r.sanctions_status, submitted_at: r.created_at, updated_at: r.created_at,
+    }));
+    rows.sort((x, y) => (x.submitted_at < y.submitted_at ? -1 : 1));
+    if (/submitted_at DESC/.test(sql)) rows.reverse();
+    return { rows };
+  }
+  if (/SELECT COUNT\(\*\)::int AS count FROM kyc_records/.test(sql)) {
+    return { rows: [{ count: Object.values(records).filter((r) => r.status === params[0]).length }] };
   }
   throw new Error(`unexpected SQL: ${sql.slice(0, 80)}`);
 };
@@ -415,5 +431,41 @@ test('when the reveal cannot be recorded, nothing is revealed', async () => {
   const res = await call('POST', `/${WORKER_A}/reveal`, admin, { reason: 'checking' });
   assert.equal(res.status, 503);
   assert.ok(!JSON.stringify(await res.json()).includes('8001015009087'));
+});
+
+// ── The KYC review queue ──
+
+test('the review queue is for platform admins only', async () => {
+  fresh();
+  for (const who of [worker(WORKER_A), enterprise(OWNER_A)]) {
+    assert.equal((await call('GET', '/queue', who)).status, 403);
+  }
+});
+
+test('the queue lists who is waiting, oldest first, without their submission; other tabs come newest first', async () => {
+  fresh();
+  records[WORKER_B] = { id: 'r2', user_id: WORKER_B, status: 'pending', data: { identity: { idNumber: 'X' } }, sanctions_status: 'clear', created_at: '2026-11-02' };
+  records[WORKER_A] = { id: 'r1', user_id: WORKER_A, status: 'pending', data: { identity: { idNumber: 'Y' } }, sanctions_status: 'flagged', created_at: '2026-11-01' };
+  records[OWNER_A] = { id: 'r3', user_id: OWNER_A, status: 'rejected', data: {}, sanctions_status: 'clear', created_at: '2026-11-03' };
+
+  const body = await (await call('GET', '/queue?status=nonsense', admin)).json() as any; // unknown status: the pending tab
+  assert.equal(body.status, 'pending');
+  assert.equal(body.total, 2);
+  assert.deepEqual(body.queue.map((r: any) => r.user_id), [WORKER_A, WORKER_B]);
+  assert.ok(body.queue.every((r: any) => !('data' in r)));
+  assert.doesNotMatch(queueSql, /\bdata\b/);
+
+  const rejected = await (await call('GET', '/queue?status=rejected', admin)).json() as any;
+  assert.deepEqual(rejected.queue.map((r: any) => r.user_id), [OWNER_A]);
+  assert.match(queueSql, /submitted_at DESC/);
+});
+
+test('a KYC decision casts its status parameter, which real Postgres needs to accept the statement', async () => {
+  // Without the casts Postgres refuses the update ("inconsistent types deduced for parameter $1": the column is varchar,
+  // the comparisons text), so every approve and reject failed. This fake database can't see that, so pin the casts.
+  fresh();
+  await submit(WORKER_A);
+  assert.equal((await call('POST', `/${WORKER_A}/approve`, admin, { reason: 'checked' })).status, 200);
+  assert.doesNotMatch(decisionSql, /\$1(?!::text)/);
 });
 

@@ -4,16 +4,66 @@ import { ConfirmDialog, PageHeader } from '@funti3r/ui';
 import { apiErrorMessage } from '@funti3r/web-core';
 import { admin, type Row } from '../api';
 import { useLoad } from '../useLoad';
-import { AccountLink, Card, Facts, LoadState, Pill, Table } from '../components/bits';
+import { useListParams } from '../listParams';
+import { AccountLink, Card, Facts, LoadState, Pager, Pill, Table, Tabs } from '../components/bits';
 import { when } from '../format';
 
+const PAGE = 50;
+type Tab = 'pending' | 'rejected' | 'expired' | 'sanctions';
+
 /**
- * Sanctions screening: which list is loaded and how old it is, a manual refresh, and the queue of people the
- * screening flagged. Each flag is decided on the person's account page, where the KYC and the match sit side by side.
+ * Compliance work: the KYC review queue (who is waiting for a decision, oldest first, and who was rejected or has
+ * lapsed), and sanctions screening (the loaded list, a manual refresh, and the people the screening flagged). Every
+ * decision is made on the person's account page, where the KYC, its history and any sanctions match sit together.
  */
 export default function Compliance() {
-  const status = useLoad(admin.sanctionsStatus, []);
+  const list = useListParams();
+  const tab = (list.get('tab') || 'pending') as Tab;
+  const pending = useLoad(() => admin.kycQueue({ status: 'pending', limit: 1 }), []);
   const flagged = useLoad(admin.flagged, []);
+
+  return (
+    <div className="dashboard">
+      <PageHeader title="Compliance" subtitle="KYC reviews and sanctions screening" />
+      <Tabs<Tab>
+        active={tab}
+        onChange={(key) => list.reset(key === 'pending' ? {} : { tab: key })}
+        tabs={[
+          { key: 'pending', label: 'Waiting for review', count: pending.data?.total },
+          { key: 'rejected', label: 'Rejected' },
+          { key: 'expired', label: 'Expired' },
+          { key: 'sanctions', label: 'Sanctions', count: flagged.data?.flagged.length },
+        ]}
+      />
+      {tab === 'sanctions' ? <Sanctions flagged={flagged} /> : <Queue status={tab} offset={list.offset} onPage={(o) => list.set({ offset: String(o) })} />}
+    </div>
+  );
+}
+
+function Queue({ status, offset, onPage }: { status: Exclude<Tab, 'sanctions'>; offset: number; onPage: (o: number) => void }) {
+  const page = useLoad(() => admin.kycQueue({ status, limit: PAGE, offset }), [status, offset]);
+  const empty = { pending: 'Nobody is waiting for a KYC decision.', rejected: 'Nobody has been rejected.', expired: 'No approvals have lapsed.' }[status];
+  return (
+    <Card>
+      {status === 'pending' && <p className="admin-muted">Oldest first. Open an account to review its KYC and approve or reject it.</p>}
+      <LoadState loading={page.loading && !page.data} error={page.error} />
+      {page.data && (
+        <Table<Row> rows={page.data.queue} empty={empty} rowKey={(r) => r.user_id} columns={[
+          { label: 'Account', render: (r) => <AccountLink id={r.user_id} email={r.email} /> },
+          { label: 'Role', render: (r) => r.role },
+          { label: 'KYC', render: (r) => <Pill value={r.status} /> },
+          { label: 'Sanctions', render: (r) => <Pill value={r.sanctions_status ?? 'not screened'} /> },
+          { label: 'Submitted', render: (r) => when(r.submitted_at) },
+          { label: 'Last change', render: (r) => when(r.updated_at) },
+        ]} />
+      )}
+      <Pager offset={offset} shown={page.data?.queue.length ?? 0} pageSize={PAGE} total={page.data?.total} onPage={onPage} />
+    </Card>
+  );
+}
+
+function Sanctions({ flagged }: { flagged: ReturnType<typeof useLoad<{ flagged: Row[] }>> }) {
+  const status = useLoad(admin.sanctionsStatus, []);
   const [confirming, setConfirming] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -33,9 +83,7 @@ export default function Compliance() {
 
   const list = status.data?.list;
   return (
-    <div className="dashboard">
-      <PageHeader title="Compliance" subtitle="Sanctions screening and the people it flagged" />
-
+    <>
       <Card
         title="Sanctions list"
         actions={<button className="btn-secondary" onClick={() => setConfirming(true)} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh now'}</button>}
@@ -74,6 +122,6 @@ export default function Compliance() {
         onConfirm={refresh}
         onCancel={() => setConfirming(false)}
       />
-    </div>
+    </>
   );
 }

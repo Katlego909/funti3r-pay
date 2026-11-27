@@ -4,6 +4,7 @@
  *
  * Columns are always named: never SELECT * here (payments still carries a legacy stellar_source_secret column).
  */
+import { oneOf, pageOf, where } from '@funti3r/database';
 import { escapeLike, isUuid } from '@funti3r/shared-utils';
 
 interface Rows { rows: any[] }
@@ -17,30 +18,14 @@ export interface AdminViewDeps {
   contract: () => Promise<{ address: string; admin: string; tokenAllowed: boolean }>;
 }
 
-const MAX_PAGE = 200;
 const TX_HASH = /^[0-9a-f]{64}$/i;
-const PAYMENT_STATUSES = ['initiated', 'submitted', 'completed', 'pending_claim', 'failed'];
-const ESCROW_STATUSES = ['active', 'completed', 'refunded'];
-const CASHOUT_STATUSES = ['pending', 'completed', 'failed'];
+const PAYMENT_STATUSES = ['initiated', 'submitted', 'completed', 'pending_claim', 'failed'] as const;
+const ESCROW_STATUSES = ['active', 'completed', 'refunded'] as const;
+const CASHOUT_STATUSES = ['pending', 'completed', 'failed'] as const;
+const BATCH_STATUSES = ['processing', 'completed', 'partial', 'failed'] as const;
+const SCHEDULE_STATUSES = ['active', 'paused'] as const;
 
 export interface ListQuery { status?: string; q?: string; limit?: string | number; offset?: string | number }
-
-/** A page window from query-string values: at most 200 rows, defaulting to the first 50. */
-export function pageOf(q: ListQuery): { limit: number; offset: number } {
-  const limit = Math.min(Math.max(Number(q.limit) || 50, 1), MAX_PAGE);
-  const offset = Math.max(Number(q.offset) || 0, 0);
-  return { limit, offset };
-}
-
-/** Builds a WHERE clause from optional conditions, numbering the parameters. */
-function where(conds: Array<[string, unknown] | null>): { sql: string; params: unknown[] } {
-  const params: unknown[] = [];
-  const parts = conds.filter((c): c is [string, unknown] => !!c).map(([clause, value]) => {
-    params.push(value);
-    return clause.replace('?', `$${params.length}`);
-  });
-  return { sql: parts.length ? `WHERE ${parts.join(' AND ')}` : '', params };
-}
 
 const PAYMENT_COLUMNS = `p.id, p.enterprise_id, e.email AS enterprise_email, p.worker_id, w.email AS worker_email, p.amount,
   p.currency, p.status, p.failure_reason, p.stellar_tx_hash, p.batch_id, p.description, p.created_at, p.completed_at,
@@ -48,13 +33,15 @@ const PAYMENT_COLUMNS = `p.id, p.enterprise_id, e.email AS enterprise_email, p.w
 
 /**
  * Payments platform-wide, newest first. `q` finds a payment by its id or transaction hash, or everything to or from one
- * account by its id.
+ * account by its id; `batchId` narrows to one payout batch.
  */
-export async function listPayments(q: ListQuery, deps: AdminViewDeps) {
+export async function listPayments(q: ListQuery & { batchId?: string }, deps: AdminViewDeps) {
   const { limit, offset } = pageOf(q);
   const term = q.q?.trim() ?? '';
+  const status = oneOf(q.status, PAYMENT_STATUSES);
   const w = where([
-    q.status && PAYMENT_STATUSES.includes(q.status) ? ['p.status = ?', q.status] : null,
+    status ? ['p.status = ?', status] : null,
+    isUuid(q.batchId) ? ['p.batch_id = ?', q.batchId] : null,
     isUuid(term) ? ['? IN (p.id, p.enterprise_id, p.worker_id)', term] : null,
     TX_HASH.test(term) ? ['p.stellar_tx_hash = ?', term.toLowerCase()] : null,
   ]);
@@ -75,8 +62,9 @@ const ESCROW_COLUMNS = `x.id, x.onchain_escrow_id, x.enterprise_id, e.email AS e
 /** Escrows platform-wide, newest first; `frozen=true` narrows to the compliance-held ones. */
 export async function listEscrows(q: ListQuery & { frozen?: string }, deps: AdminViewDeps) {
   const { limit, offset } = pageOf(q);
+  const status = oneOf(q.status, ESCROW_STATUSES);
   const w = where([
-    q.status && ESCROW_STATUSES.includes(q.status) ? ['x.status = ?', q.status] : null,
+    status ? ['x.status = ?', status] : null,
     q.frozen === 'true' ? ['x.frozen = ?', true] : null,
     isUuid(q.q?.trim()) ? ['? IN (x.id, x.enterprise_id, x.worker_id)', q.q!.trim()] : null,
   ]);
@@ -96,8 +84,9 @@ const CASHOUT_COLUMNS = `c.id, c.worker_id, u.email AS worker_email, c.status, c
 /** MoneyGram cash-outs platform-wide, newest first. */
 export async function listCashouts(q: ListQuery, deps: AdminViewDeps) {
   const { limit, offset } = pageOf(q);
+  const status = oneOf(q.status, CASHOUT_STATUSES);
   const w = where([
-    q.status && CASHOUT_STATUSES.includes(q.status) ? ['c.status = ?', q.status] : null,
+    status ? ['c.status = ?', status] : null,
     isUuid(q.q?.trim()) ? ['? IN (c.id, c.worker_id)', q.q!.trim()] : null,
   ]);
   const rows = await deps.query(
@@ -144,6 +133,51 @@ export async function accountMoney(userId: string, deps: AdminViewDeps) {
     wallet: { address: user.stellar_public_key, balances },
     payments: payments.rows, escrows: escrows.rows, cashouts: cashouts.rows, schedules: schedules.rows,
   };
+}
+
+/**
+ * Payout batches platform-wide, newest first, with how their payments ended (paid, waiting to be claimed, failed, still
+ * on the way): a 'partial' batch is the one to look at.
+ * `q` narrows to one employer by account id.
+ */
+export async function listBatches(q: ListQuery, deps: AdminViewDeps) {
+  const { limit, offset } = pageOf(q);
+  const status = oneOf(q.status, BATCH_STATUSES);
+  const w = where([
+    status ? ['b.status = ?', status] : null,
+    isUuid(q.q?.trim()) ? ['? IN (b.id, b.enterprise_id)', q.q!.trim()] : null,
+  ]);
+  const rows = await deps.query(
+    `SELECT b.id, b.enterprise_id, e.email AS enterprise_email, b.payment_count, b.total_amount, b.status, b.created_at,
+            b.updated_at,
+            COUNT(p.id) FILTER (WHERE p.status = 'completed')::int AS completed,
+            COUNT(p.id) FILTER (WHERE p.status = 'pending_claim')::int AS awaiting_claim,
+            COUNT(p.id) FILTER (WHERE p.status = 'failed')::int AS failed,
+            COUNT(p.id) FILTER (WHERE p.status IN ('initiated', 'submitted'))::int AS in_flight
+       FROM payment_batches b JOIN users e ON e.id = b.enterprise_id LEFT JOIN payments p ON p.batch_id = b.id
+       ${w.sql} GROUP BY b.id, e.email ORDER BY b.created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+    w.params,
+  );
+  return { batches: rows.rows, limit, offset };
+}
+
+/** Recurring payroll schedules platform-wide, soonest next run first, with how many people each pays and how much. */
+export async function listSchedules(q: ListQuery, deps: AdminViewDeps) {
+  const { limit, offset } = pageOf(q);
+  const status = oneOf(q.status, SCHEDULE_STATUSES);
+  const w = where([
+    status ? ['s.status = ?', status] : null,
+    isUuid(q.q?.trim()) ? ['? IN (s.id, s.enterprise_id)', q.q!.trim()] : null,
+  ]);
+  const rows = await deps.query(
+    `SELECT s.id, s.enterprise_id, e.email AS enterprise_email, s.name, s.frequency, s.run_day, s.timezone, s.status,
+            s.next_run_at, s.last_run_at, s.last_run_status, s.created_at,
+            COUNT(i.id)::int AS items, COALESCE(SUM(i.amount_usd), 0) AS total_usd
+       FROM payment_schedules s JOIN users e ON e.id = s.enterprise_id LEFT JOIN payment_schedule_items i ON i.schedule_id = s.id
+       ${w.sql} GROUP BY s.id, e.email ORDER BY s.next_run_at LIMIT ${limit} OFFSET ${offset}`,
+    w.params,
+  );
+  return { schedules: rows.rows, limit, offset };
 }
 
 /** A read that may fail (the network, the contract): its value, or the error text instead of failing the page. */

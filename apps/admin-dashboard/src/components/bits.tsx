@@ -1,5 +1,5 @@
 /** Small building blocks the admin pages share: a section card, a table, a status pill, an ID with copy, a value list. */
-import { ReactNode } from 'react';
+import { FormEvent, ReactNode, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CopyButton, EXPLORER, StatusBadge } from '@funti3r/ui';
 import { short } from '../format';
@@ -77,6 +77,51 @@ export function Facts({ items }: { items: [string, ReactNode][] }) {
         <div key={label}><dt>{label}</dt><dd>{value ?? '—'}</dd></div>
       ))}
     </dl>
+  );
+}
+
+/** Newer / older buttons under a list, with which rows are shown and, when known, how many there are. */
+export function Pager({ offset, shown, pageSize, total, onPage }: {
+  offset: number; shown: number; pageSize: number; total?: number; onPage: (offset: number) => void;
+}) {
+  const last = total !== undefined ? offset + shown >= total : shown < pageSize;
+  return (
+    <div className="admin-pager">
+      <button className="btn-secondary" disabled={offset === 0} onClick={() => onPage(Math.max(offset - pageSize, 0))}>Newer</button>
+      <span className="admin-muted">
+        {shown ? `${offset + 1}–${offset + shown}` : '0'}{total !== undefined ? ` of ${total.toLocaleString()}` : ''}
+      </span>
+      <button className="btn-secondary" disabled={last} onClick={() => onPage(offset + pageSize)}>Older</button>
+    </div>
+  );
+}
+
+/** A text filter applied on Enter (or Filter), with Clear once something is applied. */
+export function FilterInput({ value, placeholder, onApply }: { value: string; placeholder: string; onApply: (v: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const submit = (e: FormEvent) => { e.preventDefault(); onApply(draft.trim()); };
+  return (
+    <form onSubmit={submit} className="admin-filter-search">
+      <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={placeholder} aria-label={placeholder} />
+      <button className="btn-secondary" type="submit">Filter</button>
+      {value && <button className="btn-secondary" type="button" onClick={() => onApply('')}>Clear</button>}
+    </form>
+  );
+}
+
+/** Tabs across the top of a list (the dashboard's status tabs), each with an optional count. */
+export function Tabs<T extends string>({ tabs, active, onChange }: {
+  tabs: { key: T; label: string; count?: number }[]; active: T; onChange: (key: T) => void;
+}) {
+  return (
+    <div className="payments-status-tabs">
+      {tabs.map((t) => (
+        <button key={t.key} className={`status-tab${active === t.key ? ' active' : ''}`} onClick={() => onChange(t.key)}>
+          {t.label}{t.count !== undefined ? ` (${t.count.toLocaleString()})` : ''}
+        </button>
+      ))}
+    </div>
   );
 }
 

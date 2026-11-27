@@ -1,6 +1,6 @@
 import express from 'express';
-import { createLogger, NotFoundError, ExternalServiceError, errorHandler, hasIdentity, requireGatewayIdentity, requireRole, requestContext, registerHealth } from '@funti3r/shared-utils';
-import { audit } from '@funti3r/database';
+import { createLogger, NotFoundError, ExternalServiceError, errorHandler, hasIdentity, isUuid, requireGatewayIdentity, requireRole, requestContext, registerHealth } from '@funti3r/shared-utils';
+import { audit, oneOf, pageOf } from '@funti3r/database';
 import { maskForReview } from './kycMask.js';
 import { auditWriteFailures, metrics } from './metrics.js';
 import { candidateBirthYearFromSubmission, candidateNamesFromSubmission } from './names.js';
@@ -18,9 +18,6 @@ const logger = createLogger('ComplianceService');
 function toFrontendStatus(dbStatus: string): string {
   return dbStatus === 'approved' ? 'verified' : dbStatus;
 }
-
-const isUuid = (v: unknown): v is string =>
-  typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
@@ -269,6 +266,38 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
     }
   });
 
+  // ── The review queue, admin only (literal path, ahead of `/:userId`) ─────────
+  // Who is waiting for a KYC decision (oldest first, to work through in order), or was rejected or has lapsed (newest
+  // first). Never the submission itself: that stays behind the masked view and the audited reveal.
+
+  const QUEUE_STATUSES = ['pending', 'rejected', 'expired'] as const;
+  app.get('/queue', requireRole('admin'), async (req, res, next) => {
+    try {
+      const status = oneOf(req.query.status, QUEUE_STATUSES) ?? 'pending';
+      const { limit, offset } = pageOf(req.query);
+      const [rows, total] = await Promise.all([
+        query(
+          // The status rule reads kyc_records' own columns, so it runs before the join (users has a status column too).
+          `SELECT k.user_id, u.email, u.role, k.status, k.sanctions_status, k.submitted_at, k.updated_at
+             FROM (SELECT user_id, ${EFFECTIVE_STATUS} AS status, sanctions_status, created_at AS submitted_at, updated_at
+                     FROM kyc_records) k
+             JOIN users u ON u.id = k.user_id
+            WHERE k.status = $1
+            ORDER BY k.submitted_at ${status === 'pending' ? 'ASC' : 'DESC'}
+            LIMIT ${limit} OFFSET ${offset}`,
+          [status],
+        ),
+        query(`SELECT COUNT(*)::int AS count FROM kyc_records WHERE ${EFFECTIVE_STATUS} = $1`, [status]),
+      ]);
+      res.json({
+        queue: rows.rows.map((r) => ({ ...r, status: toFrontendStatus(r.status) })),
+        total: total.rows[0]?.count ?? 0, status, limit, offset,
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // ── Full KYC details ────────────────────────────────────────────────────────
   // The user themself, a platform admin, or a member of a company that has this user as a worker.
   // Never another company: a submission holds ID, bank and tax numbers.
@@ -384,11 +413,13 @@ export function createApp({ query, autoApprove, sanctions, validityDays = DEFAUL
       if (newStatus === 'approved' && flagged && requesterRole !== 'admin') return { denied: true as const };
 
       const result = await q(
+        // $1 is cast once and used as text throughout: left to infer, Postgres sees varchar (the column) and text (the
+        // comparisons) for the same parameter and refuses the statement.
         `UPDATE kyc_records
-            SET status = $1,
-                verified_at = CASE WHEN $1 = 'approved' THEN NOW() ELSE verified_at END,
-                expires_at = CASE WHEN $1 = 'approved' THEN NOW() + make_interval(days => $3) ELSE expires_at END,
-                sanctions_status = CASE WHEN $1 = 'approved' THEN 'clear' ELSE sanctions_status END,
+            SET status = $1::text,
+                verified_at = CASE WHEN $1::text = 'approved' THEN NOW() ELSE verified_at END,
+                expires_at = CASE WHEN $1::text = 'approved' THEN NOW() + make_interval(days => $3::int) ELSE expires_at END,
+                sanctions_status = CASE WHEN $1::text = 'approved' THEN 'clear' ELSE sanctions_status END,
                 updated_at = NOW()
           WHERE user_id = $2
           RETURNING status`,

@@ -4,7 +4,7 @@
  *
  * Columns are always named: never SELECT * here, so no secret (custodial keys, password hashes) can leak into a view.
  */
-import type { AuditEntry } from '@funti3r/database';
+import { oneOf, pageOf, where, type AuditEntry } from '@funti3r/database';
 import { escapeLike, isUuid, NotFoundError, ValidationError } from '@funti3r/shared-utils';
 
 interface Rows { rows: any[] }
@@ -14,6 +14,10 @@ export interface AdminDirectoryDeps {
 }
 
 const SEARCH_LIMIT = 20;
+/** A company in a list or search result: who owns it and how many active members and workers it has. */
+const COMPANY_SUMMARY = `e.id, e.company_name, e.country, e.created_at, owner.id AS owner_id, owner.email AS owner_email,
+  (SELECT COUNT(*) FROM enterprise_members m WHERE m.enterprise_id = e.id AND m.status = 'active')::int AS members,
+  (SELECT COUNT(*) FROM enterprise_workers w WHERE w.enterprise_id = e.id AND w.status = 'active')::int AS workers`;
 const STELLAR_ADDRESS = /^G[A-Z2-7]{55}$/;
 
 /**
@@ -38,9 +42,7 @@ export async function searchDirectory(q: string, deps: AdminDirectoryDeps) {
     [byId || byAddress ? term : like],
   );
   const companies = await deps.query(
-    `SELECT e.id, e.company_name, e.country, e.created_at, owner.email AS owner_email,
-            (SELECT COUNT(*) FROM enterprise_members m WHERE m.enterprise_id = e.id AND m.status = 'active')::int AS members,
-            (SELECT COUNT(*) FROM enterprise_workers w WHERE w.enterprise_id = e.id AND w.status = 'active')::int AS workers
+    `SELECT ${COMPANY_SUMMARY}
        FROM enterprises e JOIN users owner ON owner.id = e.user_id
       WHERE ${byId ? 'e.id = $1::uuid' : 'e.company_name ILIKE $1'}
       ORDER BY e.created_at DESC
@@ -48,6 +50,63 @@ export async function searchDirectory(q: string, deps: AdminDirectoryDeps) {
     [byId ? term : like],
   );
   return { users: users.rows, companies: companies.rows };
+}
+
+const ROLES = ['enterprise', 'worker', 'admin'] as const;
+const STATUSES = ['active', 'suspended', 'closed'] as const;
+
+export interface AccountListQuery { role?: string; status?: string; q?: string; limit?: unknown; offset?: unknown }
+
+/**
+ * Every account, newest first: filtered by role, status and part of the email, a page at a time. `byRole` counts the
+ * accounts each role tab would show under the other filters, and `total` the ones matching all of them.
+ */
+export async function listAccounts(q: AccountListQuery, deps: AdminDirectoryDeps) {
+  const { limit, offset } = pageOf(q);
+  const role = oneOf(q.role, ROLES);
+  const status = oneOf(q.status, STATUSES);
+  const email = typeof q.q === 'string' && q.q.trim() ? `%${escapeLike(q.q.trim())}%` : null;
+  const others = where([status ? ['u.status = ?', status] : null, email ? ['u.email ILIKE ?', email] : null]);
+  const all = where([
+    status ? ['u.status = ?', status] : null, email ? ['u.email ILIKE ?', email] : null, role ? ['u.role = ?', role] : null,
+  ]);
+
+  const [accounts, counts] = await Promise.all([
+    deps.query(
+      `SELECT u.id, u.email, u.role, u.status, u.stellar_public_key, u.created_at, e.company_name
+         FROM users u
+         LEFT JOIN enterprise_members em ON em.user_id = u.id AND em.status = 'active'
+         LEFT JOIN enterprises e ON e.id = em.enterprise_id
+         ${all.sql}
+        ORDER BY u.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}`,
+      all.params,
+    ),
+    deps.query(`SELECT u.role, COUNT(*)::int AS count FROM users u ${others.sql} GROUP BY u.role`, others.params),
+  ]);
+  const byRole: Record<string, number> = Object.fromEntries(ROLES.map((r) => [r, 0]));
+  for (const row of counts.rows) byRole[row.role] = row.count;
+  const total = role ? byRole[role] : ROLES.reduce((n, r) => n + byRole[r], 0);
+  return { accounts: accounts.rows, byRole, total, limit, offset };
+}
+
+/** Every company, newest first, filtered by part of its name, with its owner and how many members and workers it has. */
+export async function listCompanies(q: { q?: string; limit?: unknown; offset?: unknown }, deps: AdminDirectoryDeps) {
+  const { limit, offset } = pageOf(q);
+  const name = typeof q.q === 'string' && q.q.trim() ? `%${escapeLike(q.q.trim())}%` : null;
+  const w = where([name ? ['e.company_name ILIKE ?', name] : null]);
+  const [companies, total] = await Promise.all([
+    deps.query(
+      `SELECT ${COMPANY_SUMMARY}
+         FROM enterprises e JOIN users owner ON owner.id = e.user_id
+         ${w.sql}
+        ORDER BY e.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}`,
+      w.params,
+    ),
+    deps.query(`SELECT COUNT(*)::int AS count FROM enterprises e ${w.sql}`, w.params),
+  ]);
+  return { companies: companies.rows, total: total.rows[0]?.count ?? 0, limit, offset };
 }
 
 /** One account whole: profile, status, company ties, where it has passkeys, pending invites. Null when unknown. */

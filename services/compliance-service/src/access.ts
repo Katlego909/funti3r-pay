@@ -1,6 +1,5 @@
+import { isUuid } from '@funti3r/shared-utils';
 import type { Query } from './deps.js';
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** How the requester is allowed to see a user's KYC record. */
 export type KycAccess = 'self' | 'admin' | 'company-admin' | 'company-member';
@@ -41,7 +40,7 @@ export async function kycAccess(
 export async function visibleUserIds(
   query: Query, requesterId: string | undefined, requesterRole: string | undefined, ids: string[],
 ): Promise<string[]> {
-  const valid = ids.filter((id) => UUID.test(id));
+  const valid = ids.filter(isUuid);
   if (requesterRole === 'admin') return valid;
   if (!requesterId) return [];
   const visible = new Set(valid.filter((id) => id === requesterId));

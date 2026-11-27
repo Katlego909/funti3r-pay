@@ -175,6 +175,11 @@ const ADMIN_ROUTES: [string, Name, string][] = [
   ['/admin/cashouts', 'payment', '/admin/cashouts'],
   ['/admin/ops', 'payment', '/admin/ops'],
   ['/admin/audit', 'payment', '/admin/audit'],
+  ['/admin/batches', 'payment', '/admin/batches'],
+  ['/admin/schedules?status=paused', 'payment', '/admin/schedules?status=paused'],
+  ['/admin/users?role=worker', 'user', '/admin/users?role=worker'],
+  ['/admin/companies', 'user', '/admin/companies'],
+  ['/admin/compliance/queue?status=pending', 'compliance', '/queue?status=pending'],
   ['/api/admin/ops', 'payment', '/admin/ops'], // the dashboard-style /api prefix is stripped first
   ['/admin/compliance/flagged', 'compliance', '/flagged'], // the compliance service's own routes
 ];
@@ -190,7 +195,7 @@ for (const [path, upstream, expected] of ADMIN_ROUTES) {
 
 test('the admin console is refused to anyone but a platform admin, before reaching any service', async () => {
   for (const role of ['worker', 'enterprise']) {
-    for (const path of ['/admin/users/u1', '/admin/ops', '/admin/compliance/flagged']) {
+    for (const path of ['/admin/users/u1', '/admin/users', '/admin/batches', '/admin/ops', '/admin/compliance/flagged', '/admin/compliance/queue']) {
       const r = await call(path, { headers: { 'x-test-role': role } });
       assert.equal(r.status, 403, `${role} ${path}`);
       assert.deepEqual(r.reached, [], `${role} ${path}`);

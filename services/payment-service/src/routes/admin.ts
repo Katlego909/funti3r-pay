@@ -7,7 +7,9 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import type { Router as RouterType } from 'express';
 import { query } from '@funti3r/database';
 import { isUuid, NotFoundError } from '@funti3r/shared-utils';
-import { accountMoney, listAudit, listCashouts, listEscrows, listPayments, opsOverview, type AdminViewDeps } from '../lib/adminViews.js';
+import {
+  accountMoney, listAudit, listBatches, listCashouts, listEscrows, listPayments, listSchedules, opsOverview, type AdminViewDeps,
+} from '../lib/adminViews.js';
 import { getAccountBalance, spendableXlm, sponsorPublicKey } from '../lib/stellar.js';
 import { contractState } from '../lib/escrow.js';
 import { reconcileEscrows } from '../lib/escrowReconcile.js';
@@ -46,6 +48,8 @@ router.get('/money/:userId', handle(async (req, res) => {
 router.get('/payments', handle(async (req, res) => { res.json(await listPayments(req.query as never, deps)); }));
 router.get('/escrows', handle(async (req, res) => { res.json(await listEscrows(req.query as never, deps)); }));
 router.get('/cashouts', handle(async (req, res) => { res.json(await listCashouts(req.query as never, deps)); }));
+router.get('/batches', handle(async (req, res) => { res.json(await listBatches(req.query as never, deps)); }));
+router.get('/schedules', handle(async (req, res) => { res.json(await listSchedules(req.query as never, deps)); }));
 router.get('/ops', handle(async (_req, res) => { res.json(await opsOverview(deps)); }));
 router.get('/audit', handle(async (req, res) => { res.json(await listAudit(req.query as never, deps)); }));
 

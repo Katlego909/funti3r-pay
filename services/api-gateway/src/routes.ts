@@ -87,7 +87,8 @@ export function mountProxyRoutes(app: express.Express, upstreams: Upstreams): vo
   app.use('/admin', requireRole('admin'));
   app.get('/admin/health', async (_req, res) => { res.json(await servicesReadiness(upstreams)); });
   app.all(['/admin/search*', '/admin/users*', '/admin/companies*'], proxy(upstreams.user));
-  app.all(['/admin/money*', '/admin/payments*', '/admin/escrows*', '/admin/cashouts*', '/admin/ops*', '/admin/audit*'],
+  app.all(['/admin/money*', '/admin/payments*', '/admin/escrows*', '/admin/cashouts*', '/admin/batches*', '/admin/schedules*',
+    '/admin/ops*', '/admin/audit*'],
     proxy(upstreams.payment));
   app.all('/admin/compliance/screen', (_req, res) => res.status(404).json({ error: 'Not found' }));
   app.all('/admin/compliance*', proxy(upstreams.compliance, { '^/admin/compliance': '' }));
