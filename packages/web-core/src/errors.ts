@@ -17,3 +17,15 @@ export function apiErrorMessage(err: unknown, fallback: string): string {
   const ref = typeof data?.requestId === 'string' && err.response.status >= 500 ? ` · ref ${data.requestId.slice(0, 8)}` : '';
   return message + ref;
 }
+
+/** What kind of failure an API call was, for screens that word it differently ("you're offline", "no access"). */
+export type ApiErrorKind = 'offline' | 'forbidden' | 'notFound' | 'server' | 'other';
+
+export function apiErrorKind(err: unknown): ApiErrorKind {
+  if (!isAxiosError(err)) return 'other';
+  if (!err.response) return 'offline';
+  const status = err.response.status;
+  if (status === 401 || status === 403) return 'forbidden';
+  if (status === 404) return 'notFound';
+  return status >= 500 ? 'server' : 'other';
+}

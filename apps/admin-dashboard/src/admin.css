@@ -19,7 +19,6 @@
 .admin-id { display: inline-flex; align-items: center; gap: 0.3rem; }
 .admin-id code, .data-table code { font-size: 0.78rem; }
 .admin-muted { color: #6b7280; }
-.admin-empty { color: #6b7280; margin: 0.25rem 0; }
 .admin-detail { font-size: 0.78rem; color: #374151; word-break: break-word; }
 .admin-danger { color: #dc2626 !important; border-color: #fca5a5 !important; }
 
@@ -73,3 +72,4 @@
 
 /* Tabs followed straight by a panel (no filter row in between) need the same gap the panels keep between themselves. */
 .payments-status-tabs + .admin-section { margin-top: 14px; }
+

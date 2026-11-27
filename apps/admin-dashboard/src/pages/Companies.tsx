@@ -1,11 +1,11 @@
 import { Link } from 'react-router-dom';
 import { PageHeader } from '@funti3r/ui';
 import { admin, type Row } from '../api';
-import { useLoad } from '../useLoad';
 import { useListParams } from '../listParams';
 import { useDrawers } from '../components/drawers';
 import { AccountLink, Card, FilterInput, LoadState, Pager, Table } from '../components/bits';
 import { when } from '../format';
+import { useLoad } from '@funti3r/web-core';
 
 const PAGE = 50;
 
@@ -23,9 +23,9 @@ export default function Companies() {
         <FilterInput value={q} placeholder="Part of a company name" onApply={(v) => list.set({ q: v })} />
       </div>
       <Card>
-        <LoadState loading={page.loading && !page.data} error={page.error} />
+        <LoadState state={page} />
         {page.data && (
-          <Table<Row> rows={page.data.companies} onRowClick={drawers.open('company')} empty="No companies match." rowKey={(c) => c.id} columns={[
+          <Table<Row> rows={page.data.companies} refreshing={page.refreshing} onRowClick={drawers.open('company')} empty={{ title: 'No companies match', message: 'Try another name, or clear the filter.' }} rowKey={(c) => c.id} columns={[
             { label: 'Company', render: (c) => <Link to={`/companies/${c.id}`}>{c.company_name}</Link> },
             { label: 'Owner', render: (c) => <AccountLink id={c.owner_id} email={c.owner_email} /> },
             { label: 'Country', render: (c) => c.country ?? '—' },

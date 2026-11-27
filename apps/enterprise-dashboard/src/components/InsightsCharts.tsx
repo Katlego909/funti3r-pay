@@ -1,3 +1,4 @@
+import { EmptyState } from '@funti3r/ui';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend,
@@ -138,7 +139,7 @@ export default function InsightsCharts({
           </PieChart>
         </ResponsiveContainer>
       ) : (
-        <p className="empty-state">No payments yet.</p>
+        <EmptyState compact title="No payments yet" />
       )}
     </section>
   );
@@ -167,7 +168,7 @@ export default function InsightsCharts({
               </AreaChart>
             </ResponsiveContainer>
           ) : (
-            <p className="empty-state">{emptyText}</p>
+            <EmptyState compact title={emptyText.replace(/\.$/, '')} />
           )}
         </section>
 
@@ -189,7 +190,7 @@ export default function InsightsCharts({
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <p className="empty-state">No payments received yet.</p>
+              <EmptyState compact title="No payments received yet" />
             )}
           </section>
         ) : statusPie}
@@ -211,7 +212,7 @@ export default function InsightsCharts({
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <p className="empty-state">No completed payments in the last 6 months.</p>
+            <EmptyState compact title="No completed payments in the last 6 months" />
           )}
         </section>
 
@@ -235,7 +236,7 @@ export default function InsightsCharts({
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <p className="empty-state">No completed payouts yet.</p>
+              <EmptyState compact title="No completed payouts yet" />
             )}
           </section>
         )}

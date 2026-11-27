@@ -1,10 +1,10 @@
 import { PageHeader } from '@funti3r/ui';
 import { admin, type Row } from '../api';
-import { useLoad } from '../useLoad';
 import { useListParams } from '../listParams';
 import { useDrawers } from '../components/drawers';
 import { AccountLink, Card, FilterInput, Id, LoadState, Pager, Pill, Table, Tabs } from '../components/bits';
 import { when } from '../format';
+import { useLoad } from '@funti3r/web-core';
 
 const PAGE = 50;
 type RoleTab = 'all' | 'enterprise' | 'worker' | 'admin';
@@ -49,9 +49,9 @@ export default function Accounts() {
         <FilterInput value={q} placeholder="Part of an email" onApply={(v) => list.set({ q: v })} />
       </div>
       <Card>
-        <LoadState loading={page.loading && !page.data} error={page.error} />
+        <LoadState state={page} />
         {page.data && (
-          <Table<Row> rows={page.data.accounts} onRowClick={drawers.open('account')} empty="No accounts match." rowKey={(a) => a.id} columns={[
+          <Table<Row> rows={page.data.accounts} refreshing={page.refreshing} onRowClick={drawers.open('account')} empty={{ title: 'No accounts match', message: 'Try another role, status or email.' }} rowKey={(a) => a.id} columns={[
             { label: 'Account', render: (a) => <AccountLink id={a.id} email={a.email} /> },
             { label: 'Role', render: (a) => a.role },
             { label: 'Status', render: (a) => <Pill value={a.status} /> },

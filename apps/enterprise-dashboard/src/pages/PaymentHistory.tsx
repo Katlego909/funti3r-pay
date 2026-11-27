@@ -9,9 +9,9 @@ import {
 } from 'react-icons/hi2';
 import { listPayments, listAllPayments, type Payment } from '../api/payments.js';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
-import { useAuthStore, apiErrorMessage } from '@funti3r/web-core';
+import { useAuthStore, apiErrorKind, apiErrorMessage, type ApiErrorKind } from '@funti3r/web-core';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
-import { PageHeader, ExportButtons, StatusBadge, STATUS_TABS } from '@funti3r/ui';
+import { EmptyState, ErrorState, PageHeader, ExportButtons, SkeletonTable, StatusBadge, STATUS_TABS } from '@funti3r/ui';
 import IncomeStatementButton from '../components/IncomeStatementButton.js';
 import { EXPLORER } from '@funti3r/ui';
 
@@ -22,7 +22,9 @@ export default function PaymentHistory() {
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [failure, setFailure] = useState<{ message: string; kind: ApiErrorKind } | null>(null);
+  // Bumped by "Try again": the load below runs again.
+  const [attempt, setAttempt] = useState(0);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -42,16 +44,17 @@ export default function PaymentHistory() {
       return;
     }
     setLoading(true);
+    setFailure(null);
     listPayments({
       workerId: user.userId,
       limit: PAGE,
       offset,
       ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
     })
-      .then(({ payments: p, total: t }) => { setPayments(p); setTotal(t); setError(''); })
-      .catch((err: any) => setError(apiErrorMessage(err, 'Failed to load payment history')))
+      .then(({ payments: p, total: t }) => { setPayments(p); setTotal(t); })
+      .catch((err: unknown) => setFailure({ message: apiErrorMessage(err, 'Failed to load payment history'), kind: apiErrorKind(err) }))
       .finally(() => setLoading(false));
-  }, [user, offset, statusFilter]);
+  }, [user, offset, statusFilter, attempt]);
 
   const visiblePayments = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -125,17 +128,18 @@ export default function PaymentHistory() {
         </div>
       </div>
 
-      {loading ? (
-        <div className="loading">Loading payment history…</div>
-      ) : error ? (
-        <div className="error-banner">{error}</div>
+      {loading && payments.length === 0 ? (
+        <section className="section"><SkeletonTable columns={5} /></section>
+      ) : failure ? (
+        <section className="section"><ErrorState message={failure.message} kind={failure.kind} onRetry={() => setAttempt((n) => n + 1)} /></section>
       ) : (
-      <section className="section">
+      <section className={`section${loading ? ' is-refreshing' : ''}`}>
         {payments.length === 0 ? (
-          <div className="empty-state" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-            <HiOutlineArrowDownOnSquare size={48} style={{ color: '#d1d5db', margin: '0 auto 1rem' }} />
-            <p>{statusFilter !== 'all' ? 'No payments match this filter.' : 'No payments yet.'}</p>
-          </div>
+          <EmptyState
+            icon={HiOutlineArrowDownOnSquare}
+            title={statusFilter !== 'all' ? 'No payments match this filter' : 'No payments yet'}
+            message={statusFilter !== 'all' ? 'Try another status.' : 'When an employer pays you, the payment shows up here.'}
+          />
         ) : (
           <>
             <div className="table-responsive">

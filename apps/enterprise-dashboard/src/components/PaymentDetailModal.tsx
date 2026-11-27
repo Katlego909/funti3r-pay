@@ -5,7 +5,7 @@ import { HiOutlineArrowTopRightOnSquare, HiOutlineArrowPath, HiOutlineArrowDownT
 import { api, apiErrorMessage } from '@funti3r/web-core';
 import { initiatePayment } from '../api/payments.js';
 import { generatePayslip, formatCompanyLabel } from '../utils/export.js';
-import { SlideOver, Row, CopyButton, StatusBadge } from '@funti3r/ui';
+import { ErrorState, SlideOver, Row, CopyButton, StatusBadge } from '@funti3r/ui';
 import { currencyColor } from '../lib/currencyMeta.js';
 import { EXPLORER } from '@funti3r/ui';
 
@@ -108,7 +108,7 @@ export default function PaymentDetailModal({ paymentId, onClose }: { paymentId: 
             <div style={{ height: 38, width: 210, borderRadius: 8, background: '#e2e8f0', marginTop: 16 }} />
           </div>
         ) : error ? (
-          <div className="error-banner" style={{ marginTop: '1rem' }}>{error}</div>
+          <ErrorState message={error} kind="other" compact />
         ) : p ? (
           <div style={{ marginTop: '1rem' }}>
             {/* Headline amount */}

@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { toast } from 'sonner';
-import { useAuthStore, api, apiErrorMessage } from '@funti3r/web-core';
+import { useAuthStore, api, apiErrorKind, apiErrorMessage, type ApiErrorKind } from '@funti3r/web-core';
 import { getKYCStatusBulk, getInvites, deleteInvite, type Worker, type KYCStatus, type WorkerInvite } from '../api/workers.js';
 import WorkerDetailDrawer from '../components/WorkerDetailDrawer.js';
-import { ConfirmDialog, Modal, PageHeader, ExportButtons, StatusBadge, KycBadge } from '@funti3r/ui';
+import { ConfirmDialog, EmptyState, ErrorState, Modal, PageHeader, ExportButtons, SkeletonPage, StatusBadge, KycBadge } from '@funti3r/ui';
 import InviteLinkModal from '../components/InviteLinkModal.js';
 import { exportWorkersCSV, exportWorkersPDF } from '../utils/export.js';
 import { EXPLORER } from '@funti3r/ui';
@@ -55,7 +55,9 @@ export default function Workers() {
   const user = useAuthStore((s) => s.user);
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [failure, setFailure] = useState<{ message: string; kind: ApiErrorKind } | null>(null);
+  // Bumped by "Try again": the load below runs again.
+  const [attempt, setAttempt] = useState(0);
   const [selectedWorker, setSelectedWorker] = useState<string | null>(null);
   const [selectedKYC, setSelectedKYC] = useState<KYCDetail | null>(null);
   const [kycEvents, setKycEvents] = useState<KycEvent[]>([]);
@@ -92,16 +94,18 @@ export default function Workers() {
   }
 
   useEffect(() => {
+    setLoading(true);
+    setFailure(null);
     api.get<{ users?: Worker[]; data?: Worker[] }>('/users?role=worker&limit=50')
       .then(async (res) => {
         const list: Worker[] = res.data.users ?? res.data.data ?? [];
         const statuses = await getKYCStatusBulk(list.map((w) => w.id)).catch(() => ({} as Record<string, KYCStatus>));
         setWorkers(list.map((w) => ({ ...w, kyc: statuses[w.id] })));
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => setFailure({ message: apiErrorMessage(e, 'Failed to load your workers'), kind: apiErrorKind(e) }))
       .finally(() => setLoading(false));
     loadInvites();
-  }, []);
+  }, [attempt]);
 
   async function viewKYC(workerId: string) {
     try {
@@ -160,8 +164,8 @@ export default function Workers() {
     }
   }
 
-  if (loading) return <div className="loading">Loading workers…</div>;
-  if (error) return <div className="error-banner">{error}</div>;
+  if (loading) return <SkeletonPage />;
+  if (failure) return <ErrorState message={failure.message} kind={failure.kind} onRetry={() => setAttempt((n) => n + 1)} />;
 
   return (
     <div className="dashboard">
@@ -253,7 +257,11 @@ export default function Workers() {
             </thead>
             <tbody>
               {workers.length === 0 ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>No workers registered yet.</td></tr>
+                <tr><td colSpan={6}><EmptyState
+                  title="No workers yet"
+                  message="Invite someone and they appear here once they join. You can then pay them."
+                  action={<button type="button" className="btn-cta" onClick={() => setInviteOpen(true)}>Invite a worker</button>}
+                /></td></tr>
               ) : workers.map((w) => (
                 <tr key={w.id} onClick={() => setSelectedWorker(w.id)} style={{ cursor: 'pointer' }}>
                   <td data-label="Email">{w.email}</td>

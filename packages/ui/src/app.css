@@ -1136,3 +1136,57 @@ h6 {
 @media (max-width: 768px) {
   .topbar-center { display: none; }
 }
+
+/* ── States: loading, empty, failed (states.tsx) ────────────────────────────── */
+
+.skeleton {
+  display: block;
+  background: linear-gradient(90deg, var(--gray-100) 25%, #eceef1 37%, var(--gray-100) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+.skeleton-lines { display: grid; gap: 10px; padding: 6px 0; }
+.skeleton-table { display: grid; gap: 0; }
+.skeleton-row { display: grid; gap: 18px; padding: 14px 14px; border-bottom: 1px solid var(--gray-100); align-items: center; }
+.skeleton-row:first-child { padding-top: 6px; }
+
+.state-empty {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  padding: 44px 24px; gap: 14px;
+}
+.state-empty .state-icon {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--primary-light); color: var(--primary);
+}
+.state-empty.clear .state-icon { background: #dcfce7; color: var(--success); }
+.state-empty .state-message { margin-left: auto; margin-right: auto; max-width: 46ch; }
+.state-empty.compact { flex-direction: row; text-align: left; padding: 12px 0; gap: 10px; align-items: center; }
+.state-empty.compact .state-icon { width: 30px; height: 30px; border-radius: 8px; }
+.state-empty.compact .state-title { font-weight: 500; font-size: 0.85rem; color: var(--gray-600); }
+
+.state-error { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 44px 24px; gap: 14px; }
+.state-error .state-icon { width: 56px; height: 56px; border-radius: 50%; }
+.state-error .state-message { margin-left: auto; margin-right: auto; }
+.state-error.compact { flex-direction: row; align-items: flex-start; text-align: left; padding: 14px 4px; gap: 10px; }
+.state-icon {
+  width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--gray-100); color: var(--gray-600);
+}
+.state-error.compact .state-icon { width: 32px; height: 32px; border-radius: 8px; }
+.state-error .state-icon { background: #fee2e2; color: var(--danger); }
+.state-title { font-weight: 600; color: var(--gray-900); font-size: 0.95rem; }
+.state-message { color: var(--gray-600); font-size: 0.86rem; margin-top: 4px; max-width: 60ch; line-height: 1.5; }
+.state-action { margin-top: 14px; }
+.state-retry { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 6px 12px; font-size: 0.82rem; }
+
+.refresh-button { display: inline-flex; align-items: center; gap: 6px; }
+.spin { animation: spin 0.9s linear infinite; } /* uses the spin keyframes above */
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton, .spin { animation: none; }
+}
+
+/* A list loading new rows keeps the old ones on screen, dimmed. */
+.is-refreshing { opacity: 0.55; transition: opacity 0.15s; }

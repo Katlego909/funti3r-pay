@@ -16,5 +16,11 @@
     "@simplewebauthn/browser": "^14.0.0",
     "axios": "^1.6.0",
     "zustand": "^4.4.0"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0"
   }
 }

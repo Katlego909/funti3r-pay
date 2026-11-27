@@ -10,7 +10,7 @@ import {
   HiOutlineLockClosed,
 } from 'react-icons/hi2';
 import { exportAnalyticsCSV, exportAnalyticsPDF, formatCompanyLabel } from '../utils/export.js';
-import { ExportButtons, MetricCard, StatusBadge, statusClass } from '@funti3r/ui';
+import { EmptyState, ErrorState, ExportButtons, MetricCard, SkeletonPage, StatusBadge, statusClass } from '@funti3r/ui';
 import {
   getSummary,
   getRecentPayments,
@@ -21,7 +21,7 @@ import {
 import { getUserSummary } from '../api/workers.js';
 import { getEscrowSummary, type EscrowSummary } from '../api/escrows.js';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
-import { api, useAuthStore } from '@funti3r/web-core';
+import { api, apiErrorKind, apiErrorMessage, useAuthStore, type ApiErrorKind } from '@funti3r/web-core';
 import InsightsCharts, { RAIL_LABELS } from '../components/InsightsCharts.js';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
 import { EXPLORER } from '@funti3r/ui';
@@ -55,10 +55,14 @@ export default function Dashboard() {
   const [chartPayments, setChartPayments] = useState<Payment[]>([]);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [failure, setFailure] = useState<{ message: string; kind: ApiErrorKind } | null>(null);
+  // Bumped by "Try again": the load below runs again.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!user?.userId) return;
+    setLoading(true);
+    setFailure(null);
 
     async function fetchWalletBalance() {
       try {
@@ -89,7 +93,7 @@ export default function Dashboard() {
         });
 
     summaryFetch
-      .catch((err) => setError(err.message ?? 'Failed to load dashboard'))
+      .catch((err) => setFailure({ message: apiErrorMessage(err, 'Failed to load the dashboard'), kind: apiErrorKind(err) }))
       .finally(() => setLoading(false));
 
     fetchWalletBalance();
@@ -106,10 +110,10 @@ export default function Dashboard() {
       : listPayments({ workerId: user.userId, limit: 200 });
 
     chartQuery.then(({ payments }) => setChartPayments(payments)).catch(() => setChartPayments([]));
-  }, [user, isEnterprise]);
+  }, [user, isEnterprise, attempt]);
 
-  if (loading) return <div className="loading">Loading dashboard…</div>;
-  if (error) return <div className="error-banner">{error}</div>;
+  if (loading) return <SkeletonPage />;
+  if (failure) return <ErrorState message={failure.message} kind={failure.kind} onRetry={() => setAttempt((n) => n + 1)} />;
 
   const pending = summary?.byStatus['pending'] ?? 0;
   const processing = summary?.byStatus['processing'] ?? 0;
@@ -226,7 +230,11 @@ export default function Dashboard() {
         <section className="section">
           <h3>Recent Transactions</h3>
           {recent.length === 0 ? (
-            <p className="empty-state">No transactions yet.</p>
+            <EmptyState
+              title={isEnterprise ? 'No payments yet' : 'No payments received yet'}
+              message={isEnterprise ? 'Pay a worker and the payment shows up here as soon as it is sent.' : 'When an employer pays you, it shows up here.'}
+              action={isEnterprise ? <Link to="/payments" className="btn-cta">New payout</Link> : undefined}
+            />
           ) : (
             <div className="table-responsive">
               <table className="data-table">
@@ -279,7 +287,8 @@ export default function Dashboard() {
 
         <section className="section">
           <h3>Payment Breakdown</h3>
-          {summary && (
+          {summary && Object.keys(summary.byStatus).length === 0 && <EmptyState compact title="Nothing to break down yet" />}
+          {summary && Object.keys(summary.byStatus).length > 0 && (
             <div className="status-list">
               {Object.entries(summary.byStatus).map(([status, count]) => (
                 <div className="status-item" key={status}>

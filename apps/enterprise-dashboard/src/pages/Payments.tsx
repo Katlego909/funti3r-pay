@@ -5,9 +5,9 @@ import { HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass, HiOutlineXMar
 import { toast } from 'sonner';
 import { exportPaymentsCSV, exportPaymentsPDF } from '../utils/export.js';
 import { listPayments, initiatePayment, initiateBatchPayment, getFxRates, isFinalPayoutError, type Payment, type BatchResult } from '../api/payments.js';
-import { api, useAuthStore, apiErrorMessage } from '@funti3r/web-core';
+import { api, useAuthStore, apiErrorKind, apiErrorMessage, type ApiErrorKind } from '@funti3r/web-core';
 import PaymentDetailModal from '../components/PaymentDetailModal.js';
-import { Modal, PageHeader, ExportButtons, CopyButton, StatusBadge, STATUS_TABS } from '@funti3r/ui';
+import { EmptyState, ErrorState, Modal, PageHeader, ExportButtons, CopyButton, SkeletonTable, StatusBadge, STATUS_TABS } from '@funti3r/ui';
 import { CURRENCY_META } from '../lib/currencyMeta.js';
 import { EXPLORER } from '@funti3r/ui';
 
@@ -21,7 +21,7 @@ export default function Payments() {
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [failure, setFailure] = useState<{ message: string; kind: ApiErrorKind } | null>(null);
 
   // New payment form state
   const [formOpen, setFormOpen] = useState(false);
@@ -68,13 +68,14 @@ export default function Payments() {
   function loadPayments() {
     if (!user) return;
     setLoading(true);
+    setFailure(null);
     listPayments({
       limit: PAGE,
       offset,
       ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
     })
       .then(({ payments: p, total: t }) => { setPayments(p); setTotal(t); })
-      .catch((e) => setError(e.message))
+      .catch((e) => setFailure({ message: apiErrorMessage(e, 'Failed to load payments'), kind: apiErrorKind(e) }))
       .finally(() => setLoading(false));
   }
 
@@ -417,12 +418,12 @@ export default function Payments() {
         </div>
       </div>
 
-      {loading ? (
-        <div className="loading">Loading payments…</div>
-      ) : error ? (
-        <div className="error-banner">{error}</div>
+      {loading && payments.length === 0 ? (
+        <section className="section"><SkeletonTable columns={6} /></section>
+      ) : failure ? (
+        <section className="section"><ErrorState message={failure.message} kind={failure.kind} onRetry={loadPayments} /></section>
       ) : (
-        <section className="section">
+        <section className={`section${loading ? ' is-refreshing' : ''}`}>
           <div className="table-responsive">
             <table className="data-table">
               <thead>
@@ -432,7 +433,10 @@ export default function Payments() {
               </thead>
               <tbody>
                 {visiblePayments.length === 0 ? (
-                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>No payments found.</td></tr>
+                  <tr><td colSpan={6}><EmptyState
+                    title={statusFilter !== 'all' || search ? 'No payments match' : 'No payments yet'}
+                    message={statusFilter !== 'all' || search ? 'Try another status, or clear the search.' : 'Pay a worker and the payment shows up here as soon as it is sent.'}
+                  /></td></tr>
                 ) : visiblePayments.map((p) => (
                   <tr key={p.id} onClick={() => setDetailId(p.id)} style={{ cursor: 'pointer' }}>
                     <td data-label="ID">#{p.id.slice(0, 8)}</td>
@@ -452,11 +456,13 @@ export default function Payments() {
               </tbody>
             </table>
           </div>
-          <div className="pagination">
-            <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>← Prev</button>
-            <span>{offset + 1}–{Math.min(offset + PAGE, total)} of {total}</span>
-            <button disabled={offset + PAGE >= total} onClick={() => setOffset(offset + PAGE)}>Next →</button>
-          </div>
+          {total > 0 && (
+            <div className="pagination">
+              <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>← Prev</button>
+              <span>{offset + 1}–{Math.min(offset + PAGE, total)} of {total}</span>
+              <button disabled={offset + PAGE >= total} onClick={() => setOffset(offset + PAGE)}>Next →</button>
+            </div>
+          )}
         </section>
       )}
 

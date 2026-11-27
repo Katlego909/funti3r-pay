@@ -1,7 +1,10 @@
 /** Small building blocks the admin pages share: a section card, a table, a status pill, an ID with copy, a value list. */
 import { FormEvent, ReactNode, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CopyButton, EXPLORER, StatusBadge } from '@funti3r/ui';
+import {
+  CopyButton, Delayed, EmptyState, ErrorState, EXPLORER, SkeletonCards, SkeletonLines, SkeletonTable, StatusBadge, type EmptyStateProps,
+} from '@funti3r/ui';
+import type { Loaded } from '@funti3r/web-core';
 import { short } from '../format';
 
 export function Card({ title, actions, children }: { title?: string; actions?: ReactNode; children: ReactNode }) {
@@ -24,13 +27,17 @@ export interface Column<T> { label: string; render: (row: T) => ReactNode; width
  * A data table. With `onRowClick`, a row opens its details (a drawer, as the dashboards do); clicks on a link or button
  * inside the row still do their own thing.
  */
-export function Table<T>({ rows, columns, empty = 'Nothing here.', rowKey, onRowClick }: {
-  rows: T[] | undefined; columns: Column<T>[]; empty?: string; rowKey: (row: T, i: number) => string;
+export function Table<T>({ rows, columns, empty = 'Nothing here.', rowKey, onRowClick, refreshing = false }: {
+  rows: T[] | undefined; columns: Column<T>[]; rowKey: (row: T, i: number) => string;
+  /** What an empty table says: a title, or a title with a line saying what will appear there. */
+  empty?: string | EmptyStateProps;
   onRowClick?: (row: T) => void;
+  /** New rows are loading (a filter changed, a refresh): the current ones stay, dimmed, instead of blanking. */
+  refreshing?: boolean;
 }) {
-  if (!rows?.length) return <p className="admin-empty">{empty}</p>;
+  if (!rows?.length) return <EmptyState {...(typeof empty === 'string' ? { title: empty } : empty)} />;
   return (
-    <div className="table-responsive">
+    <div className={`table-responsive${refreshing ? ' is-refreshing' : ''}`} aria-busy={refreshing}>
       <table className="data-table">
         <thead><tr>{columns.map((c) => <th key={c.label} style={c.width ? { width: c.width } : undefined}>{c.label}</th>)}</tr></thead>
         <tbody>
@@ -137,8 +144,24 @@ export function Tabs<T extends string>({ tabs, active, onChange }: {
   );
 }
 
-export function LoadState({ loading, error }: { loading: boolean; error: string | null }) {
-  if (error) return <div className="error-banner">{error}</div>;
-  if (loading) return <p className="admin-muted">Loading…</p>;
+/**
+ * A section's loading and failure states (the shared ones from @funti3r/ui): a skeleton shaped like the content on
+ * the first load, an ErrorState with Retry in its place when it failed. Once there is data it renders nothing, and a
+ * failed refresh keeps the data on screen with a compact error above it.
+ */
+export function LoadState({ state, skeleton = 'table' }: {
+  state: Pick<Loaded<unknown>, 'data' | 'error' | 'errorKind' | 'loading' | 'reload'>;
+  skeleton?: 'table' | 'cards' | 'lines';
+}) {
+  if (state.error) {
+    return <ErrorState message={state.error} kind={state.errorKind} onRetry={() => void state.reload()} compact={state.data !== null} />;
+  }
+  if (state.loading) {
+    return (
+      <Delayed>
+        {skeleton === 'cards' ? <SkeletonCards /> : skeleton === 'lines' ? <SkeletonLines /> : <SkeletonTable />}
+      </Delayed>
+    );
+  }
   return null;
 }

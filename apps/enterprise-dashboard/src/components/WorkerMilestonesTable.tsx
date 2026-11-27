@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Escrow } from '../api/escrows.js';
-import { StatusBadge, ExportButtons } from '@funti3r/ui';
+import { EmptyState, StatusBadge, ExportButtons } from '@funti3r/ui';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency.js';
 import { buildMilestoneRows, inTab, type MilestoneRow, type MilestoneTab } from '../lib/workerMilestones.js';
 import { exportMilestonesCSV, exportMilestonesPDF, type ExportMilestone } from '../utils/export.js';
@@ -87,7 +87,7 @@ export default function WorkerMilestonesTable({
       </div>
 
       {rows.length === 0 ? (
-        <p className="empty-state" style={{ padding: 0 }}>{EMPTY[tab]}</p>
+        <EmptyState compact title={EMPTY[tab]} />
       ) : (
         <div className="table-responsive">
           <table className="data-table" style={{ whiteSpace: 'nowrap' }}>
