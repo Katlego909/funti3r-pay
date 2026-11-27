@@ -5,7 +5,7 @@ import { admin, type Row } from '../api';
 import { useLoad } from '../useLoad';
 import { useListParams } from '../listParams';
 import { AccountLink, Card, FilterInput, Id, LoadState, Pager, Pill, Table, Tabs, Tx } from '../components/bits';
-import ReasonDialog, { type ReasonAction } from '../components/ReasonDialog';
+import { useDrawers, type DrawerKind } from '../components/drawers';
 import { money, when } from '../format';
 
 type Tab = 'payments' | 'escrows' | 'cashouts' | 'batches' | 'schedules';
@@ -25,6 +25,7 @@ const PLACEHOLDER: Record<Tab, string> = {
   batches: 'Batch id or employer id', schedules: 'Schedule id or employer id',
 };
 const PAGE = 50;
+const DRAWER: Record<Tab, DrawerKind> = { payments: 'payment', escrows: 'escrow', cashouts: 'cashout', batches: 'batch', schedules: 'schedule' };
 
 /**
  * Money platform-wide: payments, escrows, cash-outs, payout batches and payroll schedules, filtered and paged. The only
@@ -39,7 +40,6 @@ export default function Money() {
   const batchId = params.get('batchId');
   const frozenOnly = params.get('frozen') === 'true';
   const { offset, set } = params;
-  const [action, setAction] = useState<ReasonAction | null>(null);
 
   const list = useLoad(async (): Promise<Row[]> => {
     const p = { status: status || undefined, q: q || undefined, limit: PAGE, offset };
@@ -49,33 +49,7 @@ export default function Money() {
     if (tab === 'schedules') return (await admin.schedules(p)).schedules;
     return (await admin.payments({ ...p, batchId: batchId || undefined })).payments;
   }, [tab, status, q, batchId, frozenOnly, offset]);
-
-  const escrowActions = (x: Row) => {
-    if (x.status !== 'active') return null;
-    const freeze: ReasonAction = x.frozen
-      ? {
-        title: 'Lift the hold on this escrow?', message: 'The worker can claim approved milestones again. This sends a transaction to the contract.',
-        confirmLabel: 'Unfreeze',
-        run: async (reason) => { const r = await admin.freeze(x.id, false, reason); return `Unfrozen (tx ${r.txHash.slice(0, 8)}…)`; },
-      }
-      : {
-        title: 'Freeze this escrow?', message: 'Nothing can be claimed, approved or refunded while it is frozen. This sends a transaction to the contract.',
-        confirmLabel: 'Freeze', danger: true,
-        run: async (reason) => { const r = await admin.freeze(x.id, true, reason); return `Frozen (tx ${r.txHash.slice(0, 8)}…)`; },
-      };
-    const returnIt: ReasonAction = {
-      title: 'Return this frozen escrow to the employer?',
-      message: 'Every milestone the worker has not claimed goes back to the employer, and the escrow ends. This cannot be undone.',
-      confirmLabel: 'Return to employer', danger: true,
-      run: async (reason) => { const r = await admin.returnFrozen(x.id, reason); return `Returned ${r.returned} ${r.tokenCode} to the employer`; },
-    };
-    return (
-      <div className="admin-row-actions">
-        <button className="btn-secondary" onClick={() => setAction(freeze)}>{x.frozen ? 'Unfreeze' : 'Freeze'}</button>
-        {x.frozen && <button className="btn-secondary admin-danger" onClick={() => setAction(returnIt)}>Return</button>}
-      </div>
-    );
-  };
+  const drawers = useDrawers(list.reload);
 
   /**
    * How a batch's payments ended, in words: "3 paid · 1 failed · 2 not sent (Worker KYC not verified)". An item that
@@ -115,7 +89,6 @@ export default function Money() {
       { label: 'Milestones', render: (x: Row) => `${x.claimed}/${x.milestones} claimed` },
       { label: 'Status', render: (x: Row) => <>{<Pill value={x.status} />} {x.frozen && <Pill value="frozen" />}</> },
       { label: 'Expires', render: (x: Row) => when(x.expires_at) },
-      { label: '', render: escrowActions },
     ],
     cashouts: [
       { label: 'Created', render: (c: Row) => when(c.created_at) },
@@ -135,7 +108,6 @@ export default function Money() {
       { label: 'Amount (USD)', render: (b: Row) => money(b.total_amount) },
       { label: 'Status', render: (b: Row) => <Pill value={b.status} tone={b.status === 'partial' ? 'bad' : undefined} /> },
       { label: 'How they ended', render: batchOutcome },
-      { label: '', render: (b: Row) => <Link to={`/money?batchId=${b.id}`}>Open payments</Link> },
     ],
     schedules: [
       { label: 'Name', render: (s: Row) => s.name },
@@ -187,13 +159,13 @@ export default function Money() {
 
       <Card>
         <LoadState loading={list.loading && !list.data} error={list.error} />
-        {list.data && <Table<Row> rows={list.data} empty="Nothing matches." rowKey={(r) => r.id} columns={columns} />}
+        {list.data && <Table<Row> rows={list.data} empty="Nothing matches." rowKey={(r) => r.id} columns={columns} onRowClick={drawers.open(DRAWER[tab])} />}
         <Pager offset={offset} shown={list.data?.length ?? 0} pageSize={PAGE} onPage={(o) => set({ offset: String(o) })} />
       </Card>
 
       {tab === 'escrows' && <Reconcile onRepaired={list.reload} />}
 
-      <ReasonDialog action={action} onClose={() => setAction(null)} onDone={list.reload} />
+      {drawers.element}
     </div>
   );
 }

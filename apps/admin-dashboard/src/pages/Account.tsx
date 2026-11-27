@@ -4,6 +4,7 @@ import { isAxiosError } from 'axios';
 import { PageHeader } from '@funti3r/ui';
 import { admin, type Row } from '../api';
 import { useLoad } from '../useLoad';
+import { useDrawers } from '../components/drawers';
 import { AccountLink, Card, Facts, Id, LoadState, Pill, Table, Tx } from '../components/bits';
 import ReasonDialog, { type ReasonAction } from '../components/ReasonDialog';
 import KycPanel from '../components/KycPanel';
@@ -35,6 +36,7 @@ export default function AccountPage() {
   const u = account.data?.user;
   const m = moneyView.data;
   const afterAction = () => { void account.reload(); setAuditKey((k) => k + 1); };
+  const drawers = useDrawers(() => { void moneyView.reload(); afterAction(); });
 
   const statusAction: ReasonAction | null = !u ? null : u.status === 'active'
     ? {
@@ -110,6 +112,7 @@ export default function AccountPage() {
               ...account.data.employers.map((r) => ({ ...r, tie: 'worker', created_at: r.added_at })),
             ]}
             rowKey={(r, i) => `${r.company_id}-${i}`}
+            onRowClick={drawers.open('company', 'company_id')}
             columns={[
               { label: 'Company', render: (r) => <Link to={`/companies/${r.company_id}`}>{r.company_name}</Link> },
               { label: 'As', render: (r) => r.tie },
@@ -124,7 +127,7 @@ export default function AccountPage() {
 
       {m && (
         <Card title={`Payments (${m.payments.length})`}>
-          <Table<Row> rows={m.payments} empty="No payments." rowKey={(p) => p.id} columns={[
+          <Table<Row> rows={m.payments} onRowClick={drawers.open('payment')} empty="No payments." rowKey={(p) => p.id} columns={[
             { label: 'Created', render: (p) => when(p.created_at) },
             { label: 'From', render: (p) => <AccountLink id={p.enterprise_id} email={p.enterprise_email} /> },
             { label: 'To', render: (p) => <AccountLink id={p.worker_id} email={p.worker_email} /> },
@@ -139,14 +142,14 @@ export default function AccountPage() {
       {m && (m.escrows.length > 0 || m.cashouts.length > 0) && (
         <div className="admin-grid-2">
           <Card title={`Escrows (${m.escrows.length})`}>
-            <Table<Row> rows={m.escrows} empty="No escrows." rowKey={(x) => x.id} columns={[
+            <Table<Row> rows={m.escrows} onRowClick={drawers.open('escrow')} empty="No escrows." rowKey={(x) => x.id} columns={[
               { label: 'Escrow', render: (x) => <Link to={`/money?tab=escrows&q=${x.id}`}>{money(x.total_amount, x.token_code)}</Link> },
               { label: 'Milestones', render: (x) => `${x.claimed}/${x.milestones} claimed` },
               { label: 'Status', render: (x) => <>{<Pill value={x.status} />} {x.frozen && <Pill value="frozen" />}</> },
             ]} />
           </Card>
           <Card title={`Cash-outs (${m.cashouts.length})`}>
-            <Table<Row> rows={m.cashouts} empty="No cash-outs." rowKey={(c) => c.id} columns={[
+            <Table<Row> rows={m.cashouts} onRowClick={drawers.open('cashout')} empty="No cash-outs." rowKey={(c) => c.id} columns={[
               { label: 'Created', render: (c) => when(c.created_at) },
               { label: 'USDC', render: (c) => money(c.send_usdc) },
               { label: 'Status', render: (c) => <Pill value={c.status} /> },
@@ -158,7 +161,7 @@ export default function AccountPage() {
 
       {m && m.schedules.length > 0 && (
         <Card title="Payroll schedules">
-          <Table<Row> rows={m.schedules} rowKey={(s) => s.id} columns={[
+          <Table<Row> rows={m.schedules} onRowClick={drawers.open('schedule')} rowKey={(s) => s.id} columns={[
             { label: 'Name', render: (s) => s.name },
             { label: 'Every', render: (s) => s.frequency },
             { label: 'Status', render: (s) => <Pill value={s.status} /> },
@@ -183,6 +186,7 @@ export default function AccountPage() {
       </Card>
 
       <ReasonDialog action={action} onClose={() => setAction(null)} onDone={afterAction} />
+      {drawers.element}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import {
 import { MetricCard, PageHeader } from '@funti3r/ui';
 import { admin, readFailed, type Row } from '../api';
 import { useLoad } from '../useLoad';
+import { useDrawers } from '../components/drawers';
 import { AccountLink, Card, Id, LoadState, Pill, Table, Tx } from '../components/bits';
 import { money, when } from '../format';
 
@@ -13,6 +14,7 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
 /** What needs attention across the platform right now. */
 export default function Overview() {
+  const drawers = useDrawers();
   const ops = useLoad(admin.ops, []);
   const health = useLoad(admin.health, []);
   const sanctions = useLoad(admin.sanctionsStatus, []);
@@ -115,7 +117,7 @@ export default function Overview() {
 
       {o && (
         <Card title="Stuck payments">
-          <Table<Row> rows={o.stuckPayments} empty="None stuck." rowKey={(r) => r.id} columns={[
+          <Table<Row> rows={o.stuckPayments} onRowClick={drawers.open('payment')} empty="None stuck." rowKey={(r) => r.id} columns={[
             { label: 'Created', render: (r) => when(r.created_at) },
             { label: 'From', render: (r) => <AccountLink id={r.enterprise_id} email={r.enterprise_email} /> },
             { label: 'To', render: (r) => <AccountLink id={r.worker_id} email={r.worker_email} /> },
@@ -129,7 +131,7 @@ export default function Overview() {
       {o && (o.stuckCashouts.length > 0 || o.pendingEscrowCreations.length > 0) && (
         <div className="admin-grid-2">
           <Card title="Stuck cash-outs">
-            <Table<Row> rows={o.stuckCashouts} empty="None stuck." rowKey={(r) => r.id} columns={[
+            <Table<Row> rows={o.stuckCashouts} onRowClick={drawers.open('cashout')} empty="None stuck." rowKey={(r) => r.id} columns={[
               { label: 'Created', render: (r) => when(r.created_at) },
               { label: 'Worker', render: (r) => <AccountLink id={r.worker_id} email={r.worker_email} /> },
               { label: 'USDC', render: (r) => money(r.send_usdc) },
@@ -146,6 +148,7 @@ export default function Overview() {
           </Card>
         </div>
       )}
+      {drawers.element}
     </div>
   );
 }

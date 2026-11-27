@@ -112,4 +112,27 @@ describe('admin money routes', () => {
     expect(sql).not.toMatch(/WHERE/);
     expect(params).toEqual([]);
   });
+
+  it('show one escrow with its milestones and one schedule with its items; an unknown or malformed id is a 404', async () => {
+    const ESCROW = '77777777-7777-4777-8777-777777777777';
+    vi.mocked(query).mockImplementation(createQueryMock([
+      { match: /FROM escrows x/, handler: () => ({ rows: [{ id: ESCROW, status: 'active' }] }) },
+      { match: /FROM escrow_milestones WHERE escrow_id/, handler: () => ({ rows: [{ idx: 0, status: 'claimed' }, { idx: 1, status: 'pending' }] }) },
+      { match: /FROM payment_schedules s/, handler: () => ({ rows: [{ id: ESCROW, name: 'Payroll' }] }) },
+      { match: /FROM payment_schedule_items i/, handler: () => ({ rows: [{ worker_id: WORKER_ID, amount_usd: '10' }] }) },
+    ]));
+    const escrow = await request(app).get(`/admin/escrows/${ESCROW}`).set(admin);
+    expect(escrow.status).toBe(200);
+    expect(escrow.body.milestones.map((m: any) => m.idx)).toEqual([0, 1]);
+    const schedule = await request(app).get(`/admin/schedules/${ESCROW}`).set(admin);
+    expect(schedule.body.items).toEqual([{ worker_id: WORKER_ID, amount_usd: '10' }]);
+    for (const { sql } of sqlCalls()) expect(sql, sql).not.toMatch(/secret|password|SELECT \*/i);
+
+    vi.mocked(query).mockImplementation(createQueryMock([]));
+    expect((await request(app).get(`/admin/escrows/${ESCROW}`).set(admin)).status).toBe(404);
+    expect((await request(app).get('/admin/schedules/nope').set(admin)).status).toBe(404);
+    for (const role of ['worker', 'enterprise']) {
+      expect((await request(app).get(`/admin/escrows/${ESCROW}`).set({ 'x-user-id': ENTERPRISE_ID, 'x-user-role': role })).status).toBe(403);
+    }
+  });
 });

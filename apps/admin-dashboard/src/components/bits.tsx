@@ -20,8 +20,13 @@ export function Card({ title, actions, children }: { title?: string; actions?: R
 
 export interface Column<T> { label: string; render: (row: T) => ReactNode; width?: string }
 
-export function Table<T>({ rows, columns, empty = 'Nothing here.', rowKey }: {
+/**
+ * A data table. With `onRowClick`, a row opens its details (a drawer, as the dashboards do); clicks on a link or button
+ * inside the row still do their own thing.
+ */
+export function Table<T>({ rows, columns, empty = 'Nothing here.', rowKey, onRowClick }: {
   rows: T[] | undefined; columns: Column<T>[]; empty?: string; rowKey: (row: T, i: number) => string;
+  onRowClick?: (row: T) => void;
 }) {
   if (!rows?.length) return <p className="admin-empty">{empty}</p>;
   return (
@@ -30,7 +35,13 @@ export function Table<T>({ rows, columns, empty = 'Nothing here.', rowKey }: {
         <thead><tr>{columns.map((c) => <th key={c.label} style={c.width ? { width: c.width } : undefined}>{c.label}</th>)}</tr></thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={rowKey(row, i)}>{columns.map((c) => <td key={c.label}>{c.render(row)}</td>)}</tr>
+            <tr
+              key={rowKey(row, i)}
+              className={onRowClick ? 'admin-row-clickable' : undefined}
+              onClick={onRowClick ? (e) => { if (!(e.target as HTMLElement).closest('a, button, input')) onRowClick(row); } : undefined}
+            >
+              {columns.map((c) => <td key={c.label}>{c.render(row)}</td>)}
+            </tr>
           ))}
         </tbody>
       </table>

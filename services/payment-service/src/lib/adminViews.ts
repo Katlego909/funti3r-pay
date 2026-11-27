@@ -180,6 +180,43 @@ export async function listSchedules(q: ListQuery, deps: AdminViewDeps) {
   return { schedules: rows.rows, limit, offset };
 }
 
+/** One escrow with every milestone, its review state and the transaction behind each step. Null when unknown. */
+export async function escrowDetail(id: string, deps: AdminViewDeps) {
+  const escrow = (await deps.query(
+    `SELECT ${ESCROW_COLUMNS}, x.contract_address, x.updated_at
+       FROM escrows x JOIN users e ON e.id = x.enterprise_id JOIN users w ON w.id = x.worker_id
+      WHERE x.id = $1`,
+    [id],
+  )).rows[0];
+  if (!escrow) return null;
+  const milestones = await deps.query(
+    `SELECT idx, description, amount, status, review_status, approved_at, claimed_at, approve_tx_hash, claim_tx_hash,
+            refund_tx_hash
+       FROM escrow_milestones WHERE escrow_id = $1 ORDER BY idx`,
+    [id],
+  );
+  return { escrow, milestones: milestones.rows };
+}
+
+/** One payroll schedule with who it pays and how much. Null when unknown. */
+export async function scheduleDetail(id: string, deps: AdminViewDeps) {
+  const schedule = (await deps.query(
+    `SELECT s.id, s.enterprise_id, e.email AS enterprise_email, s.name, s.frequency, s.run_day, s.timezone, s.status,
+            s.next_run_at, s.last_run_at, s.last_run_status, s.last_run_error, s.last_run_batch_id, s.created_at
+       FROM payment_schedules s JOIN users e ON e.id = s.enterprise_id
+      WHERE s.id = $1`,
+    [id],
+  )).rows[0];
+  if (!schedule) return null;
+  const items = await deps.query(
+    `SELECT i.worker_id, u.email AS worker_email, i.amount_usd, i.memo
+       FROM payment_schedule_items i LEFT JOIN users u ON u.id = i.worker_id
+      WHERE i.schedule_id = $1 ORDER BY u.email`,
+    [id],
+  );
+  return { schedule, items: items.rows };
+}
+
 /** A read that may fail (the network, the contract): its value, or the error text instead of failing the page. */
 async function settle<T>(read: () => Promise<T>): Promise<T | { error: string }> {
   try {

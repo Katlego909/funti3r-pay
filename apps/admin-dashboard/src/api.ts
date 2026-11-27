@@ -54,9 +54,11 @@ export const admin = {
 
   payments: (p: ListParams) => get<Page & { payments: Row[] }>('/admin/payments', p),
   escrows: (p: ListParams) => get<Page & { escrows: Row[] }>('/admin/escrows', p),
+  escrow: (id: string) => get<{ escrow: Row; milestones: Row[] }>(`/admin/escrows/${id}`),
   cashouts: (p: ListParams) => get<Page & { cashouts: Row[] }>('/admin/cashouts', p),
   batches: (p: ListParams) => get<Page & { batches: Row[] }>('/admin/batches', p),
   schedules: (p: ListParams) => get<Page & { schedules: Row[] }>('/admin/schedules', p),
+  schedule: (id: string) => get<{ schedule: Row; items: Row[] }>(`/admin/schedules/${id}`),
   reconcile: (repair: boolean) =>
     post<{ repair: boolean; checked: number; repaired: number; unreadable: number; drift: Row[] }>('/admin/ops/reconcile-escrows', { repair }),
   freeze: (escrowId: string, frozen: boolean, reason: string) => post<{ frozen: boolean; txHash: string }>(`/escrows/${escrowId}/freeze`, { frozen, reason }),
